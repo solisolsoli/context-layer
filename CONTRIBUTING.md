@@ -79,7 +79,7 @@ cases at a tiny budget to check the runner's plumbing, never completeness).
 command: change a result or a measuring script, and it names each number that
 no longer matches. Nothing in it is skipped because a doc is known to be stale. With
 `DOC_CLAIMS_BENCH_DIR` pointing at fresh benchmark runs it also checks the
-README's benchmark table against them, as the `bench-reproduce` CI job does.
+benchmark table in [docs/validation.md](docs/validation.md) against them, as the `bench-reproduce` CI job does.
 
 Never tune retrieval against the sealed cases (`bench/cases.jsonl`): develop on
 a dev set, and add a row to [bench/INSPECTIONS.md](bench/INSPECTIONS.md) before
@@ -110,7 +110,7 @@ build, installed-distribution walk and a native task-state sharing regression
 before all unit suites, benchmark checks,
 lint and the network boundary check. Ubuntu jobs also cover the plugin's build
 and Node tests (Node 24), the sealed benchmark, `bench-reproduce` (fresh benchmark
-and README numbers), `doc-claims`, the Jev recording-to-calibration chain, and
+and documented benchmark numbers), `doc-claims`, the Jev recording-to-calibration chain, and
 `reproducible build` (two builds, one SHA-256).
 The [accepted runtime run for `4dc60a9`](https://github.com/solisolsoli/context-layer/actions/runs/36773269705)
 passed all 12 jobs. This is package and platform verification; a live AI host

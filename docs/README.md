@@ -18,6 +18,7 @@ overview; [QUICKSTART.md](../QUICKSTART.md) is the same ground as commands, and
 | [cli.md](cli.md) | Every command: exit codes, packet statuses, format versions | all |
 | [privacy.md](privacy.md) | Every artifact the tool writes; retention, deletion, threat model | — |
 | [design-rationale.md](design-rationale.md) | Why it is built this way, with public sources | — |
+| [validation.md](validation.md) | Measured results, provenance and limits | benchmark and evaluation commands |
 | [publishing-checklist.md](publishing-checklist.md) | Maintainers: updating the existing repository, required checks, publication privacy, tags and reproducible artifacts | — |
 
 Search and indexing themselves are covered in the top-level README and

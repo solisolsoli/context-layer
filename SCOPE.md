@@ -25,7 +25,7 @@ with a citation check; `check_claims` as the ninth MCP tool; and the fixes the
 0.3 audit and a later independent audit found (CHANGELOG.md lists them). The
 same definition of done applies. The support matrix below is the current one;
 a live host and a live model have not been run for this release candidate.
-The hosted CI result is recorded above and in README.md, Support.
+The hosted CI result is recorded above; the README links here for current support.
 
 ## 0.3 scope (2026-09-24)
 

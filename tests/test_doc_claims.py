@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """Every number the docs quote from a result file or a measuring command, recomputed.
 
-Sources and what is checked against them:
+Sources and what is checked against them (the validation guide is docs/validation.md):
 
-- bench/results/SUMMARY.md (committed) and the sealed files: the README's
+- bench/results/SUMMARY.md (committed) and the sealed files: the validation guide's
   benchmark table and sentences. With DOC_CLAIMS_BENCH_DIR pointing at fresh
   runs (CI's bench-reproduce job writes <dir>/default and <dir>/compact), the
   same rows are checked against those runs, including the `--compact` row,
   which no committed file holds.
-- eval/live-pilot-0.3/ (answers and blind-judging files): the README's pilot
+- eval/live-pilot-0.3/ (answers and blind-judging files): the validation guide's pilot
   sentence and every cell of eval/LIVE_PILOT_0.3.md's two tables.
 - eval/LIVE_COMPARE.md (a private run; the raw data is not in the
-  repository): the README's 0.2 ratios are recomputed from the table there,
-  and the README must say where they come from.
-- eval/orchestration_cost.py --json: the README's sub-agent sentence and the
+  repository): the validation guide's 0.2 ratios are recomputed from the table there,
+  and the validation guide must say where they come from.
+- eval/orchestration_cost.py --json: the validation guide's sub-agent sentence and the
   numbers of docs/subagents.md section 5.
-- bench/INSPECTIONS.md: the README's count of design-time looks.
+- bench/INSPECTIONS.md: the validation guide's count of design-time looks.
 - eval/evaluate.py (README quickstart step 1): eval/README.md's output tail.
 - eval/comparison/: the counts in eval/comparison/README.md.
 - Also: the Makefile's demo runs and delivers verbatim evidence; the
@@ -169,8 +169,8 @@ class SealedBenchmark(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.readme = read("README.md")
-        cls.block = section(cls.readme, "**Sealed offline benchmark**", "**Live host runs**")
+        cls.validation = read("docs/validation.md")
+        cls.block = section(cls.validation, "**Sealed offline benchmark**", "**Live host runs**")
         cls.summary = read("bench/results/SUMMARY.md")
         cls.overall, cls.bridge, cls.paired = summary_tables(cls.summary)
         cls.rows = {}
@@ -227,7 +227,7 @@ class SealedBenchmark(unittest.TestCase):
         stated = re.search(r"\*\*Design-time looks at a candidate so far: (\d+)\*\*", ledger)
         self.assertEqual(int(stated.group(1)), looks)
         m = re.search(r"\b(" + "|".join(WORDS) + r")\s+(?:times|design-time\s+looks?)", self.block)
-        self.assertIsNotNone(m, "the README no longer states how often the sealed set was looked at")
+        self.assertIsNotNone(m, "the validation guide no longer states how often the sealed set was looked at")
         self.assertEqual(WORDS[m.group(1)], looks)
         bench = flat(read("bench/README.md"))
         m = re.search(r"\b(" + "|".join(WORDS) + r") design-time looks", bench)
@@ -330,8 +330,8 @@ class LivePilot(unittest.TestCase):
         self.assertEqual((m.group(1), m.group(2)), (f"{self.stats['hook-synaptic']['cost']:.2f}",
                                                      f"{self.stats['hook-fts']['cost']:.2f}"))
 
-    def test_readme_pilot_sentence(self):
-        block = flat(section(read("README.md"), "*0.3 pilot", "**Sub-agent payloads**"))
+    def test_validation_pilot_sentence(self):
+        block = flat(section(read("docs/validation.md"), "*0.3 pilot", "**Sub-agent payloads**"))
         problems = []
         if f"answered {self.stats['baseline']['correct']}/24" not in block:
             problems.append("the 24/24 correctness")
@@ -360,7 +360,7 @@ class LiveCompare02(unittest.TestCase):
                                                                 "## Recorded run", "Read with care"))}
         base, hook = as_int(table["mean total tokens"][1]), as_int(table["mean total tokens"][3])
         turns_base, turns_hook = float(table["mean turns"][1]), float(table["mean turns"][3])
-        block = flat(section(read("README.md"), "*0.2, one private vault", "*0.3 pilot"))
+        block = flat(section(read("docs/validation.md"), "*0.2, one private vault", "*0.3 pilot"))
         m = re.search(r"about (\d+)% of the baseline's mean total tokens \(about (\d+)% fewer\)", block)
         self.assertIn(int(m.group(1)), rounded(100 * hook / base))
         self.assertIn(int(m.group(2)), rounded(100 * (1 - hook / base)))
@@ -401,8 +401,8 @@ class SubagentPayloads(unittest.TestCase):
         # Budgets the docs name are settings in the script itself, not outputs.
         cls.values |= {int(v) for v in re.findall(r"budget_tokens=(\d+)", read("eval/orchestration_cost.py"))}
 
-    def test_readme_sentence(self):
-        block = section(read("README.md"), "**Sub-agent payloads**", "## What it does not claim")
+    def test_validation_sentence(self):
+        block = section(read("docs/validation.md"), "**Sub-agent payloads**", "## What it does not claim")
         problems = [f"{n:,} is not in orchestration_cost.py --standin --json" for n in numbers(block)
                     if n not in int_values(self.standin, set())]
         self.assertEqual(problems, [])

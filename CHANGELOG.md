@@ -2,7 +2,10 @@
 
 ## Unreleased
 
-- Refresh onboarding, GitHub source/cache guidance, PowerShell examples,
+- Put a runnable first example at the center of the README and move detailed
+  measurements to [the validation guide](docs/validation.md), retaining their
+  automated checks. Simplify the package description and documentation navigation.
+- Refresh GitHub source/cache guidance, PowerShell examples,
   privacy retention and tested platform documentation. Add package project
   links and tested Linux/Windows classifiers; keep the package version at 0.4.0.
 - Refresh development, conduct and security guidance, including private

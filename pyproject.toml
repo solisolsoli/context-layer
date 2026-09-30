@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 name = "context-layer"
 version = "0.4.0"
 authors = [{name = "solisolsoli"}]
-description = "Verbatim, hash-pinned evidence from a Markdown or Obsidian vault for AI agents: FTS search plus explicit-link (synaptic) retrieval, MCP server and Claude Code hook, an Obsidian Brain View of each retrieval, a starter brain with enforceable rule files, append-only memory, bounded sub-agent tasks and a sealed benchmark. Standard library only."
+description = "Local context and memory for AI agents: source-linked retrieval from Markdown and Obsidian, with MCP and optional GitHub sources."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"

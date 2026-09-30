@@ -89,9 +89,9 @@ jobs:
           diff <(grep -v '^Checkout: ' bench/results/SUMMARY.md) \
                <(grep -v '^Checkout: ' "$RUNNER_TEMP/bench/default/SUMMARY.md")
           sed -n '/^Checkout: /p' "$RUNNER_TEMP/bench/default/SUMMARY.md"
-      - name: the --compact arm the README quotes
+      - name: the --compact arm the validation guide quotes
         run: python3 bench/run_offline.py --methods synaptic --search-arg=--compact --out "$RUNNER_TEMP/bench/compact"
-      - name: the README's benchmark numbers equal the fresh runs
+      - name: the documented benchmark numbers equal the fresh runs
         run: python3 tests/test_doc_claims.py
         env:
           DOC_CLAIMS_BENCH_DIR: ${{ runner.temp }}/bench
