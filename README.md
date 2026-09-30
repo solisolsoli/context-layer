@@ -1,13 +1,25 @@
 # Context Layer
 
+[![tests](https://github.com/solisolsoli/context-layer/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/solisolsoli/context-layer/actions/workflows/tests.yml)
+
 **A local, evidence-first layer between your Obsidian (or plain Markdown) vault and
 your AI agents.** It hands the agent verbatim passages pinned to a file path and a
 SHA-256, follows your own `[[links]]` when a question spans several notes, shows
 you in Obsidian which notes and links the last retrieval used, and keeps the
 agent's work recorded, planned and checkable.
 
-Python 3.10+, standard library only. No network by default. GitHub
+Python 3.10+ with SQLite FTS5, standard library only. No network by default. GitHub
 context and the model advisor are separate opt-ins. No database you cannot open. MIT.
+
+The package version is **0.4.0**. The latest checkout also includes the GitHub
+source/cache tools and Windows support documented under
+[Unreleased](CHANGELOG.md#unreleased). Install from this repository; these
+checkout additions are not a separate PyPI release.
+
+**Maintenance:** this repository is maintained only by its owner. Outside pull
+requests, issues and discussions are closed for now. Use and fork the code
+under the [MIT license](LICENSE); report vulnerabilities privately through
+[SECURITY.md](SECURITY.md). See [CONTRIBUTING.md](CONTRIBUTING.md) for the policy.
 
 <p align="center">
   <img src="docs/images/brain-view.png" width="520"
@@ -34,10 +46,19 @@ each line a resolved link; colour and size follow how many notes a note links to
 | **Lean sub-agents** | Shared evidence packets, a bounded `support-job/v1` contract, a ~5,000-token payload budget, evidence-record returns and `handback check`, which mechanically catches fabricated quotes. | [subagents](docs/subagents.md) · [tasks](docs/tasks.md) |
 | **Memory and health** | Append-only JSONL memory whose records go stale when their sources change; `status` and `rollback` for the index and the link graph. | [memory](docs/memory.md) |
 | **Optional advisor (Jev)** *(off by default)* | `search --jev` asks a model provider you configure whether delivered passages and link-reached notes help the question; `shadow` only counts, `on` (which needs a calibration receipt) appends byte-exact passages within their own budget. Design after Avenox Beyin's Jev; any provider, including a local server or the host's own CLI. | [jev](docs/jev.md) |
-| **GitHub context** *(off by default)* | On a local miss, fetch bounded passages from public files pinned to a commit. CLI source setup, explicit version checks and an optional verified offline cache. The prompt stays local; citations carry immutable URLs and hashes. No token or model required. | [GitHub context](docs/github-context.md) |
+| **GitHub context** *(off by default)* | After a clean local miss, or an explicit agent tool call, read bounded passages from owner-selected public files pinned to a commit. CLI source setup, explicit version checks and an optional verified offline cache. The prompt stays local; citations carry immutable URLs and hashes. No token or model required. | [GitHub context](docs/github-context.md) |
 | **Host integration** | MCP stdio server and a Claude Code prompt hook. Every install is a dry run until `--apply`, backs up first, and has an `uninstall`. | [host integration](docs/host-integration.md) |
 
 ## Quick start
+
+Get the checkout first (Git is needed for this step):
+
+```sh
+git clone https://github.com/solisolsoli/context-layer.git
+cd context-layer
+```
+
+On macOS or Linux:
 
 ```sh
 python3 -m venv .venv && . .venv/bin/activate
@@ -52,7 +73,12 @@ context-layer rules check ~/MyBrain                # CLAUDE.md and AGENTS.md ide
 # Connect Claude Code (dry run first, then --apply):
 context-layer install claude-code --vault ~/MyBrain --project ~/MyBrain \
     --hook --method synaptic --rules --plan-default
+# Review the diff, then repeat the install command with --apply.
 ```
+
+`synapse.decision` in the packet says whether links were followed (on the
+starter brain the question above gives `relevant_links`: three full-text
+passages plus two reached through links).
 
 On Windows, create and use the environment from PowerShell without an activation
 script. The CLI flags are the same:
@@ -63,14 +89,18 @@ py -m venv .venv
 .\.venv\Scripts\context-layer.exe brain init "$env:USERPROFILE\MyBrain" --apply
 .\.venv\Scripts\context-layer.exe index "$env:USERPROFILE\MyBrain"
 .\.venv\Scripts\context-layer.exe search "$env:USERPROFILE\MyBrain" --prompt "timer controller"
+.\.venv\Scripts\context-layer.exe install claude-code --vault "$env:USERPROFILE\MyBrain" --project "$env:USERPROFILE\MyBrain" --hook --method synaptic --rules --plan-default
+# Review the diff, then repeat the install command with --apply.
 ```
 
-`synapse.decision` in the packet says whether links were followed (on the
-starter brain this prompt gives `relevant_links`: three full-text passages plus
-two reached through links).
+From a new host session, confirm that the MCP server exposes its **ten tools**.
+For other MCP clients, `context-layer install generic --vault <vault>` prints
+a configuration snippet. See [host integration](docs/host-integration.md) for
+the supported host paths and `doctor` checks.
 
-Then install the Brain View plugin from the checkout. No build or Node is
-needed; `dist/main.js` is committed:
+The Brain View is optional. From a macOS/Linux checkout, install it as follows;
+PowerShell instructions are in the [plugin guide](obsidian-plugin/README.md).
+No build or Node is needed; `dist/main.js` is committed:
 
 ```sh
 mkdir -p ~/MyBrain/.obsidian/plugins/context-layer-brain
@@ -80,10 +110,53 @@ cp obsidian-plugin/dist/main.js ~/MyBrain/.obsidian/plugins/context-layer-brain/
 ```
 
 Enable **Context Layer Brain View** under Settings > Community plugins, and run a
-search: the view lights up what the retrieval used. The 0.2 walk (index, host,
+search: the view lights up what the retrieval used. The core walk (index, host,
 memory, tasks, health) is in [QUICKSTART.md](QUICKSTART.md); the brain setup and
 the everyday loop (plan → evidence → act → verify → record) are in
 [docs/brain-guide.md](docs/brain-guide.md).
+
+## Fill a knowledge gap from GitHub
+
+The owner chooses public repositories, files and immutable commits once. The
+agent can then fetch those documents when local evidence is insufficient.
+This is useful for a project's documentation, a prompt file or an MCP setup
+guide. Retrieved text remains evidence; it does not install tools or change
+the agent's instructions.
+
+1. Configure a source with `github-sources add`: preview its resolved commit
+   and files, then reuse that full SHA as `--ref` with `--apply` to save it with
+   a backup. This avoids resolving a moving branch to a different revision.
+2. Use `search --github` for a fallback after a clean, empty local `NOT_FOUND`.
+   When local results exist but do not settle the question, the agent calls
+   the `github_context` MCP tool explicitly.
+3. Inspect the external status and passages; cite the immutable URL, commit,
+   line span and hash. Keep an unresolved question explicit.
+
+After configuring a source named `project-docs`, the CLI equivalents are:
+
+```sh
+context-layer search ~/MyBrain --prompt "project setup" --github
+context-layer github-context ~/MyBrain --prompt "project setup" --source project-docs
+```
+
+| Need | Command | Behavior |
+| --- | --- | --- |
+| Manage sources | `github-sources list/add/remove/enable/disable` | Preview mutations before `--apply`; configuration is local. |
+| Check newer documentation | `github-sources check --id project-docs --ref main` | Reports upstream commits and bounded diffs; choose the branch/tag to follow. Does not change the pin. |
+| Adopt a reviewed version | `github-sources update --id project-docs --expected-commit OLD_SHA --commit NEW_SHA` | Requires the expected old pin, a full new SHA and `--apply` to write. |
+| Use a local cache | `github-cache enable/status/disable/purge` | Separate opt-in, bounded to 8 MiB and 256 entries; mutations need `--apply`. |
+| Work offline or refetch | `github-context --offline` / `--refresh` | Offline reads require cached bytes; refresh fetches the same pinned version. |
+
+The table abbreviates commands: each takes a vault path; retrieval also takes
+`--prompt`. See the [complete GitHub guide](docs/github-context.md) for copyable
+commands, configuration, cache controls and error handling. The same CLI flags
+work on Windows with the executable and vault path shown above.
+
+GitHub retrieval requires no token, model API or Git clone and uploads no
+prompt or local note. It is not a model-confidence detector or a search of all
+GitHub. It never substitutes remote text for index errors, stale or withheld
+local sources. `FOUND` means candidate evidence was delivered, not that an
+answer is correct or that the pinned documentation is the newest version.
 
 ## How the rules work
 
@@ -192,7 +265,7 @@ v3.0.1 and carry its MIT notice. Full list: [CREDITS.md](CREDITS.md),
 | AI host | Claude Code 2.1+ (MCP stdio, `UserPromptSubmit` hook) | Codex CLI via MCP config | hosts without MCP or hooks |
 | Obsidian | 1.13.7 desktop (live render checked on the fictional vault) | other 1.x desktop | mobile |
 
-The [hosted run for `4abc25e`](https://github.com/solisolsoli/context-layer/actions/runs/36763000857)
+The [accepted runtime run for `4dc60a9`](https://github.com/solisolsoli/context-layer/actions/runs/36773269705)
 passed all 12 required jobs, including the Ubuntu/macOS matrix, native Windows
 full test suite and installed-distribution walk, packaging, benchmark
 reproduction and plugin tests. Windows uses Python 3.12 on the hosted runner;
@@ -204,7 +277,8 @@ host session or model answer quality. See
 
 | Document | What is in it |
 | --- | --- |
-| [QUICKSTART.md](QUICKSTART.md) | The 0.2 walk as commands: index, host, memory, tasks, health |
+| [QUICKSTART.md](QUICKSTART.md) | The core walk as commands: index, host, memory, tasks, health; optional GitHub context |
+| [docs/github-context.md](docs/github-context.md) | Source setup, missing-evidence flow, cache/offline reads, version checks and troubleshooting |
 | [docs/brain-guide.md](docs/brain-guide.md) | Building your own brain: setup, daily loop, note-writing, sub-agents, FAQ |
 | [docs/cli.md](docs/cli.md) | Conventions for every command: exit codes, packet statuses, output, format versions (per-command flags: `--help`) |
 | [docs/synapse.md](docs/synapse.md) | Synaptic retrieval: how it works, knobs, limits |
@@ -213,7 +287,7 @@ host session or model answer quality. See
 | [docs/README.md](docs/README.md) | Index of the component docs (host integration, memory, tasks, lifecycle) |
 | [obsidian-plugin/README.md](obsidian-plugin/README.md) | Brain View install, settings, activation overlay |
 | [bench/README.md](bench/README.md) | The sealed benchmark and how to rerun it |
-| [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [CHANGELOG.md](CHANGELOG.md) | Reporting, contributing, releases |
+| [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) · [CHANGELOG.md](CHANGELOG.md) | Private security reporting, owner maintenance, conduct and releases |
 
 ## Development and license
 
@@ -222,5 +296,9 @@ host session or model answer quality. See
 installs a built wheel into a fresh environment and runs the walks listed in the
 script's own header (`make test` covers the rest).
 
-MIT, copyright **solisolsoli**: [LICENSE](LICENSE). No personal vault, prompts,
-packets, host settings or private research are distributed.
+MIT, copyright **solisolsoli**: [LICENSE](LICENSE). The license permits use,
+modification and redistribution subject to its terms; it does not grant write
+access to this repository or require the owner to accept contributions.
+Retained third-party notices are listed in [THIRD_PARTY.md](THIRD_PARTY.md).
+No personal vault, prompts, packets, host settings or private research are
+distributed.

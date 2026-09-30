@@ -4,6 +4,12 @@ The acceptance walk from [SCOPE.md](SCOPE.md), as commands. Steps 1–2 and 4–
 are things you can run here and now; steps 3 and 9 happen inside an AI host and
 are marked as such. Python 3.10+ with SQLite FTS5 support.
 
+The shell examples below use macOS/Linux syntax. On Windows, start with the
+[PowerShell installation](README.md#quick-start), use
+`.\.venv\Scripts\context-layer.exe` in place of `context-layer`, quote paths,
+and place multiline commands on one line. GNU Make is used only for the
+development demo/checks, not for normal CLI use.
+
 Replace `/absolute/path/to/vault` with your vault and `/absolute/path/to/repo`
 with the project you will talk to the host from.
 
@@ -85,11 +91,30 @@ Details, the Codex block and troubleshooting: [docs/host-integration.md](docs/ho
 ## 3. Ask in the host *(inside the host)*
 
 Start the host in that project and confirm it sees the server — in Claude Code,
-`/mcp` lists `context-layer` and its nine tools. Ask a question the vault
+`/mcp` lists `context-layer` and its ten tools. Ask a question the vault
 answers. The reply should cite a `source_path` and a `source_sha256` you never
 pasted. If the index is broken or a file is unreadable, you get a visible error,
 not an empty success; a note edited since the last `index` is left out with a
 visible "withheld" line until you re-index.
+
+### Optional: fetch configured GitHub evidence
+
+After the owner configures public sources with `github-sources add`,
+`search_vault` with `github: true` can fetch external context after a clean
+local miss. For a gap in otherwise nonempty results, the host can call
+`github_context` explicitly. The ordinary hook does not enable GitHub retrieval.
+The tool must be connected and permitted in that host.
+
+For CLI use, after configuring a source named `project-docs`:
+
+```sh
+context-layer search /absolute/path/to/vault --prompt "project setup" --github
+context-layer github-context /absolute/path/to/vault --prompt "project setup" --source project-docs
+```
+
+These return candidate evidence with immutable citations, not a verified
+answer. Source setup, cache/offline controls and deliberate pin updates are in
+[GitHub context](docs/github-context.md).
 
 ## 4. Record the decision
 

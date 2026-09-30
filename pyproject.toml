@@ -23,11 +23,20 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Operating System :: MacOS",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
   "Topic :: Text Processing :: Indexing",
 ]
 # Runtime dependencies: none, deliberately. The router, the indexer and the
 # evaluation harness are Python standard library only (sqlite3 + FTS5).
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/solisolsoli/context-layer"
+Documentation = "https://github.com/solisolsoli/context-layer/blob/main/docs/README.md"
+Source = "https://github.com/solisolsoli/context-layer"
+Changelog = "https://github.com/solisolsoli/context-layer/blob/main/CHANGELOG.md"
+Security = "https://github.com/solisolsoli/context-layer/security/policy"
 
 [project.scripts]
 context-layer = "context_layer.cli:main"

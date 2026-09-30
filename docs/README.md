@@ -14,11 +14,11 @@ overview; [QUICKSTART.md](../QUICKSTART.md) is the same ground as commands, and
 | [subagents.md](subagents.md) | 0.3 — lean sub-agent jobs and hand-back checks | `packet`, `job`, `handback`, `handoff` |
 | [brain-guide.md](brain-guide.md) | 0.3 — building your own brain; rules and hooks | `brain init`, `rules init/check/record`, `brief` |
 | [jev.md](jev.md) | 0.4 — the optional advisor, off by default | `jev status`, `off`, `shadow`, `on`, `report`, `purge`, `record`, `calibrate`, `answer`, `review-memory`, `search --jev` |
-| [github-context.md](github-context.md) | Optional public GitHub evidence for knowledge gaps | `github-context`, `search --github`, MCP `github_context` |
+| [github-context.md](github-context.md) | Optional public GitHub evidence, source management, cache and version checks | `github-context`, `github-sources`, `github-cache`, `search --github`, MCP `github_context` |
 | [cli.md](cli.md) | Every command: exit codes, packet statuses, format versions | all |
 | [privacy.md](privacy.md) | Every artifact the tool writes; retention, deletion, threat model | — |
 | [design-rationale.md](design-rationale.md) | Why it is built this way, with public sources | — |
-| [publishing-checklist.md](publishing-checklist.md) | Maintainers: publishing the repository on GitHub for the first time (pre-flight, the history audit and its decision, required checks, reproducible artifacts), and what to fill in once its address exists | — |
+| [publishing-checklist.md](publishing-checklist.md) | Maintainers: updating the existing repository, required checks, publication privacy, tags and reproducible artifacts | — |
 
 Search and indexing themselves are covered in the top-level README and
 [QUICKSTART.md](../QUICKSTART.md); the experimental router has its own
@@ -29,9 +29,9 @@ run of the sealed cases listed in [bench/INSPECTIONS.md](../bench/INSPECTIONS.md
 
 Three things hold across all of them:
 
-- **Everything is a plain file in the vault.** Routes, the index manifest,
-  memory records and task state live under `.context/` as JSON, JSONL and
-  Markdown you can open, diff, edit and delete without this tool.
+- **State stays in inspectable files in the vault.** Configuration, memory
+  and task records use JSON, JSONL and Markdown under `.context/`; the SQLite
+  search and graph indexes can be inspected and rebuilt from the source notes.
 - **Retrieved text is data, never instructions.** Evidence carries
   `source_path` and `source_sha256` so a reader can check what it got.
 - **Nothing is written to a host by surprise.** Every install is a dry run until

@@ -9,7 +9,7 @@ upstream checks preview changes without updating a pin. Pin updates require
 the expected old commit and an explicit new commit. Retrieval is off by default
 and preserves local search status and evidence;
 [docs/github-context.md](docs/github-context.md) defines its use and bounds.
-The [hosted run for `4abc25e`](https://github.com/solisolsoli/context-layer/actions/runs/36763000857)
+The [accepted runtime run for `4dc60a9`](https://github.com/solisolsoli/context-layer/actions/runs/36773269705)
 passed all 12 required jobs, including native Windows full tests and the
 installed-distribution walk. This establishes the tested platform coverage
 below, not live host integration or model answer quality.

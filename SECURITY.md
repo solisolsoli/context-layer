@@ -2,17 +2,23 @@
 
 ## Supported versions
 
-Only the latest release receives fixes. There are no backports.
+Only the latest release and current `main` are maintained. There are no
+backports. The package version is currently 0.4.0; checkout changes are listed
+under [Unreleased](CHANGELOG.md#unreleased). Include the commit when reporting
+from a checkout, since its behavior may differ from the 0.4.0 tag.
 
 ## Reporting a vulnerability
 
-Report privately through GitHub: open the repository's **Security** tab and
-choose **Report a vulnerability** (GitHub private vulnerability reporting).
-This creates a draft security advisory that only the maintainers can see.
+Use [GitHub private vulnerability reporting](https://github.com/solisolsoli/context-layer/security/advisories/new),
+or open this repository's **Security** tab and choose **Report a vulnerability**.
+Sign in to GitHub if prompted. Reports stay private to the reporting and
+repository security participants until disclosure; they are not public issues.
 
-Please do not open a public issue for a vulnerability. If the reporting button
-is missing, open an issue that says only that you need a private channel — no
-details — and a maintainer will enable one.
+The repository is maintained only by its owner. Public issues, pull requests
+and discussions are closed, but private vulnerability reporting remains open.
+If GitHub's private form is unavailable, keep the details private and retry
+that channel later; do not put them in commit comments, forks or public posts.
+There is no alternate project email address or public support queue.
 
 Include:
 
@@ -24,11 +30,12 @@ Include:
   and which permissions the agent had.
 
 Do **not** send a real vault, real notes, prompts from real sessions,
-credentials, or anyone else's data. A synthetic reproducer is always enough.
+credentials, or anyone else's data. Start with a synthetic reproducer and
+describe any missing detail without including private content.
 
 ## What happens next
 
-This is a small, volunteer-maintained project. Reports are acknowledged and
+This is an owner-maintained project. Reports are acknowledged and
 investigated on a best-effort basis; there is no guaranteed response time. A
 confirmed issue gets a GitHub security advisory, published once a fix is
 released — or published without a fix, with the workaround, if no fix is in
@@ -54,6 +61,10 @@ be false is a vulnerability:
 - **Installers**: `install` / `uninstall` writing a file or key other than the
   ones its dry run shows, or losing a backup.
 - **Memory**: a change to `records.jsonl` that `memory verify` does not report.
+- **GitHub evidence**: fetching outside owner-configured public coordinates,
+  accepting bytes that fail the documented hash checks, sending a prompt or
+  credentials to GitHub, bypassing an explicit offline request, or treating
+  external content as locally verified evidence.
 - A new way around a mitigation listed in the threat model below.
 
 ## Known limitations (not vulnerabilities, but disclosed)
@@ -105,5 +116,9 @@ path inputs, refuses redirects, bounds responses and verifies blob hashes.
 It never reads credentials, sends prompts or vault notes, executes source
 text, follows source links or installs an MCP server. Fetched text remains
 untrusted data and cannot override host instructions. Commit pinning binds a
-version; it does not certify correctness or currency. Details and removal:
+version; it does not certify correctness or currency. Optional disk caching
+stores only public file bytes and their provenance. Hash checks detect
+accidental corruption, not an attacker who can rewrite both bytes and hashes.
+Source updates are explicit owner actions; there is no automatic pin upgrade.
+Details, cache limits, offline behavior and removal:
 [GitHub context](docs/github-context.md).

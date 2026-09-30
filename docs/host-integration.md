@@ -624,7 +624,10 @@ macOS (Darwin 25.6.0), CPython 3.12.4, by `tests/test_mcp_install.py`,
 
 Not verified here: a live Claude Code, Codex or any other host loading these
 configs (every non-Claude-Code row and the Codex hooks are expected but
-unverified), and `claude mcp add` actually executing. The [hosted run for `db9b8ac`](https://github.com/solisolsoli/context-layer/actions/runs/36732194741)
-passed the suite on Ubuntu with Python 3.10–3.13 and macOS with Python 3.12.
-Windows remains out of scope; its exploratory job failed. The acceptance walk
-in [SCOPE.md](../SCOPE.md) covers the live part separately.
+unverified), and `claude mcp add` actually executing. The
+[accepted runtime run for `4dc60a9`](https://github.com/solisolsoli/context-layer/actions/runs/36773269705)
+passed all 12 required jobs, including Ubuntu with Python 3.10–3.13, macOS with
+Python 3.12 and native Windows with Python 3.12. These jobs check the CLI, local
+fixtures and installed packages; they do not establish that every live host
+loads the generated configuration. The acceptance walk in
+[SCOPE.md](../SCOPE.md) covers the live part separately.

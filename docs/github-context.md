@@ -15,14 +15,16 @@ documentation relevant to your project.
 context-layer github-sources add ~/MyVault --id project-docs \
   --repo example/project --ref main --path README.md --path docs/setup.md \
   --keyword "project setup" --keyword "project protocol"
-# Repeat the same command with --apply after reviewing the resolved commit.
+# Review the result, then apply using its full resolved SHA as --ref.
+# Keep the same --id, --repo, --path and --keyword arguments.
 context-layer github-sources list ~/MyVault
 ```
 
 `add` resolves a branch, tag or commit through GitHub's public API and records a
 full commit SHA. Even a dry run needs this anonymous request. Only `--apply`
-writes the configuration, with an atomic replacement and a backup of the
-previous file. A new configuration enables its explicitly added source; adding
+writes the configuration, with an atomic replacement and one previous copy at
+`.context/github.json.bak` (replaced on the next applied change).
+A new configuration enables its explicitly added source; adding
 to an existing disabled configuration leaves it disabled. Concurrent config
 changes are refused rather than overwritten. No command saves a credential.
 To add exactly the previewed revision, use its full SHA as `--ref` when applying;
@@ -61,6 +63,9 @@ context-layer github-sources remove ~/MyVault --id project-docs --apply
 ```
 
 Omit `--apply` to preview any of these changes. `list` is read-only.
+The examples above use a POSIX shell. In PowerShell, use `$env:USERPROFILE`
+instead of `~`, quote paths, and keep each command on one line; see the
+[PowerShell workflow](#powershell-workflow) below.
 
 ## Use it when evidence is missing
 
@@ -75,7 +80,9 @@ context-layer github-context ~/MyVault --prompt "project setup" --source project
 `--no-github` overrides `--github`. Without `--github`, local search remains
 unchanged. Index errors, stale or withheld sources never trigger a remote
 substitute. Automatic fallback routes by configured keywords matched **locally**;
-it is not a model confidence detector. An explicit `--source` selects a
+keyword matching requires the keyword's non-stopword tokens to be present in the prompt;
+it is not phrase matching, semantic similarity or a model confidence detector.
+An explicit `--source` selects a
 configured source and permits a prefix excerpt when no prompt term matches
 its text; omit it to use keyword routing. Such a prefix is still only a
 candidate and may not answer the question.
@@ -88,6 +95,11 @@ The MCP server exposes the same paths:
   `offline` and `force_refresh` select the cache behavior below; they cannot
   both be true. Configuration management is a CLI operation for the owner.
 
+Search fallback (`search --github` or `search_vault`) has no per-call offline
+or refresh option. When caching is enabled it uses cached bytes first, then
+the network on a cache miss. Use `github-context --offline` or MCP
+`github_context` with `offline: true` when network access must be avoided.
+
 The prompt hook, brief, ordinary local search and Jev never implicitly enable
 this reader. The default agent rules describe when to use the MCP tool. A host
 still needs the tool connected and permitted; a rule file cannot force it to
@@ -97,7 +109,8 @@ call a tool.
 
 The cache is a separate opt-in. Enabling it stores verified public file bytes
 under `.context/github-cache/`; it never stores the prompt. Cache configuration
-lives in `.context/github-cache.json`. Files are keyed by repository, commit
+lives in `.context/github-cache.json`; applied changes keep one previous copy
+at `.context/github-cache.json.bak`. Files are keyed by repository, commit
 and path, so changing a pin cannot reuse an older version's evidence.
 
 ```sh
@@ -116,7 +129,9 @@ Normal retrieval uses an existing cache entry or fetches and caches a missing
 file. `--offline` performs no network request: a disabled cache, missing entry
 or corrupt record is an explicit error. `--refresh` bypasses a cached entry
 and fetches the same pinned commit again. It does not update the source pin.
-Disabling the cache leaves its files in place; `purge --apply` removes them.
+Disabling the cache leaves its files in place; `purge --apply` removes cache
+records, not the configuration or coordination lock. Status and purge previews
+may create a lock file in an existing cache directory, without changing records.
 
 Every read rechecks the record coordinates, SHA-256 and Git blob hash. Evidence
 labels its origin as `disk-cache`, `network-cached` or `network-refresh` when
@@ -129,8 +144,8 @@ state is excluded from version control and ordinary local evidence indexing.
 ## Review a newer source version
 
 ```sh
-context-layer github-sources check ~/MyVault --id project-docs
-# For a manually configured source without ref, add --ref main to the check.
+context-layer github-sources check ~/MyVault --id project-docs --ref main
+# Use the branch/tag you intend to follow, especially if add used a pinned SHA.
 context-layer github-sources update ~/MyVault --id project-docs \
   --expected-commit 1111111111111111111111111111111111111111 \
   --commit 2222222222222222222222222222222222222222
@@ -140,13 +155,46 @@ context-layer github-sources update ~/MyVault --id project-docs \
 `check` reports the pinned and upstream commits plus bounded file diffs, without
 changing configuration. Inspect its `errors` and `omissions`: `PARTIAL` means
 the preview is incomplete. `update` requires both the exact old pin and a full
-new SHA; a stale old pin is refused. There is no background update or automatic
+new SHA; a stale old pin is refused. `update` validates the SHA syntax and old
+pin locally; it does not verify that the new commit or its paths exist. Use
+the SHA returned by `check`, review the diffs, then test retrieval after applying.
+There is no background update or automatic
 promotion to a moving branch. Management commands report `DRY_RUN`, `OK` or
 `ERROR`; a check can also report `PARTIAL`. `ERROR` exits 1.
 Checks inspect at most four paths, accept at most 128 KiB across the old/new
 file bytes and emit at most 6,000 diff characters. A 20-second budget is checked
 between network operations; each socket operation has a maximum five-second
-timeout. These bounds are not a hard interrupt of a response already being read.
+timeout. A check can make up to nine GETs: one ref resolution and old/new file
+reads for four paths. These bounds are not a hard interrupt of a response
+already being read.
+
+## PowerShell workflow
+
+Run from a checkout installed with `py -3 -m pip install .`. Use a disposable
+vault while learning the commands. The coordinates and SHA values below are
+placeholders; replace them with a real public source and the reviewed results.
+All commands are single lines, so no POSIX line-continuation syntax is needed.
+
+```powershell
+$contextVault = Join-Path $env:USERPROFILE "MyVault"
+context-layer github-sources add "$contextVault" --id project-docs --repo example/project --ref main --path README.md --keyword "project setup"
+# Copy the resolved full SHA from the preview before applying.
+$reviewedCommit = "1111111111111111111111111111111111111111"
+context-layer github-sources add "$contextVault" --id project-docs --repo example/project --ref $reviewedCommit --path README.md --keyword "project setup" --apply
+context-layer github-sources list "$contextVault"
+context-layer github-cache enable "$contextVault"
+context-layer github-cache enable "$contextVault" --apply
+context-layer github-context "$contextVault" --prompt "project setup" --source project-docs
+context-layer github-context "$contextVault" --prompt "project setup" --source project-docs --offline
+context-layer github-sources check "$contextVault" --id project-docs --ref main
+# Use the reviewed new SHA from check; preview before adding --apply.
+$newCommit = "2222222222222222222222222222222222222222"
+context-layer github-sources update "$contextVault" --id project-docs --expected-commit $reviewedCommit --commit $newCommit
+context-layer github-sources update "$contextVault" --id project-docs --expected-commit $reviewedCommit --commit $newCommit --apply
+```
+
+The [CLI host setup](host-integration.md) is needed only for automatic host
+integration; these standalone commands do not require a model API key.
 
 ## Evidence and failure semantics
 
@@ -161,7 +209,7 @@ is verbatim. The Git blob SHA from the API is also checked against the bytes.
 | `OFF` | No enabled configuration; no network request. |
 | `FOUND` | Candidate passages delivered; judge whether they answer the question. |
 | `NOT_FOUND` | No matching configured source or usable passage. |
-| `PARTIAL` | Some evidence delivered, with failed reads reported separately. |
+| `PARTIAL` | Evidence delivered with failed reads or bounded omissions, reported in `errors`. |
 | `ERROR` | Configuration or fetch failed and no evidence was delivered. |
 
 The standalone command exits 1 on `ERROR`, 0 for the other statuses; the MCP
@@ -183,8 +231,9 @@ still does not settle a claim, keep the missing information explicit.
 - File: at most 128 KiB, with at most 128 KiB of file bytes accepted across
   one call; strict UTF-8 text, with binary/NUL content refused.
 - Delivery: at most 2,000 characters per file and 6,000 across the result.
-- Transport responses are capped at 256 KiB each, across at most four GETs.
+- Retrieval transport responses are capped at 256 KiB each, across at most four GETs.
   The 128 KiB aggregate above limits accepted file bytes, not wire overhead.
+  Source add/check have the separate request pattern described above.
 - Transport: anonymous HTTPS GET to `api.github.com` only. Retrieval sends the
   pinned commit and path; source add/check also send the requested ref.
   Redirects, environment proxies and returned download URLs are

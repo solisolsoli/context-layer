@@ -1,17 +1,29 @@
 # Contributing
 
-Contributions are welcome under the project's MIT licence: by opening a pull
-request you agree that your contribution is licensed under it. There is no CLA.
-Fixes that come with a synthetic reproducer are the easiest to accept; new
-features, new dependencies and architecture changes need agreement in an issue
-before a pull request. The maintainers may decline a change that does not fit
-the project's scope ([SCOPE.md](SCOPE.md)). If you use an AI assistant, you are
-still responsible for understanding and testing every line you submit.
+## Current policy: owner maintenance only
 
-Security problems go through private reporting, not issues: see
-[SECURITY.md](SECURITY.md). Behaviour in project spaces follows
-[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Issues are triaged in this order:
-security, then false or unverified evidence, then regressions, then features.
+Outside contributions are **not accepted at this time**, including code,
+documentation, translations, feature requests and unsolicited patches. Only
+the repository owner maintains and publishes changes. Pull requests, issues
+and discussions are disabled; there is no public support queue or response
+commitment. This policy remains in effect until the owner changes it here.
+
+The [MIT license](LICENSE) still permits you to use, copy, modify and
+redistribute the software under its terms, including in your own fork. Those
+rights do not grant write access to this repository or imply acceptance of a
+contribution. Preserve the copyright and license notices.
+
+Private vulnerability reports remain welcome through [SECURITY.md](SECURITY.md).
+They are a confidential reporting channel, not a route for feature requests
+or general support. Behaviour in project interactions follows
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
+## Maintainer workflow
+
+The remaining instructions are for the owner and anyone maintaining their own
+copy. Keep changes within [SCOPE.md](SCOPE.md). When using an AI assistant,
+review and test its output before publishing; the assistant's report alone is
+not acceptance evidence.
 
 Everything in the repository is written in English: code, comments, docs,
 fixtures, test strings and commit messages.
@@ -20,8 +32,9 @@ Use synthetic fixtures or public sources. Preserve verbatim source bytes and rec
 
 ## The suites
 
-`make test` runs every regression in order; the same command is what hosted CI
-runs. Each file is also runnable on its own with `python3 tests/<file>.py` (the
+`make test` runs the Python regression suites in order. Hosted Ubuntu and macOS
+CI use that command; Windows runs the suite files individually. Each file is
+also runnable on its own with `python3 tests/<file>.py` (the
 router suite: `python3 router/build_index.py --vault router/example-vault`, then
 `python3 router/test_context_router.py`). The code and the suites read and
 write UTF-8: run them in UTF-8 mode or under a UTF-8 locale. `make` and hosted
@@ -63,7 +76,13 @@ CI set `PYTHONUTF8=1`; under a Latin-1 locale without it, some suites fail (`tes
 | `tests/test_coactivation.py` | The opt-in usage ledger and `graph suggest`: bounded, never read by retrieval |
 | `tests/test_session_show.py` | `session show` and `session list`: one session's joined report, read-only |
 | `tests/test_encoding.py` | Runtime text I/O names its encoding (an `ast` scan) |
-| `tests/test_write_boundary.py` | Read paths (`search`, the read-only MCP tools, the hook) write nothing but `activation.json` |
+| `tests/test_write_boundary.py` | Default retrieval write boundaries; explicitly enabled state is also covered by its owning suites |
+| `tests/test_github_client.py` | Anonymous GitHub transport, pinned coordinates, TLS, redirects, bounded responses and blob verification |
+| `tests/test_github_context.py` | Public GitHub evidence: clean-miss fallback, allowlists, immutable provenance, transport bounds and explicit errors |
+| `tests/test_github_integration.py` | CLI/MCP GitHub integration, explicit fallback gates and separation from local evidence |
+| `tests/test_github_sources.py` | Owner source configuration, dry runs, compare-and-swap pins, bounded upstream checks and configuration backups |
+| `tests/test_github_cache.py` | Opt-in public-byte cache, integrity checks, offline/refresh behavior, bounded storage and purge |
+| `tests/test_platform_support.py` | Portable locks, private files and platform-specific process/filesystem behavior |
 
 `tests/dev_bridge_eval.py` is a development aid (the synaptic dev set), not a
 suite, and `make test` does not run it. Outside `make test`: `make plugin-test`
@@ -82,10 +101,11 @@ Never tune retrieval against the sealed cases (`bench/cases.jsonl`): develop on
 a dev set, and add a row to [bench/INSPECTIONS.md](bench/INSPECTIONS.md) before
 relying on any new run of the sealed set.
 
-Every suite owns a disposable synthetic vault and redirects `HOME` into its own
-temporary directory. No test may read the operator's vault, home or host
-settings, and no test may spawn a real model backend: the sub-agent tests drive
-the `fake` backend with a script they write themselves.
+Tests that need writable vault or host state use disposable synthetic fixtures
+and isolated home directories. Other checks read the repository's public code,
+documentation or fixtures. No test may read the operator's real vault or host
+settings, and no unit test may spawn a real model backend: the sub-agent tests
+drive the `fake` backend with a script they write themselves.
 
 `make lint` byte-compiles every Python file under `context_layer/`,
 `router/`, `eval/`, `tests/`, `scripts/` and `bench/`, and
@@ -102,12 +122,13 @@ Hosted CI (`.github/workflows/tests.yml`, actions pinned by commit) runs 12
 required jobs. The Ubuntu matrix (Python 3.10–3.13) and macOS job (Python 3.12)
 run `make test`, `make demo`, lint, the network boundary check, build and the
 distribution check. The Windows job (Python 3.12) runs the fixture router checks,
-build and installed-distribution walk before all unit suites, benchmark checks,
+build, installed-distribution walk and a native task-state sharing regression
+before all unit suites, benchmark checks,
 lint and the network boundary check. Ubuntu jobs also cover the plugin's build
 and Node tests (Node 24), the sealed benchmark, `bench-reproduce` (fresh benchmark
 and README numbers), `doc-claims`, the Jev recording-to-calibration chain, and
 `reproducible build` (two builds, one SHA-256).
-The [hosted run for `4abc25e`](https://github.com/solisolsoli/context-layer/actions/runs/36763000857)
+The [accepted runtime run for `4dc60a9`](https://github.com/solisolsoli/context-layer/actions/runs/36773269705)
 passed all 12 jobs. This is package and platform verification; a live AI host
 session and model answer quality require separate evidence.
 `.github/workflows/release-audit.yml` runs the history audit on every `v*` tag.
@@ -117,7 +138,7 @@ See [docs/publishing-checklist.md](docs/publishing-checklist.md).
 
 ```sh
 python3 -m pip install build
-make dist                                # or: python3 -m build
+make dist                                # includes sdist privacy normalization
 python3 scripts/check_distribution.py dist/context_layer-*.whl
 ```
 
@@ -195,9 +216,10 @@ CI pass; say which one you ran.
   references of `docs/design-rationale.md`. Non-ASCII is fine in deliberate
   fixtures and names; anything that is prose in another language is not.
 - Audit the history, not only the tracked files: `python3
-  scripts/audit_history.py` checks every blob of every commit and every commit
+  scripts/audit_history.py --rev HEAD` checks every blob of every commit and every commit
   message (letters, home paths, e-mail addresses, private-trace digests), with
-  the same allowlist. See step 1b of
+  the same allowlist, limited to the revision you intend to publish. Audit any
+  additional ref explicitly; do not include unrelated local private refs. See
   [docs/publishing-checklist.md](docs/publishing-checklist.md).
 - Re-run the leak audit over tracked files and fix anything it finds:
 
@@ -221,5 +243,5 @@ CI pass; say which one you ran.
 - Mark a platform as supported only after it has been run. Anything else is
   "expected but unverified", in exactly those words, as `SCOPE.md` uses them.
 
-Publishing the repository itself for the first time follows
+Updating this repository and preparing a separately authorized release follows
 [docs/publishing-checklist.md](docs/publishing-checklist.md).

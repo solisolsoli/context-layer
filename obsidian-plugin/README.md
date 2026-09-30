@@ -83,6 +83,21 @@ files (`main.js`, `manifest.json`, `styles.css`) as assets.
 The committed `dist/main.js` is built from `src/` by `build.py`; you do not need
 to build anything to install.
 
+On Windows, the following PowerShell commands copy the plugin from the
+repository root. Replace `MyBrain` with your vault's location. If you already
+installed this plugin, back up its three installed files before replacing them.
+
+```powershell
+$contextLayerPlugin = Join-Path $env:USERPROFILE "MyBrain\.obsidian\plugins\context-layer-brain"
+New-Item -ItemType Directory -Force -Path $contextLayerPlugin | Out-Null
+Copy-Item -LiteralPath .\obsidian-plugin\dist\main.js -Destination (Join-Path $contextLayerPlugin "main.js")
+Copy-Item -LiteralPath .\obsidian-plugin\manifest.json, .\obsidian-plugin\styles.css -Destination $contextLayerPlugin
+```
+
+Then enable **Context Layer Brain View** in Obsidian as described above. Native
+Windows CLI/package tests do not certify a live Windows Obsidian rendering;
+see the [support boundaries](../SCOPE.md).
+
 ## Settings
 
 | Setting | Default | What it does |

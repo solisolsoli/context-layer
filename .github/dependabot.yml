@@ -1,9 +1,10 @@
-# Proposes updates to the SHA-pinned actions in .github/workflows/ (the only
-# dependencies this repository has: the runtime is the Python standard library).
+# Version-update pull requests are paused while maintenance is owner-only.
+# The owner reviews the SHA-pinned workflow actions manually. This setting
+# does not disable Dependabot alerts or control security-update PRs.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0

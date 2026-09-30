@@ -16,7 +16,8 @@ env:
 
 # Actions are pinned by commit. Checked on 2026-09-28 with `git ls-remote` (tag -> commit)
 # and each action.yml at that commit (`runs.using: node24`, the runtime runners now use).
-# Dependabot (.github/dependabot.yml) proposes updates; update the comment with the pin.
+# The owner reviews updates; version-update PRs are paused in .github/dependabot.yml.
+# Update the comment with the pin when a reviewed update is applied.
 jobs:
   test:
     name: python ${{ matrix.python }} on ${{ matrix.os }}

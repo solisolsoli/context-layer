@@ -301,9 +301,11 @@ class PackagingMetadata(unittest.TestCase):
         self.assertIn("example-vault/.context/facts.json", self.text)
 
     def test_only_verified_platforms_are_classified(self):
-        # README and SCOPE label Linux as expected but unverified.
-        self.assertNotIn("Operating System :: POSIX :: Linux", self.text)
-        self.assertIn("Operating System :: MacOS", self.text)
+        # README/SCOPE bind these platforms to the accepted 4dc60a9 runtime
+        # run (36773269705), including native Windows and installed packages.
+        for platform in ("MacOS", "POSIX :: Linux", "Microsoft :: Windows"):
+            self.assertIn("Operating System :: " + platform, self.text)
+        self.assertNotIn("Operating System :: OS Independent", self.text)
 
 
 class ReleaseTree(TempDir):

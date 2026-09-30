@@ -1,7 +1,7 @@
 name: release audit
 # The history audit runs before a release, not on every push: publishing the repository
 # publishes every commit, and a finding needs the owner's decision
-# (docs/publishing-checklist.md step 1b), not a quick fix.
+# (docs/publishing-checklist.md, history audit), not a quick fix.
 on:
   workflow_dispatch:
   push:
@@ -30,4 +30,4 @@ jobs:
         run: python3 scripts/audit_history.py --rev HEAD
       - name: identities in the history
         if: always()
-        run: git log --all --format='%an <%ae>%n%cn <%ce>' | sort | uniq -c
+        run: git log HEAD --format='%an <%ae>%n%cn <%ce>' | sort | uniq -c

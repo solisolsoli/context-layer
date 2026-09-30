@@ -267,8 +267,8 @@ sections: purpose, evidence and labels, plan first, stop and ask, recording,
 sub-agents, privacy, the context-layer tools, and a record format. Sections
 marked `CUSTOMIZE` in an HTML comment are yours to rewrite. Claude Code strips
 block-level HTML comments before loading the file, so those notes cost no
-context. Anthropic's guidance is to keep a `CLAUDE.md` under about 200 lines; the
-template is 166. Its examples are placeholders in angle brackets
+context. Keep the rule files concise and put detailed evidence in linked
+records. The template's examples are placeholders in angle brackets
 (`<what was done, one line>`), so no realistic example text can come back as an
 answer.
 

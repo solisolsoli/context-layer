@@ -15,15 +15,20 @@ than "your notes never leave your machine". Evidence it hands to an AI host
 (through the MCP server, the prompt hook or a task backend such as `claude`)
 goes wherever that host sends it, and is kept under that host's retention.
 
-Everything below is a plain file. There is no hidden store, no background
-process and no automatic pruning: nothing is deleted unless you delete it.
+The artifacts below are inspectable local files, including rebuildable SQLite
+indexes. Their retention differs: some are replaced, rotated or expired as
+described in the tables. Indexing and retrieval do not rewrite source notes.
 
 ## Artifacts inside the vault
 
 | Path | Written by | Contains | Kept until |
 | --- | --- | --- | --- |
 | `.context/routes.json` | `context-layer init` (refuses to overwrite without `--force`) | Route names, trigger terms guessed from folder names, file names and headings, vault-relative paths, exclusion prefixes, optional `stopwords`. No note text. | You delete or edit it. |
-| `.context/github.json` | You, by hand | Public repository names, pinned commit SHAs, file paths and local routing keywords. No tokens, prompts or note text. Read only; disabled unless enabled explicitly. | You delete or edit it. |
+| `.context/github.json` | `github-sources … --apply`, or you by hand | Public repository names, pinned commits, optional refs, file paths and local routing keywords. No credential field, prompts or note text. Retrieval only reads it; fetching requires an enabled configuration. | You delete it or apply a configuration change. |
+| `.context/github-cache.json` | `github-cache enable/disable … --apply` | Format version and cache opt-in state. No prompt or downloaded content. | You delete it or apply a configuration change. |
+| `.context/github.json.bak`, `.context/github-cache.json.bak` | Applied source/cache configuration changes | One previous copy of the respective configuration. | Replaced by the next applied change; you can delete it. |
+| `.context/github-cache/*.json` | GitHub retrieval with caching explicitly enabled | Public file bytes encoded as base64, repository/commit/path, SHA-256 and Git blob hash. No prompt or local note. Bounded to 8 MiB and 256 records, with no silent eviction. | `github-cache purge … --apply` removes records. Disabling caching leaves them in place. |
+| `.context/.github-config.lock`, `.context/.github-cache-config.lock`, `.context/github-cache/.github-cache.lock` | Source/cache coordination | Lock files, without prompt or evidence text. Cache status and purge previews may create a coordination lock in an existing cache directory. | Locks persist; cache purge does not remove the lock or configuration. |
 | `.context/facts.json` | You, by hand (the router only reads it) | Answer cards: short quotes and the paths they come from. | You delete it. |
 | `.context/index.sqlite` | `context-layer index` | **A full-text copy of every indexed file**, plus each file's path, SHA-256 and modification time, and the absolute vault path in its metadata. | The next `index` replaces it. |
 | `.context/index.sqlite.prev` | `context-layer index` (keeps the previous build for `rollback`) | The previous full-text copy. Text from a note you deleted or newly excluded survives here for one more build. | The build after next. |

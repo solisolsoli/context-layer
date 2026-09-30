@@ -69,8 +69,10 @@ directly. It raises `ValueError` if the vault is not a directory.
   has nothing to index: it is listed under `now_skipped` with a reason line,
   and it does not change `ok`.
 
-Every path in the output is vault-relative. The vault's own location is never
-printed, so a report can be pasted into an issue or a log as it stands.
+Every path in the output is vault-relative; the vault's own location is not
+printed. Relative note names may still reveal private information. Keep real
+vault reports local, and use synthetic examples for any shared report under
+the [maintenance policy](../CONTRIBUTING.md).
 
 ### Why it hashes everything, every time
 

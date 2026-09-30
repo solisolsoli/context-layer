@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Refresh onboarding, GitHub source/cache guidance, PowerShell examples,
+  privacy retention and tested platform documentation. Add package project
+  links and tested Linux/Windows classifiers; keep the package version at 0.4.0.
+- Adopt owner-only repository maintenance: close outside contribution channels,
+  keep private vulnerability reporting, update conduct/security guidance and
+  pause automated version-update pull requests. MIT rights and third-party
+  notices are unchanged.
+
 - GitHub source management with dry-run previews, branch/tag resolution to
   immutable commits, config backups and explicit old/new pin updates. Optional
   bounded cache with offline reads, integrity checks, refresh and purge controls;
