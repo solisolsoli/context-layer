@@ -85,6 +85,29 @@ class WheelContents(TempDir):
         self.assertNotRegex(source, r"(?m)^\s*assert\b")
 
 
+class ConsoleScriptIdentity(TempDir):
+    def test_console_command_must_resolve_to_the_installed_file(self):
+        scripts = self.root / "Scripts"
+        scripts.mkdir()
+        console = scripts / "context-layer.exe"
+        console.write_bytes(b"console launcher")
+        self.assertTrue(check_distribution.is_same_file(console, console))
+
+        different_dir = self.root / "other"
+        different_dir.mkdir()
+        impostor = different_dir / console.name
+        impostor.write_bytes(b"different launcher")
+        self.assertFalse(check_distribution.is_same_file(impostor, console))
+        self.assertFalse(check_distribution.is_same_file(self.root / "missing.exe", console))
+        self.assertFalse(check_distribution.is_same_file(None, console))
+
+        if os.name == "nt":
+            # Windows path lookup is case-insensitive; file identity must accept
+            # this valid spelling while still rejecting a different executable.
+            case_variant = str(console).replace("context-layer.exe", "CONTEXT-LAYER.EXE")
+            self.assertTrue(check_distribution.is_same_file(case_variant, console))
+
+
 class NormalizeSdist(TempDir):
     """E-18: two builds of the same files give one sha256, with no account names."""
 

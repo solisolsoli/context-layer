@@ -61,6 +61,14 @@ def check(condition, message):
     if not condition: raise SystemExit(f"FAILED: {message}")
 
 
+def is_same_file(left, right):
+    """Compare the executable paths by file identity, including Windows aliases."""
+    try:
+        return os.path.samefile(left, right)
+    except (OSError, TypeError, ValueError):
+        return False
+
+
 def check_sdist(wheel, version, required=True):
     """The notices the licences require must be in the source distribution.
 
@@ -211,7 +219,7 @@ def release_walk(cli, py, root, vault):
     # install sets PYTHONUTF8=1 for every host command (E-17); nothing else, and never PYTHONPATH
     check(entry.get("env", {}) == {"PYTHONUTF8": "1"} and "PYTHONPATH" not in printed,
           f"the installed console script exports an unexpected env: {entry}")
-    check(pathlib.Path(entry["command"]).name in {"context-layer", "context-layer.exe"},
+    check(is_same_file(entry["command"], cli),
           f"the printed command is not the console script: {entry['command']}")
     check(json.loads(run([str(cli), "install", "generic", "--vault", str(vault)], cwd=root)) ==
           json.loads(printed), "`install generic` and `install print generic` disagree")

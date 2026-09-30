@@ -188,6 +188,10 @@ jobs:
       - run: python -m pip install build==1.6.1 pyflakes==4.0.0
       - run: python router/build_index.py --vault router/example-vault
       - run: python router/test_context_router.py
+      # Check the installed Windows launchers before the longer unit-test loop.
+      # Keep the fixture index present so the sdist exclusion check stays meaningful.
+      - run: python -m build
+      - run: python scripts/check_distribution.py dist/*.whl
       - name: every suite under tests/ (what make test runs)
         run: |
           failed=""
@@ -201,5 +205,3 @@ jobs:
       - run: python -m compileall -q context_layer router eval tests scripts bench obsidian-plugin/build.py
       - run: python -m pyflakes context_layer router eval tests scripts bench obsidian-plugin/build.py
       - run: python scripts/check_network_surface.py
-      - run: python -m build
-      - run: python scripts/check_distribution.py dist/*.whl
