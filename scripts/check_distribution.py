@@ -39,6 +39,7 @@ import argparse, hashlib, json, os, pathlib, shlex, subprocess, sys, tarfile, te
 
 HOME = None  # set once the temporary directory exists; every child inherits it
 PATH_PREFIX = None  # the fresh venv's bin, so children see the installed console script
+RUNNER_TOOLCHAIN_DIRS = {".rustup"}  # created by rustup itself, never by this package
 
 def run(cmd, *, cwd=None, env=None, expect=(0,), path=None, stdin=None):
     e = dict(env or os.environ)
@@ -456,7 +457,11 @@ def main(argv=None) -> int:
         walk03 = walk_03(cli, root)
         task_id = walk["task"].split(":")[0]
         upgraded = upgrade(cli, py, wheel, root, vault, task_id)
-        check(list(HOME.iterdir()) == [], f"a child wrote into the temporary HOME: {list(HOME.iterdir())}")
+        # A CI runner's rustup proxies on PATH create ~/.rustup when a toolchain lookup
+        # passes through them; nothing in this package names rustup or cargo. Anything
+        # else in the temporary HOME is a write by a context-layer child.
+        written = [p for p in HOME.iterdir() if p.name not in RUNNER_TOOLCHAIN_DIRS]
+        check(written == [], f"a child wrote into the temporary HOME: {written}")
         print(json.dumps({"status": "pass", "version": version.strip(), "evaluation_prompts": summary["n"],
                           "fts_delivered_groups": 25, "installed_outside_checkout": True,
                           "sdist_notices_checked": notices, "wheel_licenses": wheel_licenses,
