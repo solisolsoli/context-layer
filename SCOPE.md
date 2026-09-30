@@ -3,12 +3,16 @@
 ## Unreleased addition
 
 Optional GitHub context adds commit-pinned, allowlisted public evidence through
-the CLI and a tenth MCP tool. It is off by default and preserves local search
-status and evidence; [docs/github-context.md](docs/github-context.md) defines
-its bounds. The [hosted run for `db9b8ac`](https://github.com/solisolsoli/context-layer/actions/runs/36732194741)
-passed all 11 required jobs. The exploratory Windows job failed on pre-existing
-platform assumptions; Windows remains out of scope. This run does not establish
-live host integration or model answer quality.
+the CLI and a tenth MCP tool. Source-management commands preview configuration
+changes, a separately enabled verified cache supports offline reads, and
+upstream checks preview changes without updating a pin. Pin updates require
+the expected old commit and an explicit new commit. Retrieval is off by default
+and preserves local search status and evidence;
+[docs/github-context.md](docs/github-context.md) defines its use and bounds.
+The [hosted run for `4abc25e`](https://github.com/solisolsoli/context-layer/actions/runs/36763000857)
+passed all 12 required jobs, including native Windows full tests and the
+installed-distribution walk. This establishes the tested platform coverage
+below, not live host integration or model answer quality.
 
 ## 0.4 scope (2026-09-29)
 
@@ -78,8 +82,8 @@ freedom. Concretely, every 0.2 component must satisfy:
 
 | Area | Supported (tested) | Expected but unverified | Out of scope |
 | --- | --- | --- | --- |
-| OS | macOS 14+; Ubuntu (hosted CI) | other Linux distributions | Windows |
-| Python | 3.10–3.13 on Ubuntu; 3.12 on macOS | other OS/Python combinations | <3.10 |
+| OS | macOS 14+; Ubuntu and Windows (hosted CI) | other Linux distributions | — |
+| Python | 3.10–3.13 on Ubuntu; 3.12 on macOS and Windows | other OS/Python combinations | <3.10 |
 | Vault | Folder of UTF-8 `.md` files (Obsidian or plain) | — | symlinked sources, binary notes |
 | AI host | Claude Code 2.1+ via MCP stdio and `UserPromptSubmit` hook | Codex CLI via MCP stdio config (CLI absent on the reference machine) | any host without MCP or hooks |
 | Obsidian | 1.13.7 desktop (live render checked on the fictional vault) | other 1.x desktop | mobile |

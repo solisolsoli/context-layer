@@ -22,9 +22,10 @@
   separate from local evidence, Jev and the session ledger; local retrieval
   defaults, errors and withheld-source handling are preserved.
 
-- Record hosted CI evidence for Ubuntu (Python 3.10–3.13) and macOS (3.12),
-  packaging, benchmarks and the plugin. Keep the pre-existing Windows
-  compatibility failures visible and Windows outside the supported scope.
+- Record passing hosted CI for all 12 required jobs: Ubuntu (Python 3.10–3.13),
+  macOS and Windows (3.12), installed packages, benchmarks, Jev and the plugin.
+  Windows support includes full tests and installed hook/uninstall verification;
+  package checks run before its longer unit suite to expose install failures early.
 
 - Brain View: the HUD title and counts line take a lighter typography
   (a light, widely spaced title and a

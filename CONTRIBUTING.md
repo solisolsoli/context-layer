@@ -98,19 +98,20 @@ benchmark, and `make dist` builds the wheel and a reproducible sdist.
 `PYTHON` may be a command on `PATH` or a path to an interpreter, relative or
 absolute (`make test PYTHON=.venv/bin/python`).
 
-Hosted CI (`.github/workflows/tests.yml`, actions pinned by commit) runs
-`make test`, `make demo`, `make lint`, `python -m build` and the distribution
-check on Python 3.10-3.13 on Ubuntu and on one macOS job (Python 3.12), plus
-Ubuntu jobs for the plugin's build check and Node tests (Node 24), the sealed
-benchmark's checks, `bench-reproduce` (reruns the benchmark and the README's
-numbers), `doc-claims`, and `reproducible build` (two builds, one sha256), and
-a required Windows job (Python 3.12) running all suites, lint, the network
-boundary check and the installed distribution walk. `.github/workflows/release-audit.yml`
-runs the history audit on every `v*` tag. The [hosted run for `db9b8ac`](https://github.com/solisolsoli/context-layer/actions/runs/36732194741)
-passed all 11 required jobs. The exploratory Windows job failed; its 36 new
-GitHub-context tests passed, but existing POSIX locks, permission and process
-assumptions still keep Windows out of scope. See
-[docs/publishing-checklist.md](docs/publishing-checklist.md).
+Hosted CI (`.github/workflows/tests.yml`, actions pinned by commit) runs 12
+required jobs. The Ubuntu matrix (Python 3.10–3.13) and macOS job (Python 3.12)
+run `make test`, `make demo`, lint, the network boundary check, build and the
+distribution check. The Windows job (Python 3.12) runs the fixture router checks,
+build and installed-distribution walk before all unit suites, benchmark checks,
+lint and the network boundary check. Ubuntu jobs also cover the plugin's build
+and Node tests (Node 24), the sealed benchmark, `bench-reproduce` (fresh benchmark
+and README numbers), `doc-claims`, the Jev recording-to-calibration chain, and
+`reproducible build` (two builds, one SHA-256).
+The [hosted run for `4abc25e`](https://github.com/solisolsoli/context-layer/actions/runs/36763000857)
+passed all 12 jobs. This is package and platform verification; a live AI host
+session and model answer quality require separate evidence.
+`.github/workflows/release-audit.yml` runs the history audit on every `v*` tag.
+See [docs/publishing-checklist.md](docs/publishing-checklist.md).
 
 ## The distribution check
 
