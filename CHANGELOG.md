@@ -9,6 +9,10 @@
   separate from local evidence, Jev and the session ledger; local retrieval
   defaults, errors and withheld-source handling are preserved.
 
+- Record hosted CI evidence for Ubuntu (Python 3.10–3.13) and macOS (3.12),
+  packaging, benchmarks and the plugin. Keep the pre-existing Windows
+  compatibility failures visible and Windows outside the supported scope.
+
 - Brain View: the HUD title and counts line take a lighter typography
   (a light, widely spaced title and a
   monospace line; local font stacks, themeable through `--nb-hud-font` and

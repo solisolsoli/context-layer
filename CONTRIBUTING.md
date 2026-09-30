@@ -105,9 +105,11 @@ Ubuntu jobs for the plugin's build check and Node tests (Node 24), the sealed
 benchmark's checks, `bench-reproduce` (reruns the benchmark and the README's
 numbers), `doc-claims`, and `reproducible build` (two builds, one sha256), and
 a Windows smoke job that never blocks. `.github/workflows/release-audit.yml`
-runs the history audit on every `v*` tag. Hosted CI has not run yet for this
-release; the first run happens when the repository is published (see
-[docs/publishing-checklist.md](docs/publishing-checklist.md)).
+runs the history audit on every `v*` tag. The [hosted run for `db9b8ac`](https://github.com/solisolsoli/context-layer/actions/runs/36732194741)
+passed all 11 required jobs. The exploratory Windows job failed; its 36 new
+GitHub-context tests passed, but existing POSIX locks, permission and process
+assumptions still keep Windows out of scope. See
+[docs/publishing-checklist.md](docs/publishing-checklist.md).
 
 ## The distribution check
 

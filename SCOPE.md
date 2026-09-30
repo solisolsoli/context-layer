@@ -1,5 +1,15 @@
 # Scope, support matrix and acceptance
 
+## Unreleased addition
+
+Optional GitHub context adds commit-pinned, allowlisted public evidence through
+the CLI and a tenth MCP tool. It is off by default and preserves local search
+status and evidence; [docs/github-context.md](docs/github-context.md) defines
+its bounds. The [hosted run for `db9b8ac`](https://github.com/solisolsoli/context-layer/actions/runs/36732194741)
+passed all 11 required jobs. The exploratory Windows job failed on pre-existing
+platform assumptions; Windows remains out of scope. This run does not establish
+live host integration or model answer quality.
+
 ## 0.4 scope (2026-09-29)
 
 0.4 keeps the 0.3 scope below and adds: an optional, default-off advisor (Jev,
@@ -10,8 +20,8 @@ suggestions (`graph suggest`); the session brief and an opt-in delivery ledger
 with a citation check; `check_claims` as the ninth MCP tool; and the fixes the
 0.3 audit and a later independent audit found (CHANGELOG.md lists them). The
 same definition of done applies. The support matrix below is the current one;
-a live host, a live model and hosted CI have not been run for this release
-candidate (see README.md, Support).
+a live host and a live model have not been run for this release candidate.
+The hosted CI result is recorded above and in README.md, Support.
 
 ## 0.3 scope (2026-09-24)
 
@@ -68,8 +78,8 @@ freedom. Concretely, every 0.2 component must satisfy:
 
 | Area | Supported (tested) | Expected but unverified | Out of scope |
 | --- | --- | --- | --- |
-| OS | macOS 14+ | Linux (CI matrix, not yet run) | Windows |
-| Python | 3.12 | 3.10, 3.11, 3.13 (CI matrix, not yet run) | <3.10 |
+| OS | macOS 14+; Ubuntu (hosted CI) | other Linux distributions | Windows |
+| Python | 3.10–3.13 on Ubuntu; 3.12 on macOS | other OS/Python combinations | <3.10 |
 | Vault | Folder of UTF-8 `.md` files (Obsidian or plain) | — | symlinked sources, binary notes |
 | AI host | Claude Code 2.1+ via MCP stdio and `UserPromptSubmit` hook | Codex CLI via MCP stdio config (CLI absent on the reference machine) | any host without MCP or hooks |
 | Obsidian | 1.13.7 desktop (live render checked on the fictional vault) | other 1.x desktop | mobile |

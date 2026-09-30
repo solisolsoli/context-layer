@@ -174,15 +174,19 @@ v3.0.1 and carry its MIT notice. Full list: [CREDITS.md](CREDITS.md),
 
 | Area | Tested here | Expected but unverified | Out of scope |
 | --- | --- | --- | --- |
-| OS | macOS 14+ | Linux (CI matrix, not yet run) | Windows |
-| Python | 3.12 | 3.10, 3.11, 3.13 (CI matrix, not yet run) | < 3.10 |
+| OS | macOS 14+; Ubuntu (hosted CI) | other Linux distributions | Windows |
+| Python | 3.10–3.13 on Ubuntu; 3.12 on macOS | other OS/Python combinations | < 3.10 |
 | Vault | UTF-8 `.md` folder (Obsidian or plain) | — | symlinked sources, binary notes |
 | Text encoding | UTF-8 locale, or UTF-8 mode (`PYTHONUTF8=1`: `make` sets it, `install` writes it into the host commands) | — | a non-UTF-8 locale without UTF-8 mode: the package's own file reads and writes name UTF-8, but some test suites (`tests/test_integrity.py`, for one) fail under a Latin-1 locale |
 | AI host | Claude Code 2.1+ (MCP stdio, `UserPromptSubmit` hook) | Codex CLI via MCP config | hosts without MCP or hooks |
 | Obsidian | 1.13.7 desktop (live render checked on the fictional vault) | other 1.x desktop | mobile |
 
-Hosted CI has not run for this release candidate; see
-[docs/publishing-checklist.md](docs/publishing-checklist.md).
+The [hosted run for `db9b8ac`](https://github.com/solisolsoli/context-layer/actions/runs/36732194741)
+passed all 11 required jobs, including the Ubuntu/macOS matrix, packaging,
+benchmark reproduction and plugin tests. The exploratory Windows job failed,
+as it also did before this addition; Windows remains outside the supported
+scope. The 36 GitHub-context tests passed there too. CI does not verify a live
+AI host session. See [docs/publishing-checklist.md](docs/publishing-checklist.md).
 
 ## Documentation
 

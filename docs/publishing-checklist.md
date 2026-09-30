@@ -152,6 +152,7 @@ repository.
   - `sealed benchmark (offline)`;
   - `bench-reproduce` (reruns the benchmark and the README's numbers);
   - `doc-claims` (documented numbers and relative links);
+  - `jev recording chain` (offline recording, calibration and replay);
   - `reproducible build` (two builds, one sha256).
 
   Do not select `windows smoke (non-blocking)`: it runs with
@@ -166,14 +167,13 @@ it uses are pinned by commit; `.github/dependabot.yml` proposes updates.
 
 - If a job fails, fix it with a normal commit on `main` and push again. Do not
   tag a commit whose run is red.
-- A local pass is not a hosted pass. Until this run is green, the sentence
-  "Hosted CI has not run for this release candidate" in the README stays true
-  and stays in.
+- A local pass is not a hosted pass. Keep the README's result tied to the
+  tested commit and run; do not present an older pass as a new candidate's pass.
 - Once it is green, update what the run changes, in one commit: the README
-  sentence above, the "(CI matrix, not yet run)" labels in the README support
-  table, and the matching sentence in
-  [CONTRIBUTING.md](../CONTRIBUTING.md#the-suites) (say that hosted CI passed and
-  on which commit). The support matrix in the README and in
+  support table and the matching result in
+  [CONTRIBUTING.md](../CONTRIBUTING.md#the-suites) (say which jobs passed and
+  on which commit). Report an exploratory Windows failure separately even
+  when the workflow's overall conclusion is green. The support matrix in the README and in
   [SCOPE.md](../SCOPE.md) moves a platform to "tested" only if you decide that a
   green test-suite run on it is enough; otherwise it stays "expected but
   unverified". A CI run is not a live host run.
