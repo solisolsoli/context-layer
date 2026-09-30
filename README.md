@@ -11,10 +11,10 @@ enable the optional advisor (off by default). No database you cannot open. MIT.
 
 <p align="center">
   <img src="docs/images/brain-view.png" width="520"
-       alt="Context Layer Brain View: a 3D view of a fictional vault's explicit link graph; the notes and links used by the last retrieval are highlighted">
+       alt="Context Layer Brain View: a 3D sphere of a vault's explicit link graph; each point is a note, each line a resolved link, brighter where a note has more links">
 </p>
-<p align="center"><sub>Brain View in Obsidian on the fictional benchmark vault: seed notes (amber),
-notes reached through a link and delivered (blue), links traversed by the last retrieval.</sub></p>
+<p align="center"><sub>The Brain View look: a large vault's link graph at rest, each point a note and
+each line a resolved link; colour and size follow how many notes a note links to.</sub></p>
 
 > **Read before connecting an agent.** Retrieved notes are data, but a note can
 > contain text that looks like instructions (prompt injection). Evidence is
