@@ -2,11 +2,9 @@
 
 AGENTS.md and CLAUDE.md must stay byte-identical. Mirror any edit in the same
 change. Record release changes in CHANGELOG.md; retain detailed evidence in
-the owner's task or review record rather than embedding private transcripts here.
+the task or review record rather than embedding private transcripts here.
 
-This repository is owner-maintained. Outside contributions, issues, pull
-requests and discussions are closed for now; only the owner authorizes and
-publishes changes. Preserve MIT rights and third-party notices. Keep private
+Preserve MIT rights and third-party notices. Keep private
 vulnerability reporting available under SECURITY.md; do not use that channel
 for support or conduct reports. Follow CONTRIBUTING.md and the current
 publishing checklist. Documentation must match CLI defaults and failure states;

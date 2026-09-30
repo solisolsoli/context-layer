@@ -16,11 +16,6 @@ source/cache tools and Windows support documented under
 [Unreleased](CHANGELOG.md#unreleased). Install from this repository; these
 checkout additions are not a separate PyPI release.
 
-**Maintenance:** this repository is maintained only by its owner. Outside pull
-requests, issues and discussions are closed for now. Use and fork the code
-under the [MIT license](LICENSE); report vulnerabilities privately through
-[SECURITY.md](SECURITY.md). See [CONTRIBUTING.md](CONTRIBUTING.md) for the policy.
-
 <p align="center">
   <img src="docs/images/brain-view.png" width="520"
        alt="Context Layer Brain View: a 3D sphere of a vault's explicit link graph; each point is a note, each line a resolved link, brighter where a note has more links">
@@ -117,7 +112,7 @@ the everyday loop (plan → evidence → act → verify → record) are in
 
 ## Fill a knowledge gap from GitHub
 
-The owner chooses public repositories, files and immutable commits once. The
+The vault owner chooses public repositories, files and immutable commits once. The
 agent can then fetch those documents when local evidence is insufficient.
 This is useful for a project's documentation, a prompt file or an MCP setup
 guide. Retrieved text remains evidence; it does not install tools or change
@@ -287,7 +282,7 @@ host session or model answer quality. See
 | [docs/README.md](docs/README.md) | Index of the component docs (host integration, memory, tasks, lifecycle) |
 | [obsidian-plugin/README.md](obsidian-plugin/README.md) | Brain View install, settings, activation overlay |
 | [bench/README.md](bench/README.md) | The sealed benchmark and how to rerun it |
-| [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) · [CHANGELOG.md](CHANGELOG.md) | Private security reporting, owner maintenance, conduct and releases |
+| [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) · [CHANGELOG.md](CHANGELOG.md) | Private security reporting, development, conduct and releases |
 
 ## Development and license
 
@@ -297,8 +292,7 @@ installs a built wheel into a fresh environment and runs the walks listed in the
 script's own header (`make test` covers the rest).
 
 MIT, copyright **solisolsoli**: [LICENSE](LICENSE). The license permits use,
-modification and redistribution subject to its terms; it does not grant write
-access to this repository or require the owner to accept contributions.
+modification and redistribution subject to its terms.
 Retained third-party notices are listed in [THIRD_PARTY.md](THIRD_PARTY.md).
 No personal vault, prompts, packets, host settings or private research are
 distributed.

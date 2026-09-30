@@ -14,8 +14,6 @@ or open this repository's **Security** tab and choose **Report a vulnerability**
 Sign in to GitHub if prompted. Reports stay private to the reporting and
 repository security participants until disclosure; they are not public issues.
 
-The repository is maintained only by its owner. Public issues, pull requests
-and discussions are closed, but private vulnerability reporting remains open.
 If GitHub's private form is unavailable, keep the details private and retry
 that channel later; do not put them in commit comments, forks or public posts.
 There is no alternate project email address or public support queue.
@@ -35,8 +33,8 @@ describe any missing detail without including private content.
 
 ## What happens next
 
-This is an owner-maintained project. Reports are acknowledged and
-investigated on a best-effort basis; there is no guaranteed response time. A
+Reports are acknowledged and investigated on a best-effort basis; there is
+no guaranteed response time. A
 confirmed issue gets a GitHub security advisory, published once a fix is
 released — or published without a fix, with the workaround, if no fix is in
 sight. Credit is given in the advisory unless you ask otherwise.

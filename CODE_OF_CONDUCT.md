@@ -1,9 +1,7 @@
 # Code of conduct
 
-Context Layer is maintained only by its owner. Outside contributions, public
-issues, pull requests and discussions are closed for now; see
-[CONTRIBUTING.md](CONTRIBUTING.md). This policy applies to project-related
-interactions that remain available, including private vulnerability reports.
+These standards apply to project-related interactions, including private
+vulnerability reports.
 
 ## Expected behavior
 
@@ -16,7 +14,7 @@ interactions that remain available, including private vulnerability reports.
 
 ## Enforcement and reporting
 
-The owner may remove abusive content, limit interactions or block accounts
+Project maintainers may remove abusive content, limit interactions or block accounts
 that violate these standards. Decisions depend on the conduct and its impact;
 no particular response time or separate appeals process is promised.
 
@@ -27,5 +25,4 @@ repeating private information in a public response.
 
 Use [SECURITY.md](SECURITY.md) only for vulnerabilities in this project.
 GitHub security advisories are not a conduct-reporting or general support
-channel. This document does not open the repository to outside contributions
-or grant write access.
+channel.

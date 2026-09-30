@@ -1,29 +1,13 @@
-# Contributing
+# Development and validation
 
-## Current policy: owner maintenance only
+This guide covers local development, testing and release checks for Context
+Layer. Keep changes within [SCOPE.md](SCOPE.md). When using an AI assistant,
+review and test its output; the assistant's report alone is not acceptance
+evidence. The [MIT license](LICENSE) applies to use, modification and
+redistribution; preserve copyright and license notices.
 
-Outside contributions are **not accepted at this time**, including code,
-documentation, translations, feature requests and unsolicited patches. Only
-the repository owner maintains and publishes changes. Pull requests, issues
-and discussions are disabled; there is no public support queue or response
-commitment. This policy remains in effect until the owner changes it here.
-
-The [MIT license](LICENSE) still permits you to use, copy, modify and
-redistribute the software under its terms, including in your own fork. Those
-rights do not grant write access to this repository or imply acceptance of a
-contribution. Preserve the copyright and license notices.
-
-Private vulnerability reports remain welcome through [SECURITY.md](SECURITY.md).
-They are a confidential reporting channel, not a route for feature requests
-or general support. Behaviour in project interactions follows
-[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
-
-## Maintainer workflow
-
-The remaining instructions are for the owner and anyone maintaining their own
-copy. Keep changes within [SCOPE.md](SCOPE.md). When using an AI assistant,
-review and test its output before publishing; the assistant's report alone is
-not acceptance evidence.
+Report vulnerabilities privately through [SECURITY.md](SECURITY.md).
+Project interactions follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 Everything in the repository is written in English: code, comments, docs,
 fixtures, test strings and commit messages.

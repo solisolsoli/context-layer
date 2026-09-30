@@ -1,6 +1,6 @@
-# Version-update pull requests are paused while maintenance is owner-only.
-# The owner reviews the SHA-pinned workflow actions manually. This setting
-# does not disable Dependabot alerts or control security-update PRs.
+# Review SHA-pinned workflow actions when updating dependencies.
+# This version-update limit does not disable Dependabot alerts or control
+# security-update pull requests.
 version: 2
 updates:
   - package-ecosystem: github-actions

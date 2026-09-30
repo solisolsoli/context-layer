@@ -72,7 +72,7 @@ directly. It raises `ValueError` if the vault is not a directory.
 Every path in the output is vault-relative; the vault's own location is not
 printed. Relative note names may still reveal private information. Keep real
 vault reports local, and use synthetic examples for any shared report under
-the [maintenance policy](../CONTRIBUTING.md).
+the [development guide](../CONTRIBUTING.md).
 
 ### Why it hashes everything, every time
 

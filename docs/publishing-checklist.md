@@ -1,8 +1,8 @@
 # Maintainer update and release checklist
 
-This checklist is for the owner of the existing
+This checklist covers updates to the existing
 [Context Layer repository](https://github.com/solisolsoli/context-layer).
-Outside contributions are closed under [CONTRIBUTING.md](../CONTRIBUTING.md).
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for development and validation.
 Use the existing public history and `main` branch. Updating documentation or
 pushing a commit does not create a release, publish to PyPI, or authorize
 installation into anyone's live vault.
@@ -82,7 +82,7 @@ build metadata. Distinguish deliberate synthetic secret fixtures from real
 credentials without copying matched values into reports.
 
 Review author/committer identities and trailers for the public ancestry. Use
-the public project identity and a GitHub noreply email for owner commits; keep
+the public project identity and a GitHub noreply email for project commits; keep
 private names, addresses and local timezone details out of commit metadata.
 If a real secret has reached public history, stop that publication, revoke the
 secret, and handle history cleanup as a separate explicit recovery operation.
@@ -90,31 +90,24 @@ Do not silently force-push or rewrite established public history.
 
 ## 4. Verify repository settings
 
-These settings implement the current owner-maintenance policy; verify their
-actual state rather than assuming a documentation edit applied them:
+Verify actual repository settings rather than assuming a documentation edit
+applied them:
 
-- Only the owner has repository write access. Review collaborators, pending
-  invitations and deploy keys; retain no unintended write grant.
-- Pull requests, issues, discussions and the unused wiki are disabled. Keep
-  the repository public. MIT use and fork rights are unchanged.
-- Private vulnerability reporting is enabled. The reporting form linked in
-  [SECURITY.md](../SECURITY.md) requires a GitHub sign-in; it must remain
-  separate from conduct reports or general support.
+- Review repository access, pending invitations and deploy keys. Retain no
+  unintended write grant, and do not change access or visibility incidentally.
+- Keep private vulnerability reporting available through [SECURITY.md](../SECURITY.md).
+  The reporting form requires a GitHub sign-in and is separate from conduct
+  reports or general support.
 - Actions workflow tokens default to read access and cannot approve pull
-  requests. Workflows declare `contents: read`. Keep CI running on owner pushes.
-- Dependabot version-update PRs are paused (`open-pull-requests-limit: 0`).
-  Security-update PRs are separately disabled in repository settings; alerts
-  and secret scanning are not disabled by that policy. The owner reviews
-  pinned action updates. Keep secret scanning and push protection enabled.
+  requests. Workflows declare `contents: read`. Keep CI running on pushes.
+- Review dependency-update settings separately from alerts. Keep secret
+  scanning and push protection enabled; review pinned action updates.
 - The About description and topics describe current features without unmeasured
   accuracy claims. The website points to the repository's documentation.
-- Do not impose a required-PR rule while PR creation is disabled. Any future
-  ruleset must preserve the owner's intended update path.
+- Check that branch rules and available workflows leave a valid update path.
 
-GitHub documents the current controls in
-[disabling pull requests](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/disabling-pull-requests)
-and the [repository REST API](https://docs.github.com/en/rest/repos/repos).
-A temporary interaction limit is not a permanent replacement for these controls.
+GitHub documents these controls in the
+[repository REST API](https://docs.github.com/en/rest/repos/repos).
 
 ## 5. Commit, push and verify hosted CI
 
@@ -144,7 +137,7 @@ change which runtime was measured. CI does not prove live-host behavior.
 
 ## 6. A new version is a separate release step
 
-Only after the owner chooses a new version and authorizes a release:
+After a new version is chosen and its release is authorized:
 
 1. Align `pyproject.toml`, `context_layer/__init__.py`, the plugin manifest and
    the new changelog entry. Run the applicable full gate for that revision.

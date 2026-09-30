@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Maintenance policy
-    url: https://github.com/solisolsoli/context-layer/blob/main/CONTRIBUTING.md
-    about: This repository is maintained only by its owner; outside contributions are closed.
+  - name: Documentation
+    url: https://github.com/solisolsoli/context-layer/blob/main/docs/README.md
+    about: Setup, usage, command references and troubleshooting.
   - name: Report a security vulnerability privately
     url: https://github.com/solisolsoli/context-layer/security/advisories/new
     about: Synthetic vulnerability reports only; never include credentials or private vault content.
