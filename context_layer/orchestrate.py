@@ -73,13 +73,9 @@ import secrets
 import sqlite3
 import stat
 import sys
-import tempfile
 import unicodedata
-
-try:  # POSIX advisory locks for the ledger; absent on Windows, which is out of scope.
-    import fcntl
-except ImportError:  # pragma: no cover
-    fcntl = None
+from .platform_support import (atomic_write as _portable_atomic_write, file_lock,
+                               private_tempfile, set_private_permissions)
 
 SCHEMA_PACKET = "context-layer-shared-packet/v1"
 SCHEMA_JOB = "support-job/v1"
@@ -188,20 +184,8 @@ def atomic_write(path: Path, text: str) -> None:
     A reader sees the old bytes or the new ones, never a torn file, and two writers
     never share a staging name.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    handle = tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent,
-                                         prefix="." + path.name + ".", suffix=".tmp",
-                                         delete=False)
-    staging = Path(handle.name)
-    try:
-        with handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(staging, path)
-        fsync_dir(path.parent)
-    finally:
-        staging.unlink(missing_ok=True)
+    _portable_atomic_write(path, text, private=True)
+    fsync_dir(path.parent)
 
 
 _atomic_write = atomic_write  # the 0.3 name
@@ -215,12 +199,10 @@ def create_exclusive(path: Path, text: str) -> bool:
     both win.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    handle = tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent,
-                                         prefix="." + path.name + ".", suffix=".tmp",
-                                         delete=False)
-    staging = Path(handle.name)
+    fd, staging = private_tempfile(path.parent, prefix="." + path.name + ".",
+                                   suffix=".tmp")
     try:
-        with handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
@@ -230,10 +212,11 @@ def create_exclusive(path: Path, text: str) -> bool:
             return False
         except OSError:  # a file system without hard links: O_EXCL instead
             try:
-                descriptor = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+                descriptor = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
             except FileExistsError:
                 return False
-            with os.fdopen(descriptor, "w", encoding="utf-8") as target:
+            set_private_permissions(descriptor, path)
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as target:
                 target.write(text)
                 target.flush()
                 os.fsync(target.fileno())
@@ -1941,15 +1924,8 @@ def ledger_path(vault: Path) -> Path:
 def _ledger_lock(vault: Path):
     directory = ledger_path(vault).parent
     directory.mkdir(parents=True, exist_ok=True)
-    if fcntl is None:
-        raise OrchestrateError("this platform has no POSIX file locks (fcntl); the ledger "
-                               "needs them")
-    with open(directory / ".ledger.lock", "a+", encoding="utf-8") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    with file_lock(directory / ".ledger.lock"):
+        yield
 
 
 def _last_line(path: Path) -> tuple[bytes | None, bool]:

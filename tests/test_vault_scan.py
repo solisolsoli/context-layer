@@ -15,10 +15,13 @@ import sys
 import tempfile
 import unittest
 
+from _portable_helpers import isolated_home_env
+
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from context_layer.vault_scan import print_report, render_config, scan_vault  # noqa: E402
+from context_layer.vault_scan import (print_report, render_config, scan_vault,
+                                      writable_exclusions)  # noqa: E402
 from router import source_policy  # noqa: E402
 
 
@@ -55,7 +58,7 @@ class ScannerTests(unittest.TestCase):
         for expected in (".obsidian/", ".trash/", "node_modules/",
                          "Generated/", "Archive/", "Attachments/"):
             self.assertIn(expected, prefixes)
-        indexed = {str(p) for p in result.text_files}
+        indexed = {p.as_posix() for p in result.text_files}
         self.assertEqual(indexed, {"Notes/one.md", "Notes/two.md"})
         # An archive folder is also offered as a mirror prefix.
         self.assertIn("Archive/", result.mirror_prefixes)
@@ -212,6 +215,19 @@ class ScannerTests(unittest.TestCase):
     # -- the generated config must load (A-04) and the report stays relative (A-20)
 
     def test_init_never_writes_a_prefix_the_loader_refuses(self) -> None:
+        if os.name == "nt":
+            # Windows forbids these two POSIX fixture names. Exercise the same
+            # route-writer boundary with the names returned by a scan instead.
+            written, omitted = writable_exclusions([
+                ("Archive: 2024/", "generated archive folder"),
+                ("Old backup /", "generated backup folder"),
+            ])
+            self.assertEqual(written, [])
+            omitted = dict(omitted)
+            self.assertIn("skips its files as unsupported names", omitted["Archive: 2024/"])
+            self.assertIn("its notes are indexed unless you rename the folder",
+                          omitted["Old backup /"])
+            return
         for number in (1, 2, 3):
             write(self.root, f"Archive: 2024/old-{number}.md", "# Old\n\nold text\n")
             write(self.root, f"Old backup /copy-{number}.md", "# Copy\n\ncopy\n")
@@ -238,7 +254,7 @@ class ScannerTests(unittest.TestCase):
         write(self.root, "Reference/style-guide.md", "# Style guide\n\n## Voice\n\ny\n")
         done = subprocess.run([sys.executable, "-m", "context_layer.cli", "init", str(self.root)],
                               cwd=REPO, capture_output=True, text=True,
-                              env={**os.environ, "HOME": str(self.root)})
+                              env=isolated_home_env(os.environ, str(self.root)))
         self.assertEqual(done.returncode, 0, done.stderr)
         output = done.stdout + done.stderr
         self.assertIn("Scanned .\n", output)

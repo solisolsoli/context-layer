@@ -1,6 +1,8 @@
 """Offline tests for local selection and bounded GitHub evidence packets."""
 import hashlib
 import json
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,6 +14,13 @@ from context_layer import github_context as gh  # noqa: E402
 
 COMMIT = "b" * 40
 TEXT = "# Fictional project\nThe harbor keeper checks every lamp at dusk.\nA second line records the repair.\n"
+
+
+def make_junction(link: Path, target: Path):
+    completed = subprocess.run(["cmd.exe", "/c", "mklink", "/J", str(link), str(target)],
+                               capture_output=True, text=True, timeout=10)
+    if completed.returncode != 0:
+        raise AssertionError("Windows CI could not create a temporary directory junction")
 
 
 def source(sid="project-docs", **changes):
@@ -159,6 +168,26 @@ class GitHubContextTests(unittest.TestCase):
         alias = self.vault / "vault-link"
         alias.symlink_to(target, target_is_directory=True)
         self.assertEqual(gh.fetch(alias, "harbor")["errors"], ["invalid_config"])
+
+    @unittest.skipUnless(os.name == "nt", "Windows junction boundary regression")
+    def test_context_junction_to_external_config_is_rejected_without_network(self):
+        from context_layer import github_sources
+
+        outside = self.vault / "external-config"
+        outside.mkdir()
+        external_config = outside / "github.json"
+        external_config.write_text(json.dumps({"version": 1, "enabled": True,
+                                               "sources": [source()]}), encoding="utf-8")
+        before = external_config.read_bytes()
+        self.context.rmdir()
+        make_junction(self.context, outside)
+        with mock.patch.object(gh.github_client, "fetch_file", side_effect=AssertionError("network")) as fetch:
+            result = gh.fetch(self.vault, "harbor")
+            mutation = github_sources.set_enabled(self.vault, False, apply=True)
+        self.assertEqual(result["errors"], ["invalid_config"])
+        self.assertEqual(mutation["status"], "ERROR")
+        self.assertEqual(external_config.read_bytes(), before)
+        fetch.assert_not_called()
 
     def test_more_than_two_keyword_selected_sources_is_reported_as_partial(self):
         rows = [source(f"docs-{i}", keywords=["harbor"]) for i in range(3)]

@@ -14,6 +14,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+
+from _portable_helpers import assert_private_path, isolated_home_env
 from unittest import mock
 
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
@@ -51,7 +53,7 @@ class Case(unittest.TestCase):
             path = self.vault / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
-        self.env = dict(os.environ, HOME=str(self.vault.parent))
+        self.env = isolated_home_env(os.environ, str(self.vault.parent))
         self.env.pop("CLAUDE_CODE_SESSION_ID", None)
         done = self.cli("index", str(self.vault))
         self.assertEqual(done.returncode, 0, done.stderr)
@@ -145,7 +147,7 @@ class Recording(Case):
             self.assertEqual(row["p"], sorted(row["p"]))
             self.assertGreaterEqual(len(row["p"]), 2)
             self.assertFalse([p for p in row["p"] if p.startswith("private")], row)
-        self.assertEqual(oct(self.ledger.stat().st_mode & 0o777), "0o600")
+        assert_private_path(self, self.ledger)
 
     def test_session_is_stored_only_as_a_hash(self):
         self.usage_on()

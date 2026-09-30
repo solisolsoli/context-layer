@@ -3,8 +3,12 @@
 context-layer makes no network request of its own unless you explicitly use
 configured [GitHub context](github-context.md) or enable the
 optional advisor ([jev.md](jev.md)). Both are off by default. GitHub context
-sends only configured public repository paths and pinned commits, never a
-prompt, local note or credential; it writes no fetched content or cache.
+sends only configured public repository paths, pinned commits and explicitly
+checked refs, never a prompt, local note or credential. Retrieval writes no
+fetched content unless the separate cache opt-in is enabled; then bounded
+public bytes live under `.context/github-cache/`. `github-cache purge --apply`
+removes them. Source and cache controls keep local configuration backups;
+see [GitHub context](github-context.md).
 Without these opt-ins, indexing, search, memory, status and the task runner
 read and write local files only. That is narrower
 than "your notes never leave your machine". Evidence it hands to an AI host

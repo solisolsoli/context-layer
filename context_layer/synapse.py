@@ -35,12 +35,11 @@ import datetime as dt
 import hashlib
 import json
 import math
-import os
 from pathlib import Path, PurePosixPath
 import re
 import secrets
-import tempfile
 import unicodedata
+from .platform_support import atomic_write as _portable_atomic_write
 
 from . import graph as graphs
 
@@ -1465,16 +1464,8 @@ def write_trace(vault: Path, payload: dict) -> Path:
     """A uniquely named temp file in the same directory + os.replace: concurrent writers
     never share a staging name, and a reader never sees half a file."""
     target = Path(vault) / ".context" / TRACE_NAME
-    target.parent.mkdir(parents=True, exist_ok=True)
-    handle, name = tempfile.mkstemp(prefix=".activation-", suffix=".json", dir=target.parent)
-    staging = Path(name)
-    try:
-        with os.fdopen(handle, "w", encoding="utf-8") as stream:
-            json.dump(payload, stream, ensure_ascii=False, indent=1)
-            stream.write("\n")
-        os.replace(staging, target)
-    finally:
-        staging.unlink(missing_ok=True)
+    _portable_atomic_write(target, json.dumps(payload, ensure_ascii=False, indent=1) + "\n",
+                           private=True)
     return target
 
 

@@ -46,17 +46,13 @@ import platform
 import stat
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import unicodedata
 
 from . import backends, memory, orchestrate
-
-try:  # POSIX advisory locks. Windows is out of scope (SCOPE.md support matrix).
-    import fcntl
-except ImportError:  # pragma: no cover
-    fcntl = None
+from .platform_support import (file_lock, managed_process_tree, process_is_alive,
+                               private_tempdir, set_private_path)
 
 SCHEMA_TASK = "context-layer-task-v1"
 SCHEMA_PACKET = "context-layer-task-packet-v1"
@@ -226,14 +222,8 @@ def _registry_lock(vault: Path):
     """One writer at a time for the task registry: new tasks, leases, recoveries."""
     root = _tasks_root(vault)
     root.mkdir(parents=True, exist_ok=True)
-    if fcntl is None:
-        raise TaskError("this platform has no POSIX file locks (fcntl); tasks need them")
-    with open(root / ".lock", "a+", encoding="utf-8") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    with file_lock(root / ".lock"):
+        yield
 
 
 # ---------------------------------------------------------------------------
@@ -900,23 +890,18 @@ class _Beat:
 
 
 def _alive(pid) -> bool:
-    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except OSError:
-        return False
-    return True
+    return process_is_alive(pid)
 
 
 def _stop_group(pgid) -> str:
     """SIGTERM a recorded child process group, then SIGKILL what is left of it."""
     if not isinstance(pgid, int) or isinstance(pgid, bool) or pgid <= 1:
         return "no child process group was recorded"
+    if os.name == "nt":
+        # The runner owns a kill-on-close Job Object; a dead runner has already
+        # closed it. Never signal a bare PID that may have been reused.
+        return ("its runner-owned process job has exited" if not process_is_alive(pgid)
+                else "cannot safely signal a Windows child by PID; runner job is still active")
     for number in (signal.SIGTERM, signal.SIGKILL):
         try:
             os.killpg(pgid, number)
@@ -1155,18 +1140,9 @@ def _write_mirror(vault: Path) -> Path:
 # Running one task
 # ---------------------------------------------------------------------------
 
-def _kill(process: subprocess.Popen) -> None:
-    """SIGTERM the child's own session, then SIGKILL what is left of it."""
-    for number in (signal.SIGTERM, signal.SIGKILL):
-        try:
-            os.killpg(os.getpgid(process.pid), number)
-        except (ProcessLookupError, PermissionError, OSError):
-            return
-        try:
-            process.wait(timeout=KILL_GRACE_S)
-            return
-        except subprocess.TimeoutExpired:
-            continue
+def _kill(process) -> None:
+    """Terminate the complete managed child tree, then wait for its root."""
+    process.terminate_tree(KILL_GRACE_S)
 
 
 def _plan(task: dict, prompt_file: Path, out_abs: Path, cost_left: float | None = None):
@@ -1178,7 +1154,7 @@ def _plan(task: dict, prompt_file: Path, out_abs: Path, cost_left: float | None 
 
 def _workspace(vault: Path, directory: Path) -> Path:
     """A fresh private directory outside the vault holding copies of prompt and packet."""
-    workspace = Path(tempfile.mkdtemp(prefix="context-layer-task-")).resolve()
+    workspace = private_tempdir(prefix="context-layer-task-").resolve()
     if workspace.is_relative_to(vault):
         shutil.rmtree(workspace, ignore_errors=True)
         raise OSError(0, "the temporary workspace would sit inside the vault; point TMPDIR "
@@ -1231,31 +1207,31 @@ def _attempt(vault: Path, directory: Path, resolved, number: int, timeout_s: flo
             stdin_handle = open(directory / "prompt.txt", "rb") \
                 if resolved.stdin == "prompt" else None
             try:
-                process = subprocess.Popen(
+                with managed_process_tree(
                     list(resolved.argv), cwd=str(cwd),
                     stdin=stdin_handle if stdin_handle else subprocess.DEVNULL,
                     stdout=out_handle, stderr=err_handle, env=child_env,
-                    start_new_session=True)
+                ) as process:
+                    record["child_pgid"] = process.pid
+                    beat(attempt=number, child_pgid=process.pid)
+                    while True:
+                        try:
+                            exit_code = process.wait(timeout=POLL_S)
+                            break
+                        except subprocess.TimeoutExpired:
+                            pass
+                        beat()
+                        if _cancel_flag(directory).exists():
+                            cancelled = True
+                        elif timeout_s and (time.monotonic() - started) > timeout_s:
+                            timed_out = True
+                        if cancelled or timed_out:
+                            _kill(process)
+                            exit_code = process.poll()
+                            break
             finally:
                 if stdin_handle:
                     stdin_handle.close()
-            record["child_pgid"] = process.pid   # its own session: pgid == pid
-            beat(attempt=number, child_pgid=process.pid)
-            while True:
-                try:
-                    exit_code = process.wait(timeout=POLL_S)
-                    break
-                except subprocess.TimeoutExpired:
-                    pass
-                beat()
-                if _cancel_flag(directory).exists():
-                    cancelled = True
-                elif timeout_s and (time.monotonic() - started) > timeout_s:
-                    timed_out = True
-                if cancelled or timed_out:
-                    _kill(process)
-                    exit_code = process.poll()
-                    break
     except OSError as exc:
         record["spawn_error"] = _reason(exc)
     finally:
@@ -1767,6 +1743,10 @@ def cmd_new(args: argparse.Namespace) -> int:
             if problems:
                 raise TaskError("the output directory cannot hold verifiable output: "
                                 + "; ".join(problems))
+        if directory.is_symlink():
+            raise TaskError("the task directory is a symlink")
+        directory.mkdir(parents=True, exist_ok=True)
+        set_private_path(directory, directory=True)
         (directory / "attempts").mkdir(parents=True, exist_ok=True)
         out_abs.mkdir(parents=True, exist_ok=True)
         task["output_identity"] = _identity(vault, out_relative)

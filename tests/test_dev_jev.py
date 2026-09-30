@@ -14,6 +14,8 @@ import sys
 import tempfile
 import unittest
 
+from _portable_helpers import isolated_home_env
+
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
@@ -76,7 +78,7 @@ class RecordingChain(unittest.TestCase):
             root = Path(temp)
             (root / "home").mkdir()
             env = {k: v for k, v in os.environ.items() if not k.startswith("CONTEXT_LAYER_JEV")}
-            env.update({"HOME": str(root / "home"), "PYTHONDONTWRITEBYTECODE": "1"})
+            env.update(isolated_home_env(env, root / "home"), PYTHONDONTWRITEBYTECODE="1")
 
             def run(*argv, extra=None):
                 return subprocess.run([sys.executable, *argv], cwd=REPO, capture_output=True,

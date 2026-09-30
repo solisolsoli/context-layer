@@ -47,7 +47,7 @@ def main():
             results[method]=json.loads(target.read_text(encoding='utf-8'))
     summary={'scope':'synthetic demonstration; semantic quality not measured','python':platform.python_version(),
         'contract_sha256':hashlib.sha256((frozen/'contract.json').read_bytes()).hexdigest(),
-        'code_sha256':{str(path.relative_to(HERE.parent)):hashlib.sha256(path.read_bytes()).hexdigest()
+        'code_sha256':{path.relative_to(HERE.parent).as_posix():hashlib.sha256(path.read_bytes()).hexdigest()
             for path in [HERE/'retrieve.py',HERE/'evaluate.py',HERE/'evidence_contract.py',HERE.parent/'router/context_router.py',HERE.parent/'router/source_policy.py']},
         'bounds':{'top_k':3,'content_characters':6000,'per_source':2000},
         'results':{m:{'summary':r['summary'],'by_split':r['by_facet']['split']} for m,r in results.items()},

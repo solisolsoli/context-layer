@@ -19,6 +19,8 @@ import tempfile
 import unittest
 import zipfile
 
+from _portable_helpers import isolated_home_env
+
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 
 
@@ -39,7 +41,7 @@ class TempDir(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.env = dict(os.environ, HOME=str(self.root))
+        self.env = isolated_home_env(os.environ, str(self.root))
 
 
 class WheelContents(TempDir):

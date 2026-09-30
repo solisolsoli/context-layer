@@ -42,6 +42,10 @@ GitHub evidence is separate: only github_client.py may fetch allowlisted public
 files for github_context.py. It uses pinned commits, no credentials, no prompt
 upload, and no code execution. Keep external evidence outside local source
 validation and Jev; preserve local NOT_FOUND, withheld and ERROR states.
+Source management previews changes before --apply. Cache use is separately
+opt-in; offline misses and corruption stay explicit, and pins never auto-update.
+Use platform_support for runtime locks, private files and managed process trees;
+Windows checks are required, with no platform-wide skips or masked failures.
 Component state stays plain files under the vault's
 .context. Never install into, configure or run against a live host without the
 user's authority for that action: dry run is the default, every write keeps a

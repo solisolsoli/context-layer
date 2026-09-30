@@ -65,7 +65,10 @@ test:  ## Run all router, scanner, integrity, hardening and evaluation regressio
 	$(PYTHON) tests/test_coactivation.py
 	$(PYTHON) tests/test_github_client.py
 	$(PYTHON) tests/test_github_context.py
+	$(PYTHON) tests/test_github_sources.py
+	$(PYTHON) tests/test_github_cache.py
 	$(PYTHON) tests/test_github_integration.py
+	$(PYTHON) tests/test_platform_support.py
 
 demo:  ## End-to-end: init + index + one packet, on a throwaway copy of the fixture vault
 	@rm -rf .demo-vault

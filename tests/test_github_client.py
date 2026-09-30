@@ -165,6 +165,19 @@ class GitHubClientTests(unittest.TestCase):
                 github_client.fetch_file("example/project", COMMIT, "README.md")
         self.assertEqual(str(ctx.exception), "tls_verification_failed")
 
+    def test_branch_and_tag_ref_resolution_uses_fixed_anonymous_commit_endpoint(self):
+        opener = self.opener_for(json.dumps({"sha": COMMIT}).encode())
+        self.assertEqual(github_client.resolve_ref("example/project", "heads/main"), COMMIT)
+        self.assertEqual(opener.request.full_url,
+                         "https://api.github.com/repos/example/project/commits/heads/main?per_page=1")
+        self.assertEqual(opener.request.get_method(), "GET")
+        with mock.patch.object(github_client.urllib.request, "build_opener",
+                               side_effect=AssertionError("network setup attempted")):
+            for ref in ("../main", "heads/%2e%2e", "main?x=y", "https://example.invalid"):
+                with self.subTest(ref=ref), self.assertRaises(github_client.GitHubFetchError) as ctx:
+                    github_client.resolve_ref("example/project", ref)
+                self.assertEqual(ctx.exception.code, "invalid_ref")
+
 
 if __name__ == "__main__":
     unittest.main()

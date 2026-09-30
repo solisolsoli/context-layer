@@ -15,6 +15,8 @@ import tracemalloc
 import unicodedata
 import unittest
 
+from _portable_helpers import assert_private_path, isolated_home_env
+
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(REPO))
 
@@ -58,7 +60,7 @@ def make_vault(root: Path, notes: dict, index: bool = True) -> Path:
     if index:
         done = subprocess.run([sys.executable, "-m", "context_layer.cli", "index", str(vault)],
                               cwd=REPO, capture_output=True, text=True,
-                              env=dict(os.environ, HOME=str(vault.parent)))
+                              env=isolated_home_env(os.environ, vault.parent))
         assert done.returncode == 0, done.stderr
     return vault
 
@@ -73,7 +75,7 @@ class VaultCase(unittest.TestCase):
     def cli(self, *argv):
         return subprocess.run([sys.executable, "-m", "context_layer.cli", *argv], cwd=REPO,
                               capture_output=True, text=True,
-                              env=dict(os.environ, HOME=str(self.vault.parent)))
+                              env=isolated_home_env(os.environ, str(self.vault.parent)))
 
     def packet(self, prompt="beacon retrofit budget supplier", method="fts", **kw):
         return orch.build_packet(self.vault, prompt, method, **kw)
@@ -101,6 +103,7 @@ class Packets(VaultCase):
     def test_id_is_stable_and_second_build_reuses_the_file(self):
         first = self.packet()
         path = self.vault / first["path"]
+        assert_private_path(self, path)
         mtime = path.stat().st_mtime_ns
         second = self.packet()
         self.assertFalse(first["reused"])
@@ -1129,11 +1132,11 @@ class TasksIntegration(HandbackBase):
         script.write_text(WORKER.replace("@RECORDS@", repr(json.dumps(records)))
                           .replace("@ATTEMPT@", str(attempt)).replace("@TASK@", task)
                           .replace("@TOUCH@", repr(list(touch))), encoding="utf-8")
-        script.chmod(0o755)
+        if os.name != "nt": script.chmod(0o755)
         return str(script)
 
     def tasks(self, script, *argv):
-        env = dict(os.environ, HOME=str(self.vault.parent), CONTEXT_LAYER_FAKE_BACKEND=script)
+        env = dict(isolated_home_env(os.environ, str(self.vault.parent)), CONTEXT_LAYER_FAKE_BACKEND=script)
         return subprocess.run([sys.executable, "-m", "context_layer.cli", "tasks", *argv],
                               cwd=REPO, capture_output=True, text=True, env=env)
 
@@ -1195,6 +1198,7 @@ class TasksIntegration(HandbackBase):
         self.assertLessEqual(payload["timeout_s"], 60)
         task = json.loads((self.vault / ".context/tasks" / payload["id"] / "task.json")
                           .read_text())
+        assert_private_path(self, self.vault / ".context/tasks" / payload["id"] / "task.json")
         self.assertEqual(task["max_elapsed_s"], 60)
         self.assertEqual(task["max_total_usage_tokens"], 20000)
         self.assertTrue(any("checked between attempts" in note for note in payload["notes"]))

@@ -3,7 +3,9 @@
 HOME is redirected to a temporary folder for every command this file runs, and
 nothing here reads a real vault or a host configuration.
 """
+import argparse
 import hashlib
+import io
 import json
 import multiprocessing
 import os
@@ -16,6 +18,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from _portable_helpers import assert_private_path, isolated_home_env
+
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
@@ -24,8 +28,8 @@ from context_layer import memory  # noqa: E402
 
 WORKERS = 8
 PER_WORKER = 25
-FALLBACK_WORKERS = 6
-FALLBACK_PER_WORKER = 20
+LOCK_WORKERS = 6
+LOCK_PER_WORKER = 20
 BOM_KEYS = {"schema", "ts", "session", "op", "event", "id", "path", "sha256", "current_sha256"}
 
 
@@ -39,13 +43,12 @@ def write_batch(payload):
     return tag
 
 
-def write_batch_without_fcntl(payload):
-    """One child process forced onto the O_EXCL fallback lock."""
+def write_batch_with_portable_lock(payload):
+    """One child process writing through the configured portable file lock."""
     vault, tag, count = payload
     from context_layer import memory as child_memory
-    child_memory.fcntl = None
     for index in range(count):
-        child_memory.record(Path(vault), kind="note", text=f"{tag} fallback {index}",
+        child_memory.record(Path(vault), kind="note", text=f"{tag} concurrent {index}",
                             tool="worker", session=tag)
     return tag
 
@@ -86,7 +89,7 @@ class Base(unittest.TestCase):
         self.home.mkdir()
         self.vault = root / "vault"
         self.vault.mkdir()
-        environment = patch.dict(os.environ, {"HOME": str(self.home)})
+        environment = patch.dict(os.environ, isolated_home_env(os.environ, str(self.home)))
         environment.start()
         self.addCleanup(environment.stop)
         for name in ("CONTEXT_LAYER_TOOL", "CONTEXT_LAYER_SESSION"):
@@ -125,10 +128,9 @@ class Base(unittest.TestCase):
                                         for item in items), encoding="utf-8")
 
     def run_cli(self, *argv, env=None):
-        environment = dict(os.environ)
+        environment = isolated_home_env(os.environ, self.home)
         environment.pop("CONTEXT_LAYER_TOOL", None)
         environment.pop("CONTEXT_LAYER_SESSION", None)
-        environment["HOME"] = str(self.home)
         environment.update(env or {})
         return subprocess.run([sys.executable, "-m", "context_layer.cli", *argv],
                               cwd=REPO, capture_output=True, text=True, env=environment)
@@ -139,7 +141,7 @@ class Base(unittest.TestCase):
     def build_index(self):
         done = subprocess.run([sys.executable, str(REPO / "router" / "build_index.py"),
                                "--vault", str(self.vault)], capture_output=True, text=True,
-                              env=dict(os.environ, HOME=str(self.home)))
+                              env=isolated_home_env(os.environ, str(self.home)))
         self.assertEqual(done.returncode, 0, done.stderr)
 
     def open_ids(self):
@@ -356,31 +358,53 @@ class MemoryStore(Base):
         self.assertEqual(memory.verify(self.vault), [])
         self.assertIn(records[-1]["id"], self.mirror.read_text(encoding="utf-8"))
 
-    def test_fallback_lock_serialises_concurrent_processes(self):
-        # Every child replaces fcntl with None, so only the O_EXCL lock file
-        # stands between the writers.
+    def test_portable_lock_serialises_concurrent_processes(self):
+        # Separate processes use the runtime's platform lock; the record chain must
+        # remain complete on both POSIX and Windows.
         context = multiprocessing.get_context("spawn")
-        payloads = [(str(self.vault), f"f{index}", FALLBACK_PER_WORKER)
-                    for index in range(FALLBACK_WORKERS)]
-        with context.Pool(FALLBACK_WORKERS) as pool:
-            self.assertEqual(len(pool.map(write_batch_without_fcntl, payloads)),
-                             FALLBACK_WORKERS)
+        payloads = [(str(self.vault), f"f{index}", LOCK_PER_WORKER)
+                    for index in range(LOCK_WORKERS)]
+        with context.Pool(LOCK_WORKERS) as pool:
+            self.assertEqual(len(pool.map(write_batch_with_portable_lock, payloads)),
+                             LOCK_WORKERS)
         records = self.lines()
-        self.assertEqual(len(records), FALLBACK_WORKERS * FALLBACK_PER_WORKER)
+        self.assertEqual(len(records), LOCK_WORKERS * LOCK_PER_WORKER)
         self.assertEqual(len({r["id"] for r in records}), len(records))
         for previous, current in zip(records, records[1:]):
             self.assertEqual(current["prev"], previous["id"])
         self.assertEqual(memory.verify(self.vault), [])
-        self.assertFalse((self.records.parent / memory.LOCK_NAME).exists())
+        assert_private_path(self, self.records.parent / memory.LOCK_NAME)
 
-    def test_fallback_lock_times_out_on_a_stale_lock_file(self):
+    def test_stale_lock_file_does_not_block_a_new_writer(self):
         self.add(kind="note", text="before the crash")
-        (self.records.parent / memory.LOCK_NAME).write_text("")
-        with patch.object(memory, "fcntl", None), patch.object(memory, "LOCK_TIMEOUT", 0.2):
-            with self.assertRaises(memory.MemoryStoreError) as caught:
-                self.add(kind="note", text="blocked")
-        self.assertIn("delete that file", str(caught.exception))
-        self.assertEqual(len(self.lines()), 1)
+        lock = self.records.parent / memory.LOCK_NAME
+        lock.write_text("999999 0\n", encoding="ascii")
+        from context_layer.platform_support import set_private_path
+        set_private_path(lock)
+        stored = self.add(kind="note", text="after the abandoned lock file")
+        self.assertFalse(stored["duplicate"])
+        self.assertEqual(len(self.lines()), 2)
+        assert_private_path(self, self.records.parent / memory.LOCK_NAME)
+
+    def test_lock_timeout_is_a_concise_add_error_and_keeps_records_unchanged(self):
+        self.add(kind="note", text="before lock timeout")
+        before = self.records.read_bytes()
+        parser = argparse.ArgumentParser()
+        subcommands = parser.add_subparsers(dest="command", required=True)
+        memory.register(subcommands)
+        args = parser.parse_args(["memory", "add", str(self.vault), "--kind", "note",
+                                 "--text", "must not append"])
+        from context_layer.platform_support import LockTimeout
+        stderr = io.StringIO()
+        with patch.object(memory, "file_lock",
+                          side_effect=LockTimeout("timed out waiting for lock: .lock")), \
+                patch.object(sys, "stderr", stderr):
+            code = memory.cmd_add(args)
+        self.assertEqual(code, 1)
+        self.assertIn("memory add", stderr.getvalue())
+        self.assertIn("lock", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
+        self.assertEqual(self.records.read_bytes(), before)
 
     # -- CLI --------------------------------------------------------------
     def test_cli_json_outputs_parse(self):

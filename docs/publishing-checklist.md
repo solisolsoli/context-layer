@@ -147,7 +147,7 @@ repository.
   only be selected after they have run once (step 5):
   - `python 3.10 on ubuntu-latest`, `python 3.11 on ubuntu-latest`,
     `python 3.12 on ubuntu-latest`, `python 3.13 on ubuntu-latest`,
-    `python 3.12 on macos-latest`;
+    `python 3.12 on macos-latest`, `python 3.12 on windows-latest`;
   - `obsidian plugin (node 24)`;
   - `sealed benchmark (offline)`;
   - `bench-reproduce` (reruns the benchmark and the README's numbers);
@@ -155,9 +155,8 @@ repository.
   - `jev recording chain` (offline recording, calibration and replay);
   - `reproducible build` (two builds, one sha256).
 
-  Do not select `windows smoke (non-blocking)`: it runs with
-  `continue-on-error` to learn what breaks on Windows, which stays out of
-  scope until it has passed twice.
+  Windows is a required check. Confirm two successful Windows runs before
+  promoting the initial Windows implementation into the tested support matrix.
 
 ## 5. Hosted CI must go green before anything is announced
 
@@ -172,8 +171,8 @@ it uses are pinned by commit; `.github/dependabot.yml` proposes updates.
 - Once it is green, update what the run changes, in one commit: the README
   support table and the matching result in
   [CONTRIBUTING.md](../CONTRIBUTING.md#the-suites) (say which jobs passed and
-  on which commit). Report an exploratory Windows failure separately even
-  when the workflow's overall conclusion is green. The support matrix in the README and in
+  on which commit). Do not hide a failed platform behind `continue-on-error`.
+  The support matrix in the README and in
   [SCOPE.md](../SCOPE.md) moves a platform to "tested" only if you decide that a
   green test-suite run on it is enough; otherwise it stays "expected but
   unverified". A CI run is not a live host run.

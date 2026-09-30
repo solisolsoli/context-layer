@@ -40,6 +40,8 @@ import sys
 import tempfile
 import unittest
 
+from _portable_helpers import isolated_home_env
+
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 BENCH_DIR = os.environ.get("DOC_CLAIMS_BENCH_DIR")
 WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
@@ -54,7 +56,7 @@ def read(rel):
 def run(*argv, cwd=REPO):
     home = tempfile.mkdtemp(prefix="cl-doc-claims-")
     try:
-        env = dict(os.environ, HOME=home, PYTHONHASHSEED="0")
+        env = dict(isolated_home_env(os.environ, home), PYTHONHASHSEED="0")
         env.pop("CONTEXT_LAYER_HOME", None)
         done = subprocess.run([sys.executable, *argv], cwd=cwd, env=env, capture_output=True,
                               text=True, encoding="utf-8", timeout=600)
@@ -68,7 +70,7 @@ def run(*argv, cwd=REPO):
 def run_sh(script, cwd=REPO, **env_extra):
     home = tempfile.mkdtemp(prefix="cl-doc-claims-")
     try:
-        env = dict(os.environ, HOME=home, PYTHONHASHSEED="0", **env_extra)
+        env = dict(isolated_home_env(os.environ, home), PYTHONHASHSEED="0", **env_extra)
         done = subprocess.run(["sh", script], cwd=cwd, env=env, capture_output=True, text=True,
                               encoding="utf-8", timeout=600)
     finally:

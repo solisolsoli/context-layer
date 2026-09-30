@@ -1,0 +1,168 @@
+"""Native, adversarial checks for shared Windows/POSIX runtime primitives."""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from context_layer.platform_support import (
+    LockTimeout,
+    atomic_write,
+    file_lock,
+    managed_process_tree,
+    private_tempdir,
+    private_tempfile,
+    is_link_or_reparse,
+    set_private_path,
+    verify_private_path,
+)
+
+
+def _python_env():
+    root = str(Path(__file__).resolve().parents[1])
+    env = dict(os.environ)
+    env["PYTHONPATH"] = root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    return env
+
+
+class PlatformSupport(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def test_file_lock_serializes_processes_and_initializes_once(self):
+        lock = self.root / "shared.lock"
+        ready = self.root / "ready"
+        script = (
+            "import pathlib,sys,time; from context_layer.platform_support import file_lock; "
+            "exec('with file_lock(sys.argv[1]):\\n "
+            "pathlib.Path(sys.argv[2]).write_text(\"held\")\\n time.sleep(.35)')"
+        )
+        process = subprocess.Popen([sys.executable, "-c", script, str(lock), str(ready)],
+                                   env=_python_env())
+        deadline = time.monotonic() + 5
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertTrue(ready.exists(), "lock holder did not start")
+        with self.assertRaises(LockTimeout):
+            with file_lock(lock, timeout=.05, poll_interval=.005):
+                self.fail("second process acquired a held lock")
+        self.assertEqual(process.wait(timeout=5), 0)
+        with file_lock(lock, timeout=1):
+            self.assertIn(lock.read_bytes(), (b"", b"\0"))
+            verify_private_path(lock)
+
+    def test_file_lock_recovers_when_process_dies_while_holding_lock(self):
+        lock = self.root / "crash.lock"
+        ready = self.root / "ready"
+        script = (
+            "import os,pathlib,sys; from context_layer.platform_support import file_lock; "
+            "exec('with file_lock(sys.argv[1]):\\n "
+            "pathlib.Path(sys.argv[2]).write_text(\"held\")\\n os._exit(0)')"
+        )
+        process = subprocess.Popen([sys.executable, "-c", script, str(lock), str(ready)],
+                                   env=_python_env())
+        deadline = time.monotonic() + 5
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertTrue(ready.exists(), "lock holder did not start")
+        self.assertEqual(process.wait(timeout=5), 0)
+        with file_lock(lock, timeout=1):
+            self.assertTrue(lock.exists())
+
+    def test_file_lock_rejects_symlink_path(self):
+        original, alias = self.root / "real.lock", self.root / "alias.lock"
+        original.touch()
+        try:
+            alias.symlink_to(original)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+        self.assertTrue(is_link_or_reparse(alias))
+        self.assertFalse(is_link_or_reparse(self.root / "missing"))
+        with self.assertRaises(OSError):
+            with file_lock(alias):
+                pass
+
+    def test_private_path_rejects_windows_junction_leaf(self):
+        if os.name != "nt":
+            self.skipTest("Windows junction regression")
+        target = self.root / "target-dir"
+        junction = self.root / "junction-dir"
+        target.mkdir()
+        command = f'mklink /J "{junction}" "{target}"'
+        result = subprocess.run(["cmd.exe", "/d", "/c", command],
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(junction.is_dir())
+        self.assertTrue(is_link_or_reparse(junction))
+        with self.assertRaises(OSError):
+            set_private_path(junction, directory=True)
+
+    def test_private_staging_is_secured_before_content_and_atomic_write_keeps_lf(self):
+        fd, path = private_tempfile(self.root, prefix="private-")
+        try:
+            verify_private_path(path)
+            os.write(fd, b"secret\n")
+        finally:
+            os.close(fd)
+        self.assertEqual(path.read_bytes(), b"secret\n")
+        target = self.root / "packet.json"
+        atomic_write(target, "one\ntwo\n", private=True)
+        self.assertEqual(target.read_bytes(), b"one\ntwo\n")
+        verify_private_path(target)
+
+    def test_private_directory_child_has_only_private_access(self):
+        directory = private_tempdir(self.root, prefix="secure-")
+        verify_private_path(directory, directory=True)
+        child = directory / "inherited.txt"
+        fd = os.open(child, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            os.write(fd, b"private")
+        finally:
+            os.close(fd)
+        # On Windows this reads the child's effective inherited DACL, not just its mode.
+        verify_private_path(child)
+
+    def test_managed_process_tree_stops_descendant_after_root_exits(self):
+        self._assert_descendant_stopped(parent_exits_first=True)
+
+    def test_managed_process_tree_kill_cancels_descendant(self):
+        self._assert_descendant_stopped(parent_exits_first=False)
+
+    def _assert_descendant_stopped(self, *, parent_exits_first):
+        marker = self.root / "escaped-child"
+        ready = self.root / "grandchild-started"
+        child_code = ("import pathlib,sys,time; time.sleep(.45); "
+                      "pathlib.Path(sys.argv[1]).write_text('escaped')")
+        parent_code = (
+            "import subprocess,sys,time; "
+            "subprocess.Popen([sys.executable, '-c', sys.argv[1], sys.argv[2]]); "
+            "open(sys.argv[3], 'w').close(); "
+            + ("raise SystemExit(0)" if parent_exits_first else "time.sleep(30)")
+        )
+        with managed_process_tree([sys.executable, "-c", parent_code,
+                                   child_code, str(marker), str(ready)], env=_python_env(),
+                                  stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL) as child:
+            deadline = time.monotonic() + 5
+            while not ready.exists() and time.monotonic() < deadline:
+                time.sleep(.01)
+            self.assertTrue(ready.exists(), "parent did not start the grandchild")
+            if parent_exits_first:
+                self.assertEqual(child.wait(timeout=5), 0)
+            else:
+                child.kill()
+                self.assertIsNotNone(child.poll())
+        time.sleep(.65)
+        self.assertFalse(marker.exists(), "a descendant escaped the managed process tree")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -34,7 +34,7 @@ each line a resolved link; colour and size follow how many notes a note links to
 | **Lean sub-agents** | Shared evidence packets, a bounded `support-job/v1` contract, a ~5,000-token payload budget, evidence-record returns and `handback check`, which mechanically catches fabricated quotes. | [subagents](docs/subagents.md) · [tasks](docs/tasks.md) |
 | **Memory and health** | Append-only JSONL memory whose records go stale when their sources change; `status` and `rollback` for the index and the link graph. | [memory](docs/memory.md) |
 | **Optional advisor (Jev)** *(off by default)* | `search --jev` asks a model provider you configure whether delivered passages and link-reached notes help the question; `shadow` only counts, `on` (which needs a calibration receipt) appends byte-exact passages within their own budget. Design after Avenox Beyin's Jev; any provider, including a local server or the host's own CLI. | [jev](docs/jev.md) |
-| **GitHub context** *(off by default)* | On a local miss, fetch bounded passages from owner-allowlisted public files pinned to a commit. The prompt stays local; citations carry immutable URLs and hashes. No token or model required. | [GitHub context](docs/github-context.md) |
+| **GitHub context** *(off by default)* | On a local miss, fetch bounded passages from public files pinned to a commit. CLI source setup, explicit version checks and an optional verified offline cache. The prompt stays local; citations carry immutable URLs and hashes. No token or model required. | [GitHub context](docs/github-context.md) |
 | **Host integration** | MCP stdio server and a Claude Code prompt hook. Every install is a dry run until `--apply`, backs up first, and has an `uninstall`. | [host integration](docs/host-integration.md) |
 
 ## Quick start
@@ -52,6 +52,17 @@ context-layer rules check ~/MyBrain                # CLAUDE.md and AGENTS.md ide
 # Connect Claude Code (dry run first, then --apply):
 context-layer install claude-code --vault ~/MyBrain --project ~/MyBrain \
     --hook --method synaptic --rules --plan-default
+```
+
+On Windows, create and use the environment from PowerShell without an activation
+script. The CLI flags are the same:
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e .
+.\.venv\Scripts\context-layer.exe brain init "$env:USERPROFILE\MyBrain" --apply
+.\.venv\Scripts\context-layer.exe index "$env:USERPROFILE\MyBrain"
+.\.venv\Scripts\context-layer.exe search "$env:USERPROFILE\MyBrain" --prompt "timer controller"
 ```
 
 `synapse.decision` in the packet says whether links were followed (on the

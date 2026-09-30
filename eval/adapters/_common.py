@@ -77,7 +77,9 @@ def read_text(path: str) -> str:
 
 def rel(path: str, vault: str) -> str:
     try:
-        return os.path.relpath(path, vault)
+        # Evidence paths use one spelling on every host; filesystem access still
+        # uses native paths. Do not replace literal backslashes in POSIX names.
+        return os.path.relpath(path, vault).replace(os.sep, "/")
     except ValueError:
         return path
 

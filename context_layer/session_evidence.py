@@ -52,11 +52,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import sys
-
-try:  # POSIX advisory locking; appends are single O_APPEND writes either way.
-    import fcntl
-except ImportError:  # pragma: no cover
-    fcntl = None
+from .platform_support import file_lock, set_private_permissions
 
 SCHEMA = "session-evidence/v1"
 LEDGER_PARTS = (".context", "session-evidence")
@@ -250,31 +246,29 @@ def record_delivery(vault, session_id: str | None, items, packet_id: str | None 
     target.parent.mkdir(parents=True, exist_ok=True)
     created = not target.exists()
     data = ("\n".join(lines) + "\n").encode("ascii")
+    written = len(lines)
     try:
-        fd = os.open(target, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0),
-                     0o600)
+        with file_lock(target.parent / ".session-evidence.lock"):
+            fd = os.open(target, os.O_WRONLY | os.O_APPEND | os.O_CREAT
+                         | getattr(os, "O_NOFOLLOW", 0), 0o600)
+            try:
+                set_private_permissions(fd, target)
+                size = os.fstat(fd).st_size
+                if size + len(data) > MAX_LEDGER_BYTES:
+                    written, skipped = 0, skipped + len(lines)
+                    if not _ends_with_overflow(target):
+                        os.write(fd, (json.dumps({"overflow": True, "at": stamp},
+                                                 separators=(",", ":")) + "\n").encode("ascii"))
+                else:
+                    os.write(fd, data)
+            finally:
+                os.close(fd)
+            if created:
+                _prune(target.parent, target)
     except OSError as exc:
         return {"written": 0, "skipped": skipped + len(lines), "ledger": relative,
                 "reason": f"the ledger file cannot be opened ({exc.strerror or exc}); "
                           "a symlink is never followed"}
-    written = len(lines)
-    try:
-        if fcntl is not None:
-            fcntl.flock(fd, fcntl.LOCK_EX)
-        size = os.fstat(fd).st_size
-        if size + len(data) > MAX_LEDGER_BYTES:
-            written, skipped = 0, skipped + len(lines)
-            if not _ends_with_overflow(target):
-                os.write(fd, (json.dumps({"overflow": True, "at": stamp},
-                                         separators=(",", ":")) + "\n").encode("ascii"))
-        else:
-            os.write(fd, data)
-    finally:
-        if fcntl is not None:
-            fcntl.flock(fd, fcntl.LOCK_UN)
-        os.close(fd)
-    if created:
-        _prune(target.parent, target)
     return {"written": written, "skipped": skipped, "ledger": relative,
             "reason": None if written else "ledger full for this session"}
 

@@ -18,7 +18,9 @@ sys.path.insert(0, str(REPO / "eval"))
 import build_index  # noqa: E402
 import context_router  # noqa: E402
 import retrieve  # noqa: E402
+import source_policy  # noqa: E402
 import textfold  # noqa: E402
+from _portable_helpers import deny_path_access, sqlite_connection  # noqa: E402
 
 ROUTES = {"routes": {}, "record_type_allowlist": ["verbatim_text_file"]}
 
@@ -136,7 +138,7 @@ class IntegrityCLI(unittest.TestCase):
         self.assertIn("indexed version", self.assert_error(self.route("--json"))["error"])
 
     def test_broken_fts_all_entrypoints_and_output_modes(self):
-        with sqlite3.connect(self.ctx / "index.sqlite") as db:
+        with sqlite_connection(self.ctx / "index.sqlite") as db:
             db.execute("DROP TABLE records_fts")
         for cli in [False, True]:
             for flags in [("--json",), ("--stdout",), ()]:
@@ -157,14 +159,14 @@ class IntegrityCLI(unittest.TestCase):
         self.assert_error(self.route("--json", cli=True))
 
     def test_vague_prompt_does_not_bypass_broken_fts(self):
-        with sqlite3.connect(self.ctx / "index.sqlite") as db:
+        with sqlite_connection(self.ctx / "index.sqlite") as db:
             db.execute("DROP TABLE records_fts")
         self.assert_error(self.route("--json", prompt="it"))
 
     def test_tampered_index_chunk_fails_closed(self):
         self.config["routes"]["canonical"]["canonical_sources"] = []
         self.save_config()
-        with sqlite3.connect(self.ctx / "index.sqlite") as db:
+        with sqlite_connection(self.ctx / "index.sqlite") as db:
             db.execute("UPDATE records SET content = 'alpha changed'")
         self.assert_error(self.route("--json"))
 
@@ -258,7 +260,7 @@ class IntegrityCLI(unittest.TestCase):
             self.assertEqual(self.build().returncode, 0)
             self.assertEqual(self.search("fts").returncode, 0)   # healthy control
             if damage.startswith("drop"):
-                with sqlite3.connect(index) as db:
+                with sqlite_connection(index) as db:
                     db.execute("DROP TABLE " + damage.split()[1])
             elif damage == "delete":
                 index.unlink()
@@ -498,13 +500,10 @@ class DeliveredEvidence(unittest.TestCase):
                 self.assertNotIn("pier schedule", json.dumps(hit["evidence"]))
 
     def test_note_unreadable_since_indexing_is_withheld_on_its_own(self):
-        if hasattr(os, "geteuid") and os.geteuid() == 0:
-            self.skipTest("root reads files whatever their mode")
         note = write(self.vault, "notes/locked.md", "# Locked\n\nlantern wick\n")
         write(self.vault, "notes/open.md", "# Open\n\nlantern oil\n")
         self.build()
-        note.chmod(0)
-        self.addCleanup(note.chmod, 0o644)
+        deny_path_access(self, note)
         code, packet = run_packet(self.vault, "lantern")
         self.assertEqual((code, packet["status"]), (0, "PARTIAL"))
         self.assertEqual(paths(packet), ["notes/open.md"])
@@ -618,6 +617,27 @@ class DeliveredEvidence(unittest.TestCase):
 
     def test_unsupported_names_are_skipped_and_listed(self):
         write(self.vault, "notes/ferry.md", "# F\n\nferry\n")
+        if os.name == "nt":
+            # Windows cannot create a colon-containing component. Feed the name
+            # returned by a filesystem walk at the walk boundary and verify the
+            # builder still records it as unsupported without opening it.
+            walk = [(str(self.vault), ["notes"], ["Meeting: 10.30.md"]),
+                    (str(self.vault / "notes"), [], ["ferry.md"])]
+            unsupported = []
+            original_is_file = Path.is_file
+
+            def is_file(path):
+                if path.name == "Meeting: 10.30.md":
+                    return True
+                return original_is_file(path)
+
+            with patch.object(build_index.os, "walk", return_value=walk), \
+                    patch.object(Path, "is_file", is_file):
+                files = build_index.iter_files(self.vault, {".md"}, set(), (), unsupported)
+            self.assertEqual(files, [self.vault / "notes" / "ferry.md"])
+            self.assertEqual(unsupported, ["Meeting: 10.30.md"])
+            self.assertEqual(source_policy.walked_name_state("notes/a\\b.md"), "unsupported")
+            return
         write(self.vault, "Meeting: 10.30.md", "# M\n\nagenda\n")
         write(self.vault, "notes/a\\b.md", "# B\n\nagenda\n")
         write(self.vault, "Archive: 2024/old.md", "# O\n\nagenda\n")
@@ -638,10 +658,8 @@ class DeliveredEvidence(unittest.TestCase):
         write(self.vault, "big.md", ("zephyrine valve " * 125_001)[:2_000_001])
         write(self.vault, "latin1.csv", "caf\xe9 zephyrine".encode("latin-1"))
         locked = write(self.vault, "locked.md", "zephyrine locked\n")
-        unreadable = not (hasattr(os, "geteuid") and os.geteuid() == 0)
-        if unreadable:
-            locked.chmod(0)
-            self.addCleanup(locked.chmod, 0o644)
+        deny_path_access(self, locked)
+        unreadable = True
         out = self.build()
         expected = [{"path": "big.md", "reason": "oversize", "size": 2_000_001},
                     {"path": "latin1.csv", "reason": "not_utf8"}]

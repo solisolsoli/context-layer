@@ -23,12 +23,14 @@ from pathlib import Path
 import random
 import re
 import shutil
-import stat
 import subprocess
 import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
+
+from _portable_helpers import assert_private_path, isolated_home_env
 
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(REPO))
@@ -194,7 +196,7 @@ def write_files(vault, files):
 def cli(*argv, home, env=None, cwd=REPO, stdin=None):
     return subprocess.run([sys.executable, "-m", "context_layer.cli", *argv], cwd=cwd,
                           capture_output=True, text=True, input=stdin,
-                          env={**CLEAN_ENV, "HOME": str(home), **(env or {})})
+                          env={**isolated_home_env(CLEAN_ENV, home), **(env or {})})
 
 
 def build_vault(vault, files, home, routes=ROUTES):
@@ -327,15 +329,9 @@ class Case(unittest.TestCase):
         self.home = self.root / "home"
         self.home.mkdir()
         self.vault = self.root / "vault"
-        self.saved_home = os.environ.get("HOME")
-        os.environ["HOME"] = str(self.home)
-        self.addCleanup(self._restore_home)
-
-    def _restore_home(self):
-        if self.saved_home is None:
-            os.environ.pop("HOME", None)
-        else:
-            os.environ["HOME"] = self.saved_home
+        self.home_patch = mock.patch.dict(os.environ, isolated_home_env(os.environ, self.home))
+        self.home_patch.start()
+        self.addCleanup(self.home_patch.stop)
 
     def harbor(self, extra=None, routes=ROUTES):
         return build_vault(self.vault, {**HARBOR, **(extra or {})}, self.home, routes)
@@ -481,7 +477,7 @@ class Optionality(Case):
         done = subprocess.run([sys.executable, "-c", "import socket; "
                                "socket.create_connection(('127.0.0.1', 9))"],
                               capture_output=True, text=True,
-                              env={**CLEAN_ENV, "PYTHONPATH": str(guard), "HOME": str(self.home)})
+                              env={**isolated_home_env(CLEAN_ENV, self.home), "PYTHONPATH": str(guard)})
         self.assertNotEqual(done.returncode, 0)
         self.assertIn("NetworkAttempted", done.stderr)
 
@@ -1052,10 +1048,10 @@ class NoTextAtRest(Case):
                 self.assertNotIn(marker, data, f"{path.name}: {marker!r}")
         for path in sorted((context / "jev-cache").iterdir()):
             self.assertRegex(path.name, r"^[0-9a-f]{64}\.json$")
-            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
-        self.assertEqual(stat.S_IMODE((context / "jev-cache").stat().st_mode), 0o700)
+            assert_private_path(self, path)
+        assert_private_path(self, context / "jev-cache", directory=True)
         for name in ("jev-calls.jsonl", "jev.json", "jev.salt"):
-            self.assertEqual(stat.S_IMODE((context / name).stat().st_mode), 0o600, name)
+            assert_private_path(self, context / name)
 
 
 # ---------------------------------------------------------------------------
@@ -1132,7 +1128,7 @@ class RecordAndCalibrate(Case):
             "print(json.dumps({'answers': {'q': {'type': 'noul', 'noul': 0.9}}, "
             "'usage': {'input_tokens': 30, 'output_tokens': 1}, 'model': 'fake-judge-1'}))\n",
             encoding="utf-8")
-        self.script.chmod(0o755)
+        if os.name != "nt": self.script.chmod(0o755)
         self.env = {"CONTEXT_LAYER_JEV_FAKE": str(self.script)}
         self.receipt = self.vault / ".context" / "jev-calibration" / "fake-none.json"
 
@@ -1177,7 +1173,7 @@ class RecordAndCalibrate(Case):
         done = self.record("--run")
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("recorded 5 row(s): 5 answered, 0 failed", done.stdout)
-        self.assertEqual(stat.S_IMODE(self.out.stat().st_mode), 0o600)
+        assert_private_path(self, self.out)
         rows = [json.loads(line) for line in self.out.read_text(encoding="utf-8").splitlines()]
         self.assertEqual(len(rows), 5)
         for row in rows:
@@ -1237,7 +1233,7 @@ class RecordAndCalibrate(Case):
         self.assertEqual(self.cli("jev", "on", str(self.vault)).returncode, 1)
         done = self.calibrate(report, "--apply")
         self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(stat.S_IMODE(self.receipt.stat().st_mode), 0o600)
+        assert_private_path(self, self.receipt)
         receipt = json.loads(self.receipt.read_text(encoding="utf-8"))
         self.assertEqual((receipt["schema"], receipt["provider"], receipt["template_revision"]),
                          ("jev-calibration/v1", {"kind": "fake", "model": None},
@@ -1347,7 +1343,7 @@ class HookAutoContext(Case):
             "(0.9 if title == 'Mira Holt' else 0.2)\n"
             "print(json.dumps({'answers': {'q': {'type': 'noul', 'noul': p}}, "
             "'model': 'fake-judge-1'}))\n", encoding="utf-8")
-        self.script.chmod(0o755)
+        if os.name != "nt": self.script.chmod(0o755)
         self.env = {"CONTEXT_LAYER_JEV_FAKE": str(self.script)}
         self.payload = json.dumps({"prompt": HARBOR_PROMPT, "session_id": "s1"})
 
@@ -1471,7 +1467,7 @@ class McpAdvisor(Case):
             "p = 0.9 if (q.get('state') or {}).get('title') == 'Mira Holt' else 0.2\n"
             "print(json.dumps({'answers': {'q': {'type': 'noul', 'noul': p}}, "
             "'model': 'fake-judge-1'}))\n", encoding="utf-8")
-        self.script.chmod(0o755)
+        if os.name != "nt": self.script.chmod(0o755)
 
     def server(self, env=None):
         log = open(self.root / "server.err", "w", encoding="utf-8")
@@ -1479,7 +1475,7 @@ class McpAdvisor(Case):
         proc = subprocess.Popen([sys.executable, "-m", "context_layer.cli", "mcp", "--vault",
                                  str(self.vault)], cwd=REPO, text=True, stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=log,
-                                env={**CLEAN_ENV, "HOME": str(self.home),
+                                env={**isolated_home_env(CLEAN_ENV, self.home),
                                      "CONTEXT_LAYER_JEV_FAKE": str(self.script), **(env or {})})
         self.addCleanup(self.stop, proc)
         self.send(proc, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
@@ -1581,7 +1577,7 @@ class ConfigurationAndCommands(Case):
                         "--base-url", "https://judge.example", "--model", "jev-1.13.0",
                         "--key-env", "TYPESAFE_API_KEY")
         self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(stat.S_IMODE(self.config.stat().st_mode), 0o600)
+        assert_private_path(self, self.config)
         saved = json.loads(self.config.read_text())
         self.assertEqual((saved["mode"], saved["features"]), ("shadow", ["search", "answer",
                                                                          "memory"]))
@@ -1867,7 +1863,7 @@ class CacheLogReport(Case):
         rows = log_rows(self.vault)
         self.assertEqual(rows[-1]["requests"], 1599)
         self.assertGreater(rows[0]["requests"], 0)               # the older half was dropped
-        self.assertEqual(stat.S_IMODE(log.stat().st_mode), 0o600)
+        assert_private_path(self, log)
 
     def test_hand_edited_rows_carry_no_text_into_the_report(self):
         log = self.vault / ".context" / "jev-calls.jsonl"

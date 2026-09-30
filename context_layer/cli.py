@@ -221,9 +221,60 @@ def cmd_github_context(args: argparse.Namespace) -> int:
         print("context-layer github-context: unrecognised arguments", file=sys.stderr)
         return 2
     from . import github_context
-    packet = github_context.fetch(Path(args.vault).expanduser(), args.prompt, args.source)
+    packet = github_context.fetch(Path(args.vault).expanduser(), args.prompt, args.source,
+                                  offline=args.offline, force_refresh=args.refresh)
     print(json.dumps(packet, ensure_ascii=False))
     return 1 if packet.get("status") == "ERROR" else 0
+
+
+def cmd_github_sources(args: argparse.Namespace) -> int:
+    """Owner-facing source controls; writes require the explicit --apply flag."""
+    if args.rest:
+        print("context-layer github-sources: unrecognised arguments", file=sys.stderr)
+        return 2
+    from . import github_sources
+    vault = Path(args.vault).expanduser()
+    action = args.source_action
+    try:
+        if action == "list":
+            result = github_sources.list_sources(vault)
+        elif action == "add":
+            result = github_sources.add_source(vault, args.id, args.repo, args.ref,
+                                               args.path, args.keyword, apply=args.apply)
+        elif action == "remove":
+            result = github_sources.remove_source(vault, args.id, apply=args.apply)
+        elif action in ("enable", "disable"):
+            result = github_sources.set_enabled(vault, action == "enable", apply=args.apply)
+        elif action == "check":
+            result = github_sources.check_source(vault, args.id, upstream_ref=args.ref)
+        else:
+            result = github_sources.update_source(vault, args.id, args.commit,
+                                                  args.expected_commit, apply=args.apply)
+    except (ValueError, OSError):
+        result = {"status": "ERROR", "error": "source_operation_failed"}
+    print(json.dumps(result, ensure_ascii=False))
+    return 1 if result.get("status") == "ERROR" else 0
+
+
+def cmd_github_cache(args: argparse.Namespace) -> int:
+    """Explicit, bounded local cache controls, separate from source pin updates."""
+    if args.rest:
+        print("context-layer github-cache: unrecognised arguments", file=sys.stderr)
+        return 2
+    from . import github_sources
+    vault = Path(args.vault).expanduser()
+    action = args.cache_action
+    try:
+        if action == "status":
+            result = github_sources.cache_status(vault)
+        elif action == "purge":
+            result = github_sources.purge_cache(vault, apply=args.apply)
+        else:
+            result = github_sources.set_cache_enabled(vault, action == "enable", apply=args.apply)
+    except (ValueError, OSError):
+        result = {"status": "ERROR", "error": "cache_operation_failed"}
+    print(json.dumps(result, ensure_ascii=False))
+    return 1 if result.get("status") == "ERROR" else 0
 
 
 def cmd_eval(args: argparse.Namespace) -> int:
@@ -314,7 +365,46 @@ def build_parser() -> argparse.ArgumentParser:
     p_github.add_argument("--prompt", required=True, help="Matched locally; never sent to GitHub.")
     p_github.add_argument("--source", action="append",
                           help="Configured source id (repeatable); otherwise match local keywords.")
+    github_mode = p_github.add_mutually_exclusive_group()
+    github_mode.add_argument("--offline", action="store_true",
+                             help="Use verified cached files only; never open a network connection.")
+    github_mode.add_argument("--refresh", action="store_true",
+                             help="Fetch the pinned version again instead of reusing the cache.")
     p_github.set_defaults(func=cmd_github_context)
+
+    p_sources = sub.add_parser("github-sources", help="Configure and review pinned GitHub sources.")
+    source_actions = p_sources.add_subparsers(dest="source_action", required=True)
+    for action in ("list", "add", "remove", "enable", "disable", "check", "update"):
+        child = source_actions.add_parser(action, allow_abbrev=False)
+        child.add_argument("vault")
+        child.set_defaults(func=cmd_github_sources)
+        if action in ("add", "remove", "check", "update"):
+            child.add_argument("--id", required=True, help="Configured source id.")
+        if action == "add":
+            child.add_argument("--repo", required=True, help="Public owner/repository.")
+            child.add_argument("--ref", required=True, help="Commit SHA, branch or tag to pin.")
+            child.add_argument("--path", action="append", required=True, help="Allowed file; repeatable.")
+            child.add_argument("--keyword", action="append", required=True,
+                               help="Locally matched topic phrase; repeatable.")
+        if action == "check":
+            child.add_argument("--ref", help="Upstream branch/tag; defaults to the recorded ref.")
+        if action == "update":
+            child.add_argument("--commit", required=True, help="Reviewed new full commit SHA.")
+            child.add_argument("--expected-commit", required=True,
+                               help="Current full SHA from the preview; refuses a changed pin.")
+        if action not in ("list", "check"):
+            child.add_argument("--apply", action="store_true",
+                               help="Write the reviewed change; otherwise only preview it.")
+
+    p_cache = sub.add_parser("github-cache", help="Control the optional verified local GitHub cache.")
+    cache_actions = p_cache.add_subparsers(dest="cache_action", required=True)
+    for action in ("status", "enable", "disable", "purge"):
+        child = cache_actions.add_parser(action, allow_abbrev=False)
+        child.add_argument("vault")
+        child.set_defaults(func=cmd_github_cache)
+        if action != "status":
+            child.add_argument("--apply", action="store_true",
+                               help="Apply this cache change; otherwise only preview it.")
 
     p_eval = sub.add_parser("eval", help="Run the hit/cost evaluation harness.")
     p_eval.add_argument("--cwd", default=None,

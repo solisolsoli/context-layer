@@ -26,6 +26,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+from _portable_helpers import isolated_home_env
+
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(REPO))
 
@@ -128,10 +130,9 @@ class Case(unittest.TestCase):
         self.root = Path(self.temp.name).resolve()
         self.home = self.root / "home"
         self.home.mkdir()
-        old_home = os.environ.get("HOME")
-        os.environ["HOME"] = str(self.home)
-        self.addCleanup(lambda: os.environ.__setitem__("HOME", old_home) if old_home
-                        else os.environ.pop("HOME", None))
+        home_patch = mock.patch.dict(os.environ, isolated_home_env(os.environ, self.home))
+        home_patch.start()
+        self.addCleanup(home_patch.stop)
         self.vault = self.root / "vault"
         (self.vault / ".context").mkdir(parents=True)
         (self.vault / ".context" / "routes.json").write_text(json.dumps(ROUTES), encoding="utf-8")
@@ -144,14 +145,14 @@ class Case(unittest.TestCase):
         self.calls_log = self.root / "fake-calls.log"
         self.script = self.root / "fake-judge.py"
         self.script.write_text(FAKE_SCRIPT.format(python=sys.executable), encoding="utf-8")
-        self.script.chmod(0o755)
+        if os.name != "nt": self.script.chmod(0o755)
         self.env = {"CONTEXT_LAYER_JEV_FAKE": str(self.script), "FAKE_CALLS": str(self.calls_log)}
 
     # -- helpers ---------------------------------------------------------------
     def cli(self, *argv, env=None, stdin=None):
         return subprocess.run([sys.executable, "-m", "context_layer.cli", *argv], cwd=REPO,
                               capture_output=True, text=True, input=stdin,
-                              env={**CLEAN_ENV, "HOME": str(self.home), **(env or {})})
+                              env={**isolated_home_env(CLEAN_ENV, self.home), **(env or {})})
 
     def cite(self, name, span, vault=None):
         path = (vault or self.vault) / name
@@ -929,7 +930,7 @@ class McpCheckClaims(Case):
         proc = subprocess.Popen([sys.executable, "-m", "context_layer.cli", "mcp", "--vault",
                                  str(self.vault)], cwd=REPO, stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                env={**CLEAN_ENV, "HOME": str(self.home), **self.env})
+                                env={**isolated_home_env(CLEAN_ENV, self.home), **self.env})
         self.addCleanup(self.stop, proc)
         self.request(proc, "initialize", {"protocolVersion": "2025-11-25", "capabilities": {},
                                           "clientInfo": {"name": "test", "version": "0"}})

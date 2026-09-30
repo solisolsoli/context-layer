@@ -33,10 +33,8 @@ import contextlib
 from datetime import datetime, timezone
 import hashlib
 import json
-import os
 from pathlib import Path, PurePosixPath
 import re
-import signal
 import statistics
 import subprocess
 import sys
@@ -47,6 +45,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from context_layer import install  # noqa: E402
+from context_layer.platform_support import managed_process_tree  # noqa: E402
 
 SCHEMA = "context-layer-live-compare-v1"
 ARMS = ("baseline", "candidate", "hook")
@@ -275,15 +274,6 @@ def safe_name(text: str) -> str:
     return "".join(ch if (ch.isalnum() or ch in "-_.") else "_" for ch in text)
 
 
-def stop(process: subprocess.Popen) -> None:
-    """End a host that outlived its timeout, and every process it started."""
-    try:
-        os.killpg(process.pid, signal.SIGKILL)   # its own session: the whole group
-    except (AttributeError, OSError):             # no process groups here, or already gone
-        with contextlib.suppress(OSError):
-            process.kill()
-
-
 def launch(argv: list, vault: Path, timeout_s: float | None = None):
     """One host call from the vault directory.
 
@@ -293,30 +283,31 @@ def launch(argv: list, vault: Path, timeout_s: float | None = None):
     started = datetime.now(timezone.utc)
     clock = time.monotonic()
     timed_out = False
+    # Explicit Python host scripts are useful for offline evaluation fixtures
+    # and do not depend on a POSIX shebang or executable permission bit.
+    command = [sys.executable, *argv] if Path(argv[0]).suffix.lower() == ".py" else argv
     try:
-        # stdin is closed so the host never waits on a terminal that is not there;
-        # a session of its own lets a timeout stop the host and its children together.
-        host = subprocess.Popen(argv, cwd=str(vault), stdin=subprocess.DEVNULL,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                start_new_session=True)
+        with managed_process_tree(command, cwd=str(vault), stdin=subprocess.DEVNULL,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                  encoding="utf-8") as host:
+            try:
+                stdout, stderr = host.communicate(timeout=timeout_s)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                host.kill()
+                try:
+                    stdout, stderr = host.communicate(timeout=5)
+                except subprocess.TimeoutExpired:  # a child that escaped the group holds the pipes
+                    stdout, stderr = "", ""
+                    for stream in (host.stdout, host.stderr):
+                        with contextlib.suppress(OSError):
+                            stream.close()
+                    host.wait()
+            return (started, int((time.monotonic() - clock) * 1000), stdout or "", stderr or "",
+                    host.returncode, timed_out)
     except OSError as exc:                       # host missing or not executable
         return started, int((time.monotonic() - clock) * 1000), "", \
             f"{type(exc).__name__}: {exc}", -1, False
-    try:
-        stdout, stderr = host.communicate(timeout=timeout_s)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        stop(host)
-        try:
-            stdout, stderr = host.communicate(timeout=5)
-        except subprocess.TimeoutExpired:        # a child that left the group holds the pipes
-            stdout, stderr = "", ""
-            for stream in (host.stdout, host.stderr):
-                with contextlib.suppress(OSError):
-                    stream.close()
-            host.wait()
-    return (started, int((time.monotonic() - clock) * 1000), stdout or "", stderr or "",
-            host.returncode, timed_out)
 
 
 def run_case(case: dict, arm: str, args, vault: Path, out: Path, mcp_path: Path) -> dict:

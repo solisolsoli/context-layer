@@ -17,6 +17,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+from _portable_helpers import isolated_home_env
+
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
@@ -60,7 +62,7 @@ class Base(unittest.TestCase):
         self.root = Path(self.temp.name).resolve()
         self.home = self.root / "home"
         self.home.mkdir()
-        patcher = mock.patch.dict(os.environ, {"HOME": str(self.home)})
+        patcher = mock.patch.dict(os.environ, isolated_home_env(os.environ, str(self.home)))
         patcher.start()
         self.addCleanup(patcher.stop)
         for name in ("CLAUDE_CODE_SESSION_ID", "CONTEXT_LAYER_SESSION", "CONTEXT_LAYER_TOOL"):
@@ -142,8 +144,7 @@ class Base(unittest.TestCase):
                                     "applied": True, "requests": 9})
 
     def run_cli(self, *argv):
-        environment = dict(os.environ)
-        environment["HOME"] = str(self.home)
+        environment = isolated_home_env(os.environ, self.home)
         return subprocess.run([sys.executable, "-m", "context_layer.cli", "session", *argv],
                               cwd=REPO, capture_output=True, text=True, env=environment)
 

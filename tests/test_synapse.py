@@ -24,6 +24,10 @@ import unicodedata
 import unittest
 from unittest import mock
 
+from _portable_helpers import isolated_home_env
+
+from _portable_helpers import deny_path_access
+
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(REPO))
 
@@ -59,12 +63,12 @@ class VaultCase(unittest.TestCase):
         for name, text in files.items():
             path = self.vault / name
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(text, encoding="utf-8")
+            path.write_text(text, encoding="utf-8", newline="\n")
 
     def cli(self, *argv, stdin=""):
         return subprocess.run([sys.executable, "-m", "context_layer.cli", *argv], cwd=REPO,
                               capture_output=True, text=True, input=stdin,
-                              env=dict(os.environ, HOME=str(self.vault.parent)))
+                              env=isolated_home_env(os.environ, str(self.vault.parent)))
 
     def index(self, *extra):
         done = self.cli("index", str(self.vault), *extra)
@@ -433,11 +437,9 @@ class StoredGraph(VaultCase):
         (self.vault / "b.md").write_text("# B\n\nChanged after indexing. [[a]]\n", encoding="utf-8")
         (self.vault / "c.md").unlink()
         expected = {"changed since indexing": 1, "deleted since indexing": 1}
-        locked = hasattr(os, "geteuid") and os.geteuid() != 0
-        if locked:
-            (self.vault / "e.md").chmod(0)
-            self.addCleanup((self.vault / "e.md").chmod, 0o644)
-            expected["unreadable"] = 1
+        locked = self.vault / "e.md"
+        deny_path_access(self, locked)
+        expected["unreadable"] = 1
         err = io.StringIO()
         with redirect_stderr(err):
             summary = graph.build(self.vault)
@@ -809,12 +811,14 @@ class ActivationTrace(VaultCase):
         target.write_text("{half", encoding="utf-8")
         self.search("lantern owner")
         good = self.trace()                                  # replaced whole, parseable
-        with mock.patch.object(synapse.json, "dump", side_effect=OSError("disk full")):
+        from context_layer import platform_support
+        with mock.patch.object(platform_support.os, "replace", side_effect=OSError("disk full")):
             packet = self.search("lantern owner pager")
         self.assertIsNone(packet["synapse"]["trace"])
         self.assertIn("disk full", packet["synapse"]["trace_error"])
         self.assertEqual(self.trace(), good)                 # the old file is untouched
-        leftovers = [p.name for p in target.parent.iterdir() if p.name.startswith(".activation-")]
+        leftovers = [p.name for p in target.parent.iterdir()
+                     if p.name.startswith(".activation.json.") and p.name.endswith(".tmp")]
         self.assertEqual(leftovers, [])
 
 

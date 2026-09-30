@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- GitHub source management with dry-run previews, branch/tag resolution to
+  immutable commits, config backups and explicit old/new pin updates. Optional
+  bounded cache with offline reads, integrity checks, refresh and purge controls;
+  cached evidence stays separate from local source validation.
+
+- Portable file locks, private file handling and process-tree cleanup for Windows;
+  portable test fixtures and installed-wheel checks. Windows CI is required.
+
 - Optional GitHub evidence for knowledge gaps: `github-context`,
   `search --github` and an MCP tool. Owner-enabled allowlists, commit-pinned
   public files, anonymous bounded reads, verified blob hashes and immutable

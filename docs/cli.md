@@ -289,11 +289,21 @@ longer matches its record's text; the per-search check does not.
 
 ## GitHub context (opt-in)
 
-`github-context VAULT --prompt TEXT [--source ID ...]` fetches configured public
+`github-context VAULT --prompt TEXT [--source ID ...] [--offline | --refresh]` fetches configured public
 files pinned to full commit SHAs. `search --github` uses the same reader only
 after clean local NOT_FOUND; `--no-github` overrides it. Both require an enabled
 `.context/github.json`. No prompt or note is sent to GitHub. The standalone
 command exits 1 on ERROR, 0 otherwise; fallback keeps the local result and exit
 status with external failures visible in `external_context`.
+
+`github-sources list|add|remove|enable|disable|check|update VAULT` manages the
+allowlist. `add` resolves `--repo`, `--ref`, repeated `--path` and `--keyword`
+values under `--id`. `check --id ID [--ref REF]` previews upstream changes.
+`update --id ID --commit NEW_SHA --expected-commit OLD_SHA` changes only the
+selected pin. Mutations are dry runs until `--apply` and preserve a backup.
+
+`github-cache status|enable|disable|purge VAULT` controls a separate default-off
+cache; mutations also require `--apply`. `--offline` uses only that cache;
+`--refresh` fetches the pinned file again. Neither flag advances a commit pin.
 See [github-context.md](github-context.md) for configuration, bounds, evidence
 fields and failure semantics.

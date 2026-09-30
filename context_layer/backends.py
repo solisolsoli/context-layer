@@ -33,6 +33,7 @@ import os
 from pathlib import Path
 import shlex
 import shutil
+import sys
 
 BACKENDS = ("fake", "claude", "codex", "cmd")
 # What a `claude -p` child may load besides the prompt. `--bare` is documented in
@@ -125,7 +126,9 @@ def plan(backend: str, *, prompt_file: Path, prompt_text: str = "", out_dir: Pat
             raise BackendError(
                 f"backend 'fake' needs {FAKE_ENV}=<script>; the script receives the prompt "
                 "on stdin and prints one claude-style JSON object")
-        return Plan("fake", (script,), script, "prompt",
+        argv = (sys.executable, script) if os.name == "nt" and script.lower().endswith(".py") \
+            else (script,)
+        return Plan("fake", argv, script, "prompt",
                     ("test backend: the script is the agent",))
 
     if backend == "claude":

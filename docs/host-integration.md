@@ -58,7 +58,9 @@ warnings go to stderr.
 The command a host is told to run is `context-layer` from `PATH`, or
 `<this python> -m context_layer.cli` (with `PYTHONPATH` set to the checkout) when
 the package is not on `PATH`, both with `PYTHONUTF8=1` (an `env` block for the MCP
-server, a `PYTHONUTF8=1` prefix for hook commands) — whichever is resolved is written into the config
+server, a `PYTHONUTF8=1` prefix for POSIX hook commands). Windows hooks use a
+PowerShell encoded command to carry literal paths and environment values safely;
+the encoding is shell quoting, not encryption. Whichever launcher is resolved is written into the config
 literally, so a host that does not share your shell's `PATH` still starts the
 server. Those entries therefore name this machine's interpreter and vault paths;
 every install says so on stderr. Keep them out of shared commits: for Claude Code,

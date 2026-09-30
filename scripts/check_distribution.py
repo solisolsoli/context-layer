@@ -37,17 +37,21 @@ is thrown away with it.
 from __future__ import annotations
 import argparse, hashlib, json, os, pathlib, shlex, subprocess, sys, tarfile, tempfile, venv, zipfile
 
-HOME = None  # set once the temporary directory exists; every child inherits it
+TEST_HOME = None  # set once the temporary directory exists; every child inherits it
 PATH_PREFIX = None  # the fresh venv's bin, so children see the installed console script
 RUNNER_TOOLCHAIN_DIRS = {".rustup"}  # created by rustup itself, never by this package
 
 def run(cmd, *, cwd=None, env=None, expect=(0,), path=None, stdin=None):
     e = dict(env or os.environ)
     e.pop("CONTEXT_LAYER_HOME", None); e.pop("PYTHONPATH", None)
-    if HOME is not None: e["HOME"] = str(HOME)
+    if TEST_HOME is not None:
+        e["HOME"] = str(TEST_HOME)
+        e["USERPROFILE"] = str(TEST_HOME)
+        drive, tail = os.path.splitdrive(str(TEST_HOME))
+        e["HOMEDRIVE"], e["HOMEPATH"] = drive, tail
     if path is not None: e["PATH"] = path
     elif PATH_PREFIX is not None: e["PATH"] = PATH_PREFIX + os.pathsep + e.get("PATH", "")
-    p = subprocess.run(cmd, cwd=cwd, env=e, text=True, capture_output=True, input=stdin,
+    p = subprocess.run(cmd, cwd=cwd, env=e, text=True, encoding="utf-8", capture_output=True, input=stdin,
                        timeout=600)
     if p.returncode not in expect:
         raise SystemExit(f"FAILED ({p.returncode}, wanted {expect}): {' '.join(map(str, cmd))}\n{p.stdout}\n{p.stderr}")
@@ -100,6 +104,8 @@ WHEEL_REQUIRED = (
     "context_layer/router/index_format.py", "context_layer/router/build_index.py",
     "context_layer/eval/retrieve.py",
     "context_layer/github_context.py", "context_layer/github_client.py",
+    "context_layer/github_sources.py", "context_layer/github_cache.py",
+    "context_layer/platform_support.py",
 )
 # pyproject `license-files`; setuptools copies each under *.dist-info/licenses/.
 WHEEL_LICENSES = ("LICENSE", "THIRD_PARTY.md", "retrieval-patches/LICENSE.upstream.txt")
@@ -146,7 +152,7 @@ def release_walk(cli, py, root, vault):
     check(report["index"]["manifest"], "the build wrote no index-manifest.json")
     (vault / "notes").mkdir(exist_ok=True)
     (vault / "notes" / "budget.md").write_text("# Budget\n\nThe quarterly budget is confidential.\n",
-                                               encoding="utf-8")
+                                               encoding="utf-8", newline="\n")
     report = json.loads(run([str(cli), "status", str(vault), "--json"], cwd=root, expect=(1,)))
     check(report["overall"] == "stale" and "notes/budget.md" in report["added"],
           f"an added source was not reported: {report}")
@@ -177,7 +183,7 @@ def release_walk(cli, py, root, vault):
 
     # -- bounded task: the fake backend is a script this function writes --
     agent = root / "fake-agent.py"
-    agent.write_text(FAKE_AGENT.format(python=py), encoding="utf-8")
+    agent.write_text(FAKE_AGENT.format(python=py), encoding="utf-8", newline="\n")
     agent.chmod(0o755)
     environment = dict(os.environ, CONTEXT_LAYER_FAKE_BACKEND=str(agent))
     task = json.loads(run([str(cli), "tasks", "new", str(vault), "--goal", "style",
@@ -205,15 +211,17 @@ def release_walk(cli, py, root, vault):
     # install sets PYTHONUTF8=1 for every host command (E-17); nothing else, and never PYTHONPATH
     check(entry.get("env", {}) == {"PYTHONUTF8": "1"} and "PYTHONPATH" not in printed,
           f"the installed console script exports an unexpected env: {entry}")
-    check(pathlib.Path(entry["command"]).name == "context-layer",
+    check(pathlib.Path(entry["command"]).name in {"context-layer", "context-layer.exe"},
           f"the printed command is not the console script: {entry['command']}")
     check(json.loads(run([str(cli), "install", "generic", "--vault", str(vault)], cwd=root)) ==
           json.loads(printed), "`install generic` and `install print generic` disagree")
     # The contrast: called from a PATH that cannot resolve the console script, the
     # printed config falls back to `-m context_layer.cli` plus the PYTHONPATH that
     # makes it importable. That branch must still name the installed package.
+    empty_path = root / "empty-path"
+    empty_path.mkdir()
     hidden = json.loads(run([str(cli), "install", "print", "generic", "--vault", str(vault)],
-                            cwd=root, path="/usr/bin:/bin"))["mcpServers"]["context-layer"]
+                            cwd=root, path=str(empty_path)))["mcpServers"]["context-layer"]
     check(hidden.get("args", [])[:2] == ["-m", "context_layer.cli"]
           and "PYTHONPATH" in hidden.get("env", {}), f"the fallback launcher changed shape: {hidden}")
     run([str(cli), "install", "claude-code", "--vault", str(vault),
@@ -278,7 +286,7 @@ def walk_03(cli, root):
     vault = root / "linked"
     for name, text in LINKED_NOTES.items():
         (vault / name).parent.mkdir(parents=True, exist_ok=True)
-        (vault / name).write_text(text, encoding="utf-8")
+        (vault / name).write_text(text, encoding="utf-8", newline="\n")
     # Two notes are too few to infer a route: init writes routes.json and exits 1.
     run([str(cli), "init", str(vault)], cwd=root, expect=(0, 1))
     check((vault / ".context" / "routes.json").is_file(), "init wrote no routes.json")
@@ -325,11 +333,11 @@ def walk_03(cli, root):
                 "source_sha256": sha, "line_start": 3, "line_end": 3, "span": span,
                 "method": "read_source", "uncertainty": "none noted"}
     records = [record("E1", "a budget of 48,000 credits"), record("F1", "a budget of 480,000 credits")]
-    (out / "evidence.jsonl").write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+    (out / "evidence.jsonl").write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8", newline="\n")
     (out / "receipt.json").write_text(json.dumps({
         "schema": "support-receipt/v1", "task_id": "walk-1", "attempt": 1, "state": "READY",
         "counts": {"records": 2, "scanned": 1, "excluded": 0, "failed": 0},
-        "handoff": "handoff.md", "blocker": None}), encoding="utf-8")
+        "handoff": "handoff.md", "blocker": None}), encoding="utf-8", newline="\n")
     verdict = json.loads(run([str(cli), "handback", "check", str(out), "--job", str(job_path), "--json"],
                              cwd=root, expect=(1,)))
     failed = {r["id"] for r in verdict.get("results", []) if not r.get("mechanically_checked")}
@@ -398,8 +406,50 @@ def upgrade(cli, py, wheel, root, vault, task_id):
     return version
 
 
+def walk_github(cli, root):
+    """Exercise installed source/cache controls without any network access."""
+    vault = root / "github-controls"
+    vault.mkdir()
+    def call(*args, expect=(0,)):
+        return json.loads(run([str(cli), *args], cwd=root, expect=expect))
+
+    sources = call("github-sources", "list", str(vault))
+    check(sources["status"] == "OK" and not sources["enabled"] and not sources["sources"],
+          f"GitHub sources were not off by default: {sources}")
+    cache = call("github-cache", "status", str(vault))
+    check(cache["status"] == "OK" and not cache["enabled"] and cache["entries"] == 0,
+          f"GitHub cache was not off by default: {cache}")
+    preview = call("github-cache", "enable", str(vault))
+    check(preview["status"] == "DRY_RUN" and not (vault / ".context").exists(),
+          "GitHub cache dry run wrote vault state")
+    check(call("github-cache", "enable", str(vault), "--apply")["status"] == "OK",
+          "GitHub cache enable failed")
+    config = vault / ".context" / "github.json"
+    config.write_text(json.dumps({"version": 1, "enabled": True, "sources": [
+        {"id": "docs", "repo": "example/project", "commit": "1" * 40,
+         "paths": ["README.md"], "keywords": ["setup"]}]}), encoding="utf-8", newline="\n")
+    packet = call("github-context", str(vault), "--prompt", "setup", "--source", "docs",
+                  "--offline", expect=(1,))
+    check(packet["status"] == "ERROR" and "cache_miss" in packet["errors"],
+          f"offline GitHub cache miss did not fail explicitly: {packet}")
+    before = config.read_bytes()
+    preview = call("github-sources", "remove", str(vault), "--id", "docs")
+    check(preview["status"] == "DRY_RUN" and config.read_bytes() == before,
+          "GitHub source removal dry run mutated the allowlist")
+    removed = call("github-sources", "remove", str(vault), "--id", "docs", "--apply")
+    check(removed["status"] == "OK" and not removed["config"]["sources"]
+          and config.with_suffix(".json.bak").read_bytes() == before,
+          "GitHub source removal did not preserve a backup")
+    check(call("github-cache", "disable", str(vault), "--apply")["status"] == "OK",
+          "GitHub cache disable failed")
+    purged = call("github-cache", "purge", str(vault), "--apply")
+    check(purged["status"] == "OK" and purged["purged"] == 0,
+          "GitHub empty-cache purge failed")
+    return "default off; dry runs inert; offline miss explicit; source backup; cache controls"
+
+
 def main(argv=None) -> int:
-    global HOME, PATH_PREFIX
+    global TEST_HOME, PATH_PREFIX
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("wheel", help="The built context_layer-*.whl; its sdist is read beside it.")
     parser.add_argument("--no-sdist", action="store_true",
@@ -410,12 +460,14 @@ def main(argv=None) -> int:
     version_tag = wheel.name.split("-")[1]
     with tempfile.TemporaryDirectory(prefix="context-layer-dist-") as td:
         root = pathlib.Path(td); envdir = root / "venv"; vault = root / "vault"; vault.mkdir()
-        HOME = root / "home"; HOME.mkdir()
-        (vault / "style.md").write_text("# Style\n\nKnown style text appears here.\n", encoding="utf-8")
+        TEST_HOME = root / "home"; TEST_HOME.mkdir()
+        (vault / "style.md").write_text("# Style\n\nKnown style text appears here.\n", encoding="utf-8", newline="\n")
         venv.EnvBuilder(with_pip=True).create(envdir)
-        py = envdir / "bin" / "python"; cli = envdir / "bin" / "context-layer"
+        bindir = envdir / ("Scripts" if os.name == "nt" else "bin")
+        py = bindir / ("python.exe" if os.name == "nt" else "python")
+        cli = bindir / ("context-layer.exe" if os.name == "nt" else "context-layer")
         run([str(py), "-m", "pip", "install", "--no-index", "--no-deps", str(wheel)], cwd=root)
-        PATH_PREFIX = str(envdir / "bin")   # what an activated environment looks like
+        PATH_PREFIX = str(bindir)   # what an activated environment looks like
         version = run([str(cli), "--version"], cwd=root)
         check("context-layer" in version, f"--version printed {version.strip()!r}")
         check(version_tag in version, f"{version.strip()} is not the built {version_tag}")
@@ -469,17 +521,19 @@ def main(argv=None) -> int:
               " groups, not 25")
         walk = release_walk(cli, py, root, vault)
         walk03 = walk_03(cli, root)
+        github_walk = walk_github(cli, root)
         task_id = walk["task"].split(":")[0]
         upgraded = upgrade(cli, py, wheel, root, vault, task_id)
         # A CI runner's rustup proxies on PATH create ~/.rustup when a toolchain lookup
         # passes through them; nothing in this package names rustup or cargo. Anything
         # else in the temporary HOME is a write by a context-layer child.
-        written = [p for p in HOME.iterdir() if p.name not in RUNNER_TOOLCHAIN_DIRS]
+        written = [p for p in TEST_HOME.iterdir() if p.name not in RUNNER_TOOLCHAIN_DIRS]
         check(written == [], f"a child wrote into the temporary HOME: {written}")
         print(json.dumps({"status": "pass", "version": version.strip(), "evaluation_prompts": summary["n"],
                           "fts_delivered_groups": 25, "installed_outside_checkout": True,
                           "sdist_notices_checked": notices, "wheel_licenses": wheel_licenses,
                           "release_walk": walk, "walk_0_3": walk03,
+                          "github_controls": github_walk,
                           "upgrade": {"reinstalled": upgraded, "vault_state": "readable"}}, indent=2))
     return 0
 if __name__ == "__main__": raise SystemExit(main())

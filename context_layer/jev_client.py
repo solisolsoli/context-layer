@@ -127,7 +127,7 @@ import socket
 import ssl
 import stat
 import subprocess
-import tempfile
+import sys
 import threading
 import time
 import urllib.error
@@ -136,6 +136,7 @@ import urllib.request
 
 from . import __version__, backends
 from . import jev_contracts as contracts
+from .platform_support import managed_process_tree, private_tempdir
 
 PROVIDER_KINDS = ("systemone", "openai_compat", "host_cli", "cmd", "recorded", "fake")
 RECORDING_CONTRACT = "jev-recording/v1"
@@ -726,7 +727,7 @@ class _Run:
 
     def workdir(self) -> str:
         """A fresh private (0700) directory outside the vault, removed by discard/expire."""
-        path = tempfile.mkdtemp(prefix="context-layer-jev-")
+        path = str(private_tempdir(prefix="context-layer-jev-"))
         with self._lock:
             if not self._expired:
                 self._workdirs.add(path)
@@ -757,6 +758,12 @@ class _Run:
 
 def _kill_group(process) -> None:
     """Kill the child's whole process group (it runs in its own session)."""
+    if hasattr(process, "terminate_tree"):
+        try:
+            process.terminate_tree(0)
+        except OSError:
+            pass
+        return
     if process.poll() is not None:
         return
     number = getattr(signal, "SIGKILL", signal.SIGTERM)
@@ -792,15 +799,20 @@ def _run_program(argv: list, payload: bytes | None, run: _Run, workdir: str) -> 
     environment = dict(os.environ)
     environment[CHILD_ENV] = "1"
     with open(out_path, "wb") as out_handle:
+        manager = None
         try:
-            process = subprocess.Popen(
-                argv, cwd=workdir, env=environment, start_new_session=True, close_fds=True,
+            manager = managed_process_tree(
+                ([sys.executable, *argv] if os.name == "nt" and argv
+                 and str(argv[0]).lower().endswith(".py") else argv),
+                cwd=workdir, env=environment, close_fds=True,
                 stdin=subprocess.PIPE if payload is not None else subprocess.DEVNULL,
                 stdout=out_handle, stderr=subprocess.DEVNULL)
+            process = manager.__enter__()
         except (OSError, ValueError):
             raise _Failure("program_missing", 0) from None
         if not run.adopt(process):
             _reap(process)
+            manager.__exit__(None, None, None)
             raise _Failure("deadline_exceeded", 1)
         try:
             if payload is not None:
@@ -814,6 +826,7 @@ def _run_program(argv: list, payload: bytes | None, run: _Run, workdir: str) -> 
                 raise _Failure("deadline_exceeded", 1) from None
         finally:
             run.release(process)
+            manager.__exit__(None, None, None)
     if run.expired():
         raise _Failure("deadline_exceeded", 1)
     with open(out_path, "rb") as handle:
@@ -1455,4 +1468,3 @@ def probe(provider: dict, *, timeout_s: float = 1.0) -> dict:
         return _probe_result(spec.kind, True, False, "deadline_exceeded", "no answer in time",
                              1, started)
     return box["result"]
-

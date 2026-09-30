@@ -7,6 +7,7 @@ and no host session id leaks in from the environment.
 """
 import hashlib
 import json
+import multiprocessing
 import os
 from pathlib import Path
 import subprocess
@@ -16,11 +17,14 @@ import time
 import unittest
 from unittest import mock
 
+from _portable_helpers import assert_private_path, isolated_home_env
+
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from context_layer import rules  # noqa: E402
+from context_layer.platform_support import LockTimeout, file_lock  # noqa: E402
 
 DRIVER = (
     "import argparse, sys\n"
@@ -40,6 +44,15 @@ def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def hold_rule_lock(lock_path, ready_path, release_path):
+    """Separate process proving a real lock blocks a second process until timeout."""
+    with file_lock(Path(lock_path), timeout=10):
+        Path(ready_path).write_text("ready", encoding="ascii")
+        deadline = time.monotonic() + 15
+        while not Path(release_path).exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+
 class RulesBase(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -47,7 +60,7 @@ class RulesBase(unittest.TestCase):
         self.root = Path(self.temp.name).resolve()
         self.home = self.root / "home"
         self.home.mkdir()
-        patcher = mock.patch.dict(os.environ, {"HOME": str(self.home)})
+        patcher = mock.patch.dict(os.environ, isolated_home_env(os.environ, str(self.home)))
         patcher.start()
         self.addCleanup(patcher.stop)
         os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
@@ -58,10 +71,9 @@ class RulesBase(unittest.TestCase):
                                                        encoding="utf-8")
 
     def env(self):
-        env = dict(os.environ)
+        env = isolated_home_env(os.environ, self.home)
         for name in ("CONTEXT_LAYER_TOOL", "CLAUDE_CODE_SESSION_ID", "CONTEXT_LAYER_HOME"):
             env.pop(name, None)
-        env["HOME"] = str(self.home)
         env["PYTHONPATH"] = str(REPO) + os.pathsep + env.get("PYTHONPATH", "")
         return env
 
@@ -507,32 +519,45 @@ class RecordIntegrity(RulesBase):
         for name in (*rules.RULE_FILES, rules.LOG_FILE):
             self.assertNotIn(b"\r", (self.vault / name).read_bytes(), name)
 
-    def test_stale_lock_marker_is_recovered(self):
-        """B-17: without fcntl, a marker left by a holder that died is broken by age."""
+    def test_old_marker_content_does_not_block_the_portable_lock(self):
+        """A stale legacy marker is just data; OS lock ownership controls access."""
         self.install()
-        marker = self.vault / ".context" / "rules.excl"
+        marker = self.vault / ".context" / rules.LOCK_NAME
         marker.parent.mkdir(exist_ok=True)
-        marker.write_text(f"999999 {time.time() - 10 * rules.STALE_LOCK_S:.3f}\n",
-                          encoding="ascii")
-        with mock.patch.object(rules, "fcntl", None), \
-                mock.patch.object(rules, "LOCK_TIMEOUT", 1.0):
-            stored = rules.record(self.vault, summary="after a crash", files=["none"],
-                                  verified="ok", next_step="none")
+        marker.write_text("999999 0\n", encoding="ascii")
+        from context_layer.platform_support import set_private_path
+        set_private_path(marker)
+        stored = rules.record(self.vault, summary="after a crash", files=["none"],
+                              verified="ok", next_step="none")
         self.assertTrue(stored["parity"])
-        self.assertFalse(marker.exists())
-
-    def test_live_lock_marker_times_out_with_the_file_named(self):
-        self.install()
-        marker = self.vault / ".context" / "rules.excl"
-        marker.parent.mkdir(exist_ok=True)
-        marker.write_text(f"{os.getpid()} {time.time():.3f}\n", encoding="ascii")
-        with mock.patch.object(rules, "fcntl", None), \
-                mock.patch.object(rules, "LOCK_TIMEOUT", 0.2):
-            with self.assertRaises(rules.RulesError) as caught:
-                rules.record(self.vault, summary="blocked", files=["none"], verified="ok",
-                             next_step="none")
-        self.assertIn(".context/rules.excl", str(caught.exception))
         self.assertTrue(marker.exists())
+        assert_private_path(self, marker)
+
+    def test_live_process_lock_times_out_with_the_lock_path_named(self):
+        self.install()
+        lock = self.vault / ".context" / rules.LOCK_NAME
+        context = multiprocessing.get_context("spawn")
+        ready, release = self.root / "lock-ready", self.root / "lock-release"
+        holder = context.Process(target=hold_rule_lock,
+                                 args=(str(lock), str(ready), str(release)))
+        holder.start()
+        try:
+            deadline = time.monotonic() + 10
+            while not ready.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(ready.exists(), "the lock-holder process did not acquire the lock")
+            with mock.patch.object(rules, "LOCK_TIMEOUT", 0.2):
+                with self.assertRaises(LockTimeout) as caught:
+                    rules.record(self.vault, summary="blocked", files=["none"], verified="ok",
+                                 next_step="none")
+            self.assertIn(rules.LOCK_NAME, str(caught.exception))
+            assert_private_path(self, lock)
+        finally:
+            release.touch()
+            holder.join(timeout=10)
+            if holder.is_alive():
+                holder.terminate()
+                holder.join(timeout=5)
 
 
 class HookBase(RulesBase):

@@ -43,11 +43,7 @@ import json
 import os
 from pathlib import Path
 import sys
-
-try:  # POSIX advisory locking; appends are single O_APPEND writes either way.
-    import fcntl
-except ImportError:  # pragma: no cover
-    fcntl = None
+from .platform_support import file_lock, set_private_permissions
 
 SCHEMA = "usage-ledger/v1"
 VERSION = 1
@@ -156,10 +152,7 @@ def _record(root: Path, packet, method: str, session_id, now) -> dict:
 def _append(target: Path, data: bytes) -> None:
     """One O_APPEND write under an advisory lock; rotate to `.1` when the file is full."""
     target.parent.mkdir(parents=True, exist_ok=True)
-    lock = os.open(target.parent / LOCK_NAME, os.O_WRONLY | os.O_CREAT, 0o600)
-    try:
-        if fcntl is not None:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+    with file_lock(target.parent / LOCK_NAME):
         try:
             full = target.stat().st_size + len(data) > MAX_LEDGER_BYTES
         except OSError:
@@ -168,13 +161,10 @@ def _append(target: Path, data: bytes) -> None:
             os.replace(target, target.with_name(target.name + ".1"))
         fd = os.open(target, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
         try:
+            set_private_permissions(fd, target)
             os.write(fd, data)
         finally:
             os.close(fd)
-    finally:
-        if fcntl is not None:
-            fcntl.flock(lock, fcntl.LOCK_UN)
-        os.close(lock)
 
 
 # ---------------------------------------------------------------------------

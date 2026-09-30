@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
-from . import github_client
+from . import github_client, platform_support
 
 SCHEMA = "github-context-v1"
 MAX_CONFIG_BYTES = 32 * 1024
@@ -59,15 +59,15 @@ def _load_config(vault: Path) -> dict | None:
     context_dir = vault / ".context"
     config_path = context_dir / "github.json"
     try:
-        if vault.is_symlink() or not vault.exists() or not vault.is_dir():
+        if platform_support.is_link_or_reparse(vault) or not vault.exists() or not vault.is_dir():
             raise _ConfigError
-        if context_dir.is_symlink():
+        if platform_support.is_link_or_reparse(context_dir):
             raise _ConfigError
         if not context_dir.exists():
             return None
         if not context_dir.is_dir():
             raise _ConfigError
-        if config_path.is_symlink():
+        if platform_support.is_link_or_reparse(config_path):
             raise _ConfigError
         if not config_path.exists():
             return None
@@ -95,30 +95,42 @@ def _load_config(vault: Path) -> dict | None:
         raise _ConfigError
     seen_ids = set()
     for source in sources:
-        if not isinstance(source, dict) or set(source) != {"id", "repo", "commit", "paths", "keywords"}:
-            raise _ConfigError
-        sid, repo, commit = source["id"], source["repo"], source["commit"]
-        if (not isinstance(sid, str) or not _ID.fullmatch(sid) or sid in seen_ids
-                or not isinstance(repo, str) or not _REPO.fullmatch(repo)
-                or any(part in (".", "..") for part in repo.split("/"))
-                or not isinstance(commit, str) or not _COMMIT.fullmatch(commit)):
-            raise _ConfigError
-        seen_ids.add(sid)
-        paths = source["paths"]
-        if not isinstance(paths, list) or not paths:
-            raise _ConfigError
-        for path in paths:
-            if (not isinstance(path, str) or len(path) > 800 or path.startswith("/")
-                    or "?" in path or "#" in path or "\\" in path
-                    or any(not _PATH_PART.fullmatch(part) or part in (".", "..")
-                           for part in path.split("/"))):
-                raise _ConfigError
-        keywords = source["keywords"]
-        if (not isinstance(keywords, list) or not keywords
-                or any(not isinstance(word, str) or not word.strip() or len(word) > 100
-                       for word in keywords)):
-            raise _ConfigError
+        _validate_source(source, seen_ids)
     return config
+
+
+def _validate_source(source: dict, seen_ids: set[str] | None = None) -> None:
+    """Apply the exact configured-source constraints to one proposed row."""
+    if not isinstance(source, dict) or set(source) not in (
+            {"id", "repo", "commit", "paths", "keywords"},
+            {"id", "repo", "commit", "paths", "keywords", "ref"}):
+        raise _ConfigError
+    sid, repo, commit = source["id"], source["repo"], source["commit"]
+    if (not isinstance(sid, str) or not _ID.fullmatch(sid)
+            or (seen_ids is not None and sid in seen_ids)
+            or not isinstance(repo, str) or not _REPO.fullmatch(repo)
+            or any(part in (".", "..") for part in repo.split("/"))
+            or not isinstance(commit, str) or not _COMMIT.fullmatch(commit)):
+        raise _ConfigError
+    if seen_ids is not None:
+        seen_ids.add(sid)
+    if "ref" in source:
+        try:
+            github_client.validate_ref(repo, source["ref"])
+        except github_client.GitHubFetchError:
+            raise _ConfigError from None
+    paths = source["paths"]
+    if (not isinstance(paths, list) or not paths
+            or any(not isinstance(path, str) or len(path) > 800 or path.startswith("/")
+                   or "?" in path or "#" in path or "\\" in path
+                   or any(not _PATH_PART.fullmatch(part) or part in (".", "..")
+                          for part in path.split("/")) for path in paths)):
+        raise _ConfigError
+    keywords = source["keywords"]
+    if (not isinstance(keywords, list) or not keywords
+            or any(not isinstance(word, str) or not word.strip() or len(word) > 100
+                   for word in keywords)):
+        raise _ConfigError
 
 
 def _words(text: str) -> list[str]:
@@ -176,8 +188,11 @@ def _excerpt(text: str, prompt: str, max_chars: int, allow_prefix: bool) -> tupl
     return None
 
 
-def fetch(vault: Path, prompt: str, source_ids: list[str] | None = None) -> dict:
+def fetch(vault: Path, prompt: str, source_ids: list[str] | None = None, *,
+          offline: bool = False, force_refresh: bool = False) -> dict:
     """Return a bounded set of verbatim passages from configured public GitHub sources."""
+    if type(offline) is not bool or type(force_refresh) is not bool or (offline and force_refresh):
+        return _off("ERROR", ["invalid_cache_options"])
     if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > MAX_PROMPT_CHARS:
         return _off("ERROR", ["invalid_prompt"])
     try:
@@ -212,8 +227,10 @@ def fetch(vault: Path, prompt: str, source_ids: list[str] | None = None) -> dict
             errors.append("deadline_exceeded")
             break
         try:
-            data = github_client.fetch_file(source["repo"], source["commit"], path,
-                                            timeout=min(5.0, remaining))
+            from . import github_cache
+            data, cache_state = github_cache.fetch_file(
+                Path(vault), source["repo"], source["commit"], path,
+                offline=offline, force_refresh=force_refresh, timeout=min(5.0, remaining))
             if total_bytes + len(data) > MAX_TOTAL_FILE_BYTES:
                 errors.append("total_bytes_exceeded")
                 continue
@@ -225,8 +242,14 @@ def fetch(vault: Path, prompt: str, source_ids: list[str] | None = None) -> dict
         except github_client.GitHubFetchError as exc:
             errors.append(exc.code)
             continue
-        except (UnicodeDecodeError, OSError):
+        except github_cache.GitHubCacheError as exc:
+            errors.append(exc.code)
+            continue
+        except UnicodeDecodeError:
             errors.append("invalid_utf8")
+            continue
+        except OSError:
+            errors.append("cache_error")
             continue
         room = min(MAX_FILE_CHARS, MAX_DELIVERED_CHARS - total_chars)
         excerpt = _excerpt(text, prompt, room, allow_prefix=explicit)
@@ -249,6 +272,8 @@ def fetch(vault: Path, prompt: str, source_ids: list[str] | None = None) -> dict
             "line_end": line_end,
             "content": content,
         })
+        if cache_state is not None:
+            evidence[-1]["cache_provenance"] = cache_state
         total_chars += len(content)
     if evidence:
         status = "PARTIAL" if errors else "FOUND"

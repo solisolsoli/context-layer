@@ -15,6 +15,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+from _portable_helpers import isolated_home_env
+
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
@@ -47,7 +49,7 @@ class BriefBase(unittest.TestCase):
         self.root = Path(self.temp.name).resolve()
         home = self.root / "home"
         home.mkdir()
-        patcher = mock.patch.dict(os.environ, {"HOME": str(home)})
+        patcher = mock.patch.dict(os.environ, isolated_home_env(os.environ, str(home)))
         patcher.start()
         self.addCleanup(patcher.stop)
         self.vault = self.root / "vault"

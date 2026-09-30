@@ -53,6 +53,7 @@ import threading
 import time
 
 from . import __version__, health, memory
+from .platform_support import managed_process_tree
 
 # ---------------------------------------------------------------------------
 # Protocol
@@ -342,26 +343,22 @@ def run_retrieval(command: list[str], timeout: int,
     `notifications/cancelled` can kill it. stdin is never inherited (in the MCP server it
     is the JSON-RPC pipe): it carries the prompt, or nothing."""
     job = getattr(CURRENT, "job", None)
-    if job is None:
-        if stdin_data is None:
-            return subprocess.run(command, capture_output=True, timeout=timeout,
-                                  stdin=subprocess.DEVNULL)
-        return subprocess.run(command, capture_output=True, timeout=timeout, input=stdin_data)
-    proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            stdin=subprocess.DEVNULL if stdin_data is None else subprocess.PIPE)
-    if not job.attach(proc):
-        proc.kill()
-        proc.communicate()
-        raise Cancelled()
-    try:
-        out, err = proc.communicate(input=stdin_data, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.communicate()
-        raise
-    finally:
-        job.detach()
-    return subprocess.CompletedProcess(command, proc.returncode, out, err)
+    with managed_process_tree(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              stdin=subprocess.DEVNULL if stdin_data is None else subprocess.PIPE) as proc:
+        if job is not None and not job.attach(proc):
+            proc.kill()
+            proc.communicate()
+            raise Cancelled()
+        try:
+            out, err = proc.communicate(input=stdin_data, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            raise
+        finally:
+            if job is not None:
+                job.detach()
+        return subprocess.CompletedProcess(command, proc.returncode, out, err)
 
 
 def search(state: Server, prompt: str, method: str, top_k: int, budget: int,
@@ -593,8 +590,15 @@ def tool_github_context(state: Server, arguments: dict) -> dict:
     """Only the vault owner's configured files can be requested by an agent."""
     prompt = text_arg(arguments, "prompt", cap=PROMPT_CAP)
     sources = list_arg(arguments, "source_ids")
+    offline = arguments.get("offline", False)
+    refresh = arguments.get("force_refresh", False)
+    if type(offline) is not bool or type(refresh) is not bool:
+        raise InvalidParams("offline and force_refresh must be booleans")
+    if offline and refresh:
+        raise InvalidParams("offline and force_refresh cannot both be true")
     from . import github_context
-    packet = github_context.fetch(state.vault, prompt, sources)
+    packet = github_context.fetch(state.vault, prompt, sources,
+                                  offline=offline, force_refresh=refresh)
     return tool_result(json.dumps(packet, ensure_ascii=False), packet.get("status") == "ERROR")
 
 
@@ -1013,17 +1017,22 @@ TOOLS = [
      "description": "When local evidence does not answer the question, fetch candidate "
                     "passages from public GitHub files allowlisted by the vault owner. "
                     "Requires enabled .context/github.json; off by default. Source commits "
-                    "are pinned. Prompt matching stays local; no credentials or notes are "
+                    "are pinned. An owner-enabled verified local cache may be read or written. "
+                    "Use offline for cache-only access, force_refresh to fetch the same pin again. "
+                    "Prompt matching stays local; no credentials or notes are "
                     "sent. FOUND means passages were delivered, not that an answer is correct. "
                     "Use the immutable URL and hash as citations; do not pass external "
                     "items to local read_source/check_claims or the session ledger. "
                     + DATA_NOT_INSTRUCTIONS,
-     "annotations": {**annotations(read_only=True), "openWorldHint": True},
+     "annotations": {**annotations(read_only=False), "openWorldHint": True},
      "inputSchema": {"type": "object", "required": ["prompt"], "properties": {
          "prompt": {"type": "string", "maxLength": PROMPT_CAP,
                     "description": "Question matched locally against configured keywords."},
          "source_ids": {"type": "array", "maxItems": 2, "items": {"type": "string"},
-                        "description": "Configured source ids; omit for keyword routing."}}}},
+                        "description": "Configured source ids; omit for keyword routing."},
+         "offline": {"type": "boolean", "description": "Use verified cached files only; no network."},
+         "force_refresh": {"type": "boolean",
+                           "description": "Refetch the pinned version; incompatible with offline."}}}},
 ]
 
 HANDLERS = {"search_vault": tool_search_vault, "read_source": tool_read_source,

@@ -18,8 +18,12 @@ import tempfile
 import threading
 import time
 import unittest
+
+from _portable_helpers import process_is_gone
 from unittest import mock
 import urllib.request
+
+from _portable_helpers import isolated_home_env
 
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(REPO))
@@ -54,7 +58,7 @@ def _loopback_only(sock, address, *args):
 def setUpModule():
     global _HOME, _PATCH
     _HOME = tempfile.TemporaryDirectory()
-    _PATCH = mock.patch.dict(os.environ, {"HOME": _HOME.name})
+    _PATCH = mock.patch.dict(os.environ, isolated_home_env(os.environ, _HOME.name))
     _PATCH.start()
     socket.socket.connect = _loopback_only
 
@@ -723,12 +727,8 @@ def jev_temp_dirs():
 def gone(pid, within=5.0):
     stop = time.monotonic() + within
     while time.monotonic() < stop:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
+        if process_is_gone(pid):
             return True
-        except PermissionError:
-            return False
         time.sleep(0.05)
     return False
 
@@ -753,9 +753,20 @@ class ProgramCase(unittest.TestCase):
         self.log = self.root / "claude-call.json"
 
     def script(self, name, body, directory=None):
-        path = (directory or self.bin) / name
-        path.write_text(body.replace("@PYTHON@", sys.executable).replace("@KEY@", KEY),
-                        encoding="utf-8")
+        folder = directory or self.bin
+        content = body.replace("@PYTHON@", sys.executable).replace("@KEY@", KEY)
+        if os.name == "nt":
+            stem = Path(name).stem
+            program = folder / f"{stem}.py"
+            program.write_text(content, encoding="utf-8", newline="\n")
+            if stem == "claude":
+                command = folder / "claude.cmd"
+                command.write_text(f'@"{sys.executable}" "{program}" %*\r\n',
+                                   encoding="utf-8", newline="")
+                return command
+            return program
+        path = folder / name
+        path.write_text(content, encoding="utf-8")
         path.chmod(0o755)
         return path
 

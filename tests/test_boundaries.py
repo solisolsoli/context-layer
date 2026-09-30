@@ -1,11 +1,11 @@
 """Boundary tests reuse the proven valid CLI fixture, never accept arbitrary errors."""
 import json
-import sqlite3
 import unittest
 from unittest.mock import patch
 import sys
 from pathlib import Path
 import test_integrity as fixture
+from _portable_helpers import sqlite_connection
 
 sys.path.insert(0, str(fixture.REPO / 'router'))
 
@@ -46,7 +46,7 @@ class BoundaryTests(unittest.TestCase):
         with patch.object(Path,'read_bytes',checked):
             self.assertEqual(build_index.main(['--vault',str(self.vault)]),0)
         self.assertNotIn(secret,opened)
-        with sqlite3.connect(self.ctx/'index.sqlite') as db:
+        with sqlite_connection(self.ctx/'index.sqlite') as db:
             self.assertEqual(db.execute("SELECT count(*) FROM records WHERE source_path='private/secret.md'").fetchone()[0],0)
 
     def test_literal_prefix_sibling_is_retained(self):
@@ -55,7 +55,7 @@ class BoundaryTests(unittest.TestCase):
         self.config['exclude_prefixes']=["deny'_%"]
         self.config['routes']['canonical']['canonical_sources']=[];self.save_config()
         self.assertEqual(self.build().returncode,0)
-        with sqlite3.connect(self.ctx/'index.sqlite') as db:
+        with sqlite_connection(self.ctx/'index.sqlite') as db:
             names={r[0] for r in db.execute('SELECT source_path FROM records')}
         self.assertNotIn("deny'_%/note.md",names)
         self.assertIn("deny'_%sibling/note.md",names)
@@ -85,7 +85,7 @@ class BoundaryTests(unittest.TestCase):
         self.config['routes']['canonical']['canonical_sources'] = []
         self.save_config()
         self.assertEqual(self.build().returncode, 0)
-        with sqlite3.connect(self.ctx/'index.sqlite') as db:
+        with sqlite_connection(self.ctx/'index.sqlite') as db:
             names = {r[0] for r in db.execute('SELECT source_path FROM records')}
         self.assertNotIn('Private/secret.md', names)
         result = self.route('--evidence-json')

@@ -24,6 +24,8 @@ import sys
 import tempfile
 import time
 import unittest
+
+from _portable_helpers import isolated_home_env
 from unittest import mock
 
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
@@ -67,7 +69,7 @@ class EvidenceBase(unittest.TestCase):
         self.root = Path(self.temp.name).resolve()
         home = self.root / "home"
         home.mkdir()
-        patcher = mock.patch.dict(os.environ, {"HOME": str(home)})
+        patcher = mock.patch.dict(os.environ, isolated_home_env(os.environ, str(home)))
         patcher.start()
         self.addCleanup(patcher.stop)
         os.environ.pop("CLAUDE_CODE_SESSION_ID", None)

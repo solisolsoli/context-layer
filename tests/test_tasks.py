@@ -17,6 +17,8 @@ import sys
 import tempfile
 import time
 import unittest
+
+from _portable_helpers import isolated_home_env
 from unittest import mock
 
 import test_integrity as fixture
@@ -327,12 +329,12 @@ class TaskBase(unittest.TestCase):
             body = body.replace("@" + key + "@", str(value))
         path = self.bin / name
         path.write_text(body, encoding="utf-8")
-        path.chmod(0o755)
+        if os.name != "nt": path.chmod(0o755)
         return str(path)
 
     def environment(self, backend=None, path=None):
         environment = dict(os.environ)
-        environment["HOME"] = str(self.home)
+        environment.update(isolated_home_env(environment, self.home))
         environment["CONTEXT_LAYER_FAKE_BACKEND"] = backend or self.script_path
         if path is not None:
             environment["PATH"] = path
@@ -1112,10 +1114,18 @@ class HostShims(TaskBase):
         shims = self.root / "shims"
         shims.mkdir(exist_ok=True)
         log = self.root / f"{name}.log"
-        path = shims / name
-        path.write_text(body.replace("@PYTHON@", sys.executable).replace("@LOG@", str(log))
-                        .replace("@MODE@", mode), encoding="utf-8")
-        path.chmod(0o755)
+        if os.name == "nt":
+            program = shims / f"{name}.py"
+            program.write_text(body.replace("@PYTHON@", sys.executable).replace("@LOG@", str(log))
+                               .replace("@MODE@", mode), encoding="utf-8", newline="\n")
+            command = shims / f"{name}.cmd"
+            command.write_text(f'@"{sys.executable}" "{program}" %*\r\n',
+                               encoding="utf-8", newline="")
+        else:
+            command = shims / name
+            command.write_text(body.replace("@PYTHON@", sys.executable).replace("@LOG@", str(log))
+                               .replace("@MODE@", mode), encoding="utf-8")
+            command.chmod(0o755)
         return f"{shims}{os.pathsep}{os.environ.get('PATH', '')}", log
 
     def test_claude_argv_workspace_stdin_and_cost_fields(self):

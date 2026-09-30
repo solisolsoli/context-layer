@@ -13,6 +13,8 @@ import sys
 import tempfile
 import unittest
 
+from _portable_helpers import isolated_home_env
+
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 ADAPTERS = REPO / "eval" / "adapters"
 sys.path.insert(0, str(ADAPTERS))
@@ -27,7 +29,7 @@ class FtsAdapterIndex(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.env = dict(os.environ, HOME=str(self.root))
+        self.env = isolated_home_env(os.environ, str(self.root))
         self.a = self.vault("vault-a", {"alpha.md": "# Alpha\n\nThe alpha crossing budget is 10 credits.\n"})
         self.b = self.vault("vault-b", {"zebra.md": "# Zebra\n\nThe zebra crossing budget is 40 credits.\n"})
         # vault B's note is older than anything in vault A, the case an mtime check misses

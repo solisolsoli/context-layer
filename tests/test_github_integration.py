@@ -14,6 +14,7 @@ from unittest.mock import patch
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(REPO))
 from context_layer import cli, mcp_server  # noqa: E402
+from context_layer import github_client  # noqa: E402
 
 
 def local_packet(status="NOT_FOUND", **overrides):
@@ -111,7 +112,8 @@ class Integration(unittest.TestCase):
         with patch("context_layer.github_context.fetch", return_value=EXTERNAL) as fetch:
             result = mcp_server.tool_github_context(self.state,
                             {"prompt": "semantic gap", "source_ids": ["project-docs"]})
-            fetch.assert_called_once_with(self.vault, "semantic gap", ["project-docs"])
+            fetch.assert_called_once_with(self.vault, "semantic gap", ["project-docs"],
+                                          offline=False, force_refresh=False)
             self.assertFalse(result["isError"])
         with patch("context_layer.github_context.fetch", return_value={"status": "ERROR"}):
             self.assertTrue(mcp_server.tool_github_context(self.state,
@@ -124,14 +126,68 @@ class Integration(unittest.TestCase):
                              "--source", "project-docs"])
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output.getvalue()), EXTERNAL)
-        fetch.assert_called_once_with(self.vault, "gap", ["project-docs"])
+        fetch.assert_called_once_with(self.vault, "gap", ["project-docs"],
+                                      offline=False, force_refresh=False)
 
     def test_mcp_tools_describe_network_and_are_registered(self):
         described = {tool["name"]: tool for tool in mcp_server.TOOLS}
         for name in ("search_vault", "github_context"):
             self.assertTrue(described[name]["annotations"]["openWorldHint"])
             self.assertIn(name, mcp_server.HANDLERS)
-        self.assertTrue(described["github_context"]["annotations"]["readOnlyHint"])
+        self.assertFalse(described["github_context"]["annotations"]["readOnlyHint"])
+
+    def test_cli_source_management_requires_apply_and_expected_pin(self):
+        config_dir = self.vault / ".context"
+        config_dir.mkdir()
+        config = config_dir / "github.json"
+        old = "a" * 40
+        new = "b" * 40
+        config.write_text(json.dumps({"version": 1, "enabled": True, "sources": [{
+            "id": "docs", "repo": "example/project", "commit": old,
+            "paths": ["README.md"], "keywords": ["harbor"]}]}))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = cli.main(["github-sources", "disable", str(self.vault)])
+        self.assertEqual((code, json.loads(output.getvalue())["status"]), (0, "DRY_RUN"))
+        self.assertTrue(json.loads(config.read_text())["enabled"])
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = cli.main(["github-sources", "update", str(self.vault), "--id", "docs",
+                             "--commit", new, "--expected-commit", "c" * 40, "--apply"])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(output.getvalue())["errors"], ["expected_commit_mismatch"])
+        self.assertEqual(json.loads(config.read_text())["sources"][0]["commit"], old)
+
+    def test_cli_cache_offline_and_conflicts_and_mcp_flags(self):
+        config_dir = self.vault / ".context"
+        config_dir.mkdir()
+        (config_dir / "github.json").write_text(json.dumps({"version": 1, "enabled": True,
+            "sources": [{"id": "docs", "repo": "example/project", "commit": "a" * 40,
+                         "paths": ["README.md"], "keywords": ["harbor"]}]}))
+        output = io.StringIO()
+        with patch.object(github_client, "fetch_file", side_effect=AssertionError("network")), \
+                contextlib.redirect_stdout(output):
+            code = cli.main(["github-context", str(self.vault), "--prompt", "harbor",
+                             "--source", "docs", "--offline"])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(output.getvalue())["errors"], ["cache_disabled"])
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exit_ctx:
+            cli.main(["github-context", str(self.vault), "--prompt", "harbor",
+                      "--offline", "--refresh"])
+        self.assertEqual(exit_ctx.exception.code, 2)
+        with self.assertRaises(mcp_server.InvalidParams):
+            mcp_server.tool_github_context(self.state,
+                {"prompt": "harbor", "offline": True, "force_refresh": True})
+        for invalid in ("yes", 1, None):
+            with self.subTest(invalid=invalid), self.assertRaises(mcp_server.InvalidParams):
+                mcp_server.tool_github_context(self.state,
+                    {"prompt": "harbor", "offline": invalid})
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = cli.main(["github-cache", "enable", str(self.vault)])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "DRY_RUN")
+        self.assertFalse((config_dir / "github-cache.json").exists())
 
     def test_only_dedicated_transport_gets_network_exception(self):
         root = self.vault / "guard"

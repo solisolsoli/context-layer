@@ -8,6 +8,8 @@ import tempfile
 import unittest
 import test_integrity as fixture
 
+from _portable_helpers import isolated_home_env
+
 
 class ComparisonTests(unittest.TestCase):
     setUp=fixture.IntegrityCLI.setUp
@@ -114,7 +116,7 @@ class CommittedResults(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             out=Path(temp)/'out';home=Path(temp)/'home';home.mkdir()
             run=subprocess.run([sys.executable,str(fixture.REPO/'eval/compare.py'),'--out',str(out)],
-                cwd=fixture.REPO,capture_output=True,text=True,encoding='utf-8',env=dict(os.environ,HOME=str(home)))
+                cwd=fixture.REPO,capture_output=True,text=True,encoding='utf-8',env=isolated_home_env(os.environ, home))
             self.assertEqual(run.returncode,0,run.stdout+run.stderr)
             fresh=json.loads((out/'summary.json').read_text(encoding='utf-8'))
         committed=json.loads((fixture.REPO/'eval/comparison/results.json').read_text(encoding='utf-8'))

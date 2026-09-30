@@ -14,6 +14,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+from _portable_helpers import isolated_home_env
+
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(REPO))
 from context_layer import jev_contracts as contracts  # noqa: E402  (after the repo path is set)
@@ -39,7 +41,7 @@ ROUNDED = {"probabilities": "required", "rounding": "2dp", "kind": "systemone"}
 def setUpModule():
     global _HOME, _PATCH
     _HOME = tempfile.TemporaryDirectory()
-    _PATCH = mock.patch.dict(os.environ, {"HOME": _HOME.name})
+    _PATCH = mock.patch.dict(os.environ, isolated_home_env(os.environ, _HOME.name))
     _PATCH.start()
 
 

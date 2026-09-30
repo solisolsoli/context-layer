@@ -15,6 +15,11 @@ example-vault/.index/
 run-output/
 *.local.json
 **/.context/github.json
+**/.context/github.json.bak
+**/.context/github-cache.json
+**/.context/github-cache.json.bak
+**/.context/github-cache/
+**/.context/.github-*.lock
 
 # Packaging and contributor tooling
 .venv/

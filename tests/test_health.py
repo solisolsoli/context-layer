@@ -10,12 +10,15 @@ import json
 import os
 from pathlib import Path
 import shutil
-import sqlite3
 import subprocess
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+
+from _portable_helpers import deny_path_access, isolated_home_env
+
+from _portable_helpers import sqlite_connection
 
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(REPO))
@@ -57,7 +60,7 @@ class VaultFixture(unittest.TestCase):
 
     # -- helpers ---------------------------------------------------------
     def env(self):
-        return dict(os.environ, HOME=str(self.home))
+        return isolated_home_env(os.environ, self.home)
 
     def write(self, relative, data: bytes):
         path = self.vault / relative
@@ -103,11 +106,9 @@ class VaultFixture(unittest.TestCase):
         return path
 
     def unreadable(self, path: Path):
-        if hasattr(os, "geteuid") and os.geteuid() == 0:
-            self.skipTest("root reads files whatever their mode")
-        mode = path.stat().st_mode
-        path.chmod(0)
-        self.addCleanup(path.chmod, mode)
+        # chmod(0) is not an access-control test on Windows (and root bypasses it).
+        # Inject the same OS error at the file-read or directory-enumeration boundary.
+        deny_path_access(self, path, directory=path.is_dir())
 
     def skipped(self, summary):
         return {(e["path"], e["reason"], e["indexed"]) for e in summary["now_skipped"]}
@@ -246,7 +247,7 @@ class StatusReport(VaultFixture):
     def test_a_present_manifest_does_not_mask_a_broken_index(self):
         # The manifest is plain text and survives anything; retrieval needs the
         # SQLite index, so status probes it the way retrieval opens it.
-        with sqlite3.connect(self.ctx / "index.sqlite") as db:
+        with sqlite_connection(self.ctx / "index.sqlite") as db:
             db.execute("DROP TABLE records_fts")
         self.assertTrue((self.ctx / "index-manifest.json").is_file())
         summary = health.status_summary(self.vault)
@@ -592,21 +593,29 @@ class HookVisibleError(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.helper = Path(self.temp.name) / "fake-helper.sh"
+        self.helper = Path(self.temp.name) / "fake_helper.py"
         self.helper.write_text(
-            "#!/bin/sh\n"
-            'case "$CASE" in\n'
-            "  exit7) exit 7 ;;\n"
-            '  empty) : ;;\n'
-            '  *) printf %s "$PAYLOAD" ;;\n'
-            "esac\n")
-        self.helper.chmod(0o755)
+            "import os, sys\n"
+            "case = os.environ['CASE']\n"
+            "if case == 'exit7': raise SystemExit(7)\n"
+            "if case == 'empty': raise SystemExit(0)\n"
+            "sys.stdout.write(os.environ.get('PAYLOAD', ''))\n",
+            encoding="utf-8")
+        self.shell = shutil.which("bash") or shutil.which("sh")
+        self.assertIsNotNone(self.shell, "the Windows CI image must provide Git Bash for the POSIX hook example")
+
+    def _shell_path(self, path):
+        # Git Bash accepts drive-letter paths with forward slashes; raw backslashes
+        # would be interpreted by the shell before the wrapper invokes the helper.
+        return Path(path).as_posix() if os.name == "nt" else str(path)
 
     def run_case(self, case):
-        environment = dict(os.environ, CASE=case, PAYLOAD=self.CASES.get(case, ""),
-                           CONTEXT_HELPER=str(self.helper), CONTEXT_PYTHON=sys.executable,
-                           HOME=self.temp.name)
-        return subprocess.run(["/bin/sh", str(HOOK)], capture_output=True, env=environment)
+        environment = dict(isolated_home_env(os.environ, self.temp.name),
+                           CASE=case, PAYLOAD=self.CASES.get(case, ""),
+                           CONTEXT_HELPER=self._shell_path(sys.executable),
+                           CONTEXT_PYTHON=self._shell_path(sys.executable))
+        return subprocess.run([self.shell, str(HOOK), self._shell_path(self.helper)],
+                              capture_output=True, env=environment)
 
     def test_valid_helper_response_reaches_stdout(self):
         result = self.run_case("valid")
@@ -629,9 +638,10 @@ class HookVisibleError(unittest.TestCase):
                 self.assertFalse(result.returncode == 0 and not result.stdout.strip())
 
     def test_missing_helper_is_reported_rather_than_swallowed(self):
-        environment = dict(os.environ, CONTEXT_HELPER=str(self.helper) + "-absent",
-                           CONTEXT_PYTHON=sys.executable, HOME=self.temp.name)
-        result = subprocess.run(["/bin/sh", str(HOOK)], capture_output=True, env=environment)
+        environment = dict(isolated_home_env(os.environ, self.temp.name),
+                           CONTEXT_HELPER="context-layer-helper-does-not-exist",
+                           CONTEXT_PYTHON=self._shell_path(sys.executable))
+        result = subprocess.run([self.shell, str(HOOK)], capture_output=True, env=environment)
         self.assertEqual(result.returncode, 1)
         self.assertIn(b"[Memory unavailable:", result.stdout)
 

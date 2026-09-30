@@ -16,6 +16,7 @@ Python 3.10+; standard library only (tomllib, when present, on 3.11+).
 from __future__ import annotations
 
 import argparse
+import base64
 from dataclasses import dataclass
 import datetime as dt
 import difflib
@@ -163,7 +164,27 @@ def hook_argv(vault: Path, method: str = "fts", budget_tokens: "int | None" = No
 
 
 def env_prefix() -> str:
+    if os.name == "nt":
+        # Retained for callers that display an env prefix; hook_entry uses the
+        # full PowerShell form below so paths never pass through cmd assignment syntax.
+        return ""
     return "".join(f"{key}={shlex.quote(value)} " for key, value in launch_env().items())
+
+
+def _powershell_quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def hook_command(argv: list[str]) -> str:
+    """Serialize a hook command for the host shell without POSIX syntax on Windows."""
+    if os.name != "nt":
+        return env_prefix() + shlex.join(argv)
+    script = "; ".join([*(f"$env:{key}={_powershell_quote(value)}"
+                            for key, value in launch_env().items()),
+                         "& " + " ".join(_powershell_quote(arg) for arg in argv),
+                         "exit $LASTEXITCODE"])
+    encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+    return "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand " + encoded
 
 
 def hook_entry(vault: Path, method: str = "fts", budget_tokens: "int | None" = None,
@@ -172,7 +193,7 @@ def hook_entry(vault: Path, method: str = "fts", budget_tokens: "int | None" = N
                session_evidence: bool = False) -> dict:
     argv = hook_argv(vault, method, budget_tokens, extra_tokens, compact, host,
                      max_context_chars, session_evidence)
-    entry = {"type": "command", "command": env_prefix() + shlex.join(argv),
+    entry = {"type": "command", "command": hook_command(argv),
              "timeout": HOOK_TIMEOUT_S}
     if host == "codex":
         # learn.chatgpt.com/docs/hooks: 0 passes the whole additionalContext to the model;
@@ -212,7 +233,7 @@ def rules_events(include_attribution: bool = True) -> dict:
 def rules_hook_entry(vault: Path, event: str) -> dict:
     argument = rules_events()[event]
     return {"type": "command",
-            "command": env_prefix() + shlex.join(cli_argv(vault, "rules", "hook", argument))}
+            "command": hook_command(cli_argv(vault, "rules", "hook", argument))}
 
 
 # ---------------------------------------------------------------------------

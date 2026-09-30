@@ -27,6 +27,8 @@ import time
 import unittest
 from unittest import mock
 
+from _portable_helpers import isolated_home_env
+
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(REPO))
 
@@ -148,17 +150,10 @@ class Case(unittest.TestCase):
         (self.vault / ".context" / "routes.json").write_text(json.dumps(ROUTES))
         self.write("logbook/April.md", APRIL)
         self.write("logbook/March.md", MARCH)
-        self.saved_home = os.environ.get("HOME")
-        os.environ["HOME"] = str(self.home)
-        self.addCleanup(self._restore_home)
+        self.home_patch = mock.patch.dict(os.environ, isolated_home_env(os.environ, self.home))
+        self.home_patch.start()
+        self.addCleanup(self.home_patch.stop)
 
-    def _restore_home(self):
-        if self.saved_home is None:
-            os.environ.pop("HOME", None)
-        else:
-            os.environ["HOME"] = self.saved_home
-
-    # -- the vault -----------------------------------------------------------
     def write(self, name, text):
         path = self.vault / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -239,13 +234,13 @@ class Case(unittest.TestCase):
     def cli(self, *argv, env=None):
         return subprocess.run([sys.executable, "-m", "context_layer.cli", *argv], cwd=REPO,
                               capture_output=True, text=True,
-                              env={**CLEAN_ENV, "HOME": str(self.home), **(env or {})})
+                              env={**isolated_home_env(CLEAN_ENV, self.home), **(env or {})})
 
     def judge_script(self):
         script = self.root / "judge.py"
         script.write_text(JUDGE_SCRIPT.format(python=sys.executable,
                                               defaults=json.dumps(DEFAULT_PICKS)))
-        script.chmod(0o755)
+        if os.name != "nt": script.chmod(0o755)
         self.judge_log = self.root / "judge.log"
         return {"CONTEXT_LAYER_JEV_FAKE": str(script), "JUDGE_LOG": str(self.judge_log)}
 
@@ -285,7 +280,7 @@ class Modes(Case):
         proposal = self.proposal_file(self.proposal())
         done = subprocess.run([sys.executable, "-c", code, str(self.vault), str(proposal)],
                               cwd=REPO, capture_output=True, text=True,
-                              env={**CLEAN_ENV, "HOME": str(self.home), **env,
+                              env={**isolated_home_env(CLEAN_ENV, self.home), **env,
                                    "TYPESAFE_API_KEY": "fictional-key-4410"})
         self.assertEqual(done.returncode, 0, done.stderr)
         seen = json.loads(done.stdout)
@@ -955,6 +950,13 @@ def openai(url):
 
 def fake_claude(directory: Path, body: str) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        program = directory / "claude.py"
+        program.write_text(f"{body}\n", encoding="utf-8", newline="\n")
+        command = directory / "claude.cmd"
+        command.write_text(f'@"{sys.executable}" "{program}" %*\r\n',
+                           encoding="utf-8", newline="")
+        return command
     script = directory / "claude"
     script.write_text(f"#!{sys.executable}\n{body}\n")
     script.chmod(0o755)
@@ -1099,7 +1101,7 @@ class Probe(unittest.TestCase):
         marker = self.root / "started"
         script = self.root / "judge-cmd"
         script.write_text(f"#!{sys.executable}\nopen({str(marker)!r}, 'w').close()\n")
-        script.chmod(0o755)
+        if os.name != "nt": script.chmod(0o755)
         found = jev_client.probe({"kind": "cmd", "argv": [str(script), "{questionnaire_file}"]})
         self.assertEqual((found["checked"], found["ok"], found["code"]), (False, True, "ok"))
         missing = jev_client.probe({"kind": "cmd",
@@ -1236,7 +1238,7 @@ class StatusCheck(Case):
                 "runpy.run_module('context_layer.cli', run_name='__main__')\n")
         done = subprocess.run([sys.executable, "-c", code, str(self.vault)], cwd=REPO,
                               capture_output=True, text=True,
-                              env={**CLEAN_ENV, "HOME": str(self.home),
+                              env={**isolated_home_env(CLEAN_ENV, self.home),
                                    "TYPESAFE_API_KEY": "fictional-key-5530"})
         self.assertEqual(done.returncode, 0, done.stderr)
         probe = json.loads(done.stdout)["check"]["probe"]
@@ -1257,7 +1259,7 @@ class StatusCheck(Case):
                 "m.startswith('context_layer.jev_'))}))\n")
         done = subprocess.run([sys.executable, "-c", code, str(self.vault)], cwd=REPO,
                               capture_output=True, text=True,
-                              env={**CLEAN_ENV, "HOME": str(self.home)})
+                              env=isolated_home_env(CLEAN_ENV, self.home))
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(json.loads(done.stdout),
                          {"configured": False, "check": False, "loaded": []})

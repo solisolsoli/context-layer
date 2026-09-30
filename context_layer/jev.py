@@ -48,12 +48,12 @@ import secrets
 import shutil
 import stat
 import sys
-import tempfile
 import threading
 import time
 from urllib.parse import urlsplit
 
 from . import graph as graphs
+from .platform_support import private_tempfile, set_private_path, set_private_permissions
 
 # ---------------------------------------------------------------------------
 # Names, limits, defaults
@@ -607,9 +607,8 @@ def write_config(vault, obj: dict) -> Path:
     target = ctx / CONFIG_NAME
     if target.is_symlink() or (os.path.lexists(target) and not target.is_file()):
         raise Refused(".context/jev.json is a symlink or not a regular file")
-    handle, name = tempfile.mkstemp(prefix=".jev-", suffix=".tmp", dir=ctx)
+    handle, name = private_tempfile(ctx, prefix=".jev-", suffix=".tmp")
     try:
-        os.fchmod(handle, 0o600)
         with os.fdopen(handle, "wb") as out:
             out.write(data)
             out.flush()
@@ -628,8 +627,17 @@ def ensure_salt(vault) -> None:
         return
     handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
                      0o600)
-    with os.fdopen(handle, "wb") as out:
-        out.write(secrets.token_bytes(SALT_BYTES))
+    try:
+        set_private_permissions(handle, path)
+        with os.fdopen(handle, "wb") as out:
+            out.write(secrets.token_bytes(SALT_BYTES))
+    except BaseException:
+        try:
+            os.close(handle)
+        except OSError:
+            pass
+        path.unlink(missing_ok=True)
+        raise
 
 
 def _read_salt(vault) -> bytes | None:
@@ -853,7 +861,7 @@ class _Cache:
                     return None
             else:
                 os.mkdir(directory, 0o700)
-            os.chmod(directory, 0o700)
+            set_private_path(directory, directory=True)
         except OSError:
             return None
         return cls(directory, salt, ttl)
@@ -885,11 +893,10 @@ class _Cache:
         entry = {"v": 1, "created_at": int(time.time()), "answer": answer,
                  "model_reported": model, "usage": usage}
         try:
-            handle, name = tempfile.mkstemp(prefix=".entry-", suffix=".tmp", dir=self.directory)
+            handle, name = private_tempfile(self.directory, prefix=".entry-", suffix=".tmp")
         except OSError:
             return
         try:
-            os.fchmod(handle, 0o600)
             with os.fdopen(handle, "w", encoding="utf-8") as out:
                 out.write(_canonical(entry))
             os.replace(name, self.directory / f"{key}.json")
@@ -932,9 +939,8 @@ def _halve_log(path: Path) -> None:
             kept = tail[cut + 1:] if cut >= 0 else b""
         else:
             kept = stream.read()
-    handle, name = tempfile.mkstemp(prefix=".jev-calls-", suffix=".tmp", dir=path.parent)
+    handle, name = private_tempfile(path.parent, prefix=".jev-calls-", suffix=".tmp")
     try:
-        os.fchmod(handle, 0o600)
         with os.fdopen(handle, "wb") as out:
             out.write(kept)
         os.replace(name, path)
@@ -963,7 +969,7 @@ def append_log(vault, row: dict) -> None:
         handle = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT
                          | getattr(os, "O_NOFOLLOW", 0), 0o600)
         try:
-            os.fchmod(handle, 0o600)
+            set_private_permissions(handle, path)
             os.write(handle, line)
         finally:
             os.close(handle)
@@ -3729,9 +3735,9 @@ def write_receipt(vault, provider: dict, receipt: dict) -> Path:
     data = (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode("utf-8")
     if len(data) > RECEIPT_MAX_BYTES:
         raise Refused("the receipt would be too large")
-    handle, name = tempfile.mkstemp(prefix=".jev-", suffix=".tmp", dir=folder)
+    set_private_path(folder, directory=True)
+    handle, name = private_tempfile(folder, prefix=".jev-", suffix=".tmp")
     try:
-        os.fchmod(handle, 0o600)
         with os.fdopen(handle, "wb") as out:
             out.write(data)
             out.flush()

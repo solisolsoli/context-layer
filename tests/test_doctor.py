@@ -5,6 +5,7 @@ its temp directory. The doctor is run as `python -m context_layer.doctor` (the s
 command `context-layer doctor` runs once cli.py registers it); no host is started.
 """
 import hashlib
+import base64
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+
+from _portable_helpers import isolated_home_env
 
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(REPO))
@@ -31,7 +34,7 @@ class Doctor(unittest.TestCase):
         (self.vault / "notes" / "lamp.md").write_text("# Lamp\nThe lamp wick is trimmed weekly.\n")
         # No `context-layer` script and no `claude` on PATH: the installers write this
         # interpreter plus PYTHONPATH, and nothing can reach a real host.
-        self.env = dict(os.environ, HOME=str(self.home), PATH=str(self.root / "bin"))
+        self.env = dict(isolated_home_env(os.environ, self.home), PATH=str(self.root / "bin"))
         for name in ("CODEX_HOME", "CLAUDE_CODE_SESSION_ID", "CONTEXT_LAYER_SESSION_EVIDENCE"):
             self.env.pop(name, None)
         (self.vault / ".context").mkdir()
@@ -68,7 +71,17 @@ class Doctor(unittest.TestCase):
     def edit_hook(self, event, replace):
         data = json.loads(self.settings().read_text())
         handler = data["hooks"][event][0]["hooks"][0]
-        handler["command"] = replace(handler["command"])
+        command = handler["command"]
+        if os.name == "nt":
+            tokens = command.split()
+            script = base64.b64decode(tokens[-1]).decode("utf-16le")
+            terminator = "; exit $LASTEXITCODE"
+            self.assertTrue(script.endswith(terminator), script)
+            script = replace(script[:-len(terminator)]) + terminator
+            tokens[-1] = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+            handler["command"] = " ".join(tokens)
+        else:
+            handler["command"] = replace(command)
         self.settings().write_text(json.dumps(data, indent=2) + "\n")
 
     def snapshot(self):
@@ -128,7 +141,11 @@ class Doctor(unittest.TestCase):
         self.assertIn("timeout", checks["settings.json UserPromptSubmit"]["detail"])
         self.assertEqual(code, 0)
         self.install("--hook", "--rules")
-        self.edit_hook("Stop", lambda c: c.replace("rules hook stop", "rules hook stopp"))
+        if os.name == "nt":
+            self.edit_hook("Stop", lambda c: c.replace(
+                "'rules' 'hook' 'stop'", "'rules' 'hook' 'stopp'"))
+        else:
+            self.edit_hook("Stop", lambda c: c.replace("rules hook stop", "rules hook stopp"))
         code, checks, _ = self.doctor()
         self.assertEqual(checks["settings.json Stop"]["status"], "fail")
         self.assertEqual(code, 1)
@@ -141,8 +158,13 @@ class Doctor(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("does not exist", checks["settings.json UserPromptSubmit"]["detail"])
         self.install("--hook")
-        self.edit_hook("UserPromptSubmit", lambda c: re.sub(
-            r"PYTHONPATH=\S+", f"PYTHONPATH={self.root}/nowhere", c, count=1))
+        if os.name == "nt":
+            self.edit_hook("UserPromptSubmit", lambda c: re.sub(
+                r"\$env:PYTHONPATH='[^']*'",
+                f"$env:PYTHONPATH='{self.root / 'nowhere'}'", c, count=1))
+        else:
+            self.edit_hook("UserPromptSubmit", lambda c: re.sub(
+                r"PYTHONPATH=\S+", lambda _match: f"PYTHONPATH={self.root / 'nowhere'}", c, count=1))
         code, checks, _ = self.doctor()
         self.assertEqual(code, 1)
         self.assertIn("PYTHONPATH", checks["settings.json UserPromptSubmit"]["detail"])

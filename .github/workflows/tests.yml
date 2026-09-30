@@ -173,11 +173,8 @@ jobs:
           print("sdist tar owners: root/root")
           EOF
 
-  windows-smoke:
-    name: windows smoke (non-blocking)
-    # Windows is out of scope (SCOPE.md) until this job has passed twice; it runs to learn
-    # which paths, locks and locale assumptions break there, and never blocks a merge.
-    continue-on-error: true
+  windows:
+    name: python 3.12 on windows-latest
     timeout-minutes: 30
     runs-on: windows-latest
     defaults:
@@ -188,6 +185,7 @@ jobs:
         with: {persist-credentials: false}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with: {python-version: '3.12'}
+      - run: python -m pip install build==1.6.1 pyflakes==4.0.0
       - run: python router/build_index.py --vault router/example-vault
       - run: python router/test_context_router.py
       - name: every suite under tests/ (what make test runs)
@@ -199,3 +197,9 @@ jobs:
           done
           [ -z "$failed" ] || { echo "failed:$failed"; exit 1; }
       - run: python bench/seal.py check
+      - run: python -m unittest bench/test_scorer.py bench/test_runner.py
+      - run: python -m compileall -q context_layer router eval tests scripts bench obsidian-plugin/build.py
+      - run: python -m pyflakes context_layer router eval tests scripts bench obsidian-plugin/build.py
+      - run: python scripts/check_network_surface.py
+      - run: python -m build
+      - run: python scripts/check_distribution.py dist/*.whl

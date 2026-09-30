@@ -15,7 +15,10 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+
+from _portable_helpers import isolated_home_env, process_is_gone, readable_hook_command
 from unittest import mock
 
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
@@ -61,7 +64,7 @@ class Vault(unittest.TestCase):
         (self.vault / "private" / "secret.md").write_bytes(SECRET)
         self.ctx = self.vault / ".context"
         self.write_routes(json.dumps(ROUTES))
-        self.env = dict(os.environ, HOME=str(self.home))
+        self.env = isolated_home_env(os.environ, self.home)
         self.env.pop("CONTEXT_LAYER_HOME", None)
         built = self.cli("index", str(self.vault))
         self.assertEqual(built.returncode, 0, built.stderr)
@@ -425,7 +428,7 @@ class FirstRun(unittest.TestCase):
         self.vault = Path(self.temp.name).resolve() / "fresh"
         (self.vault / "notes").mkdir(parents=True)
         (self.vault / "notes" / "garden.md").write_text("# Garden\nThe drip line runs at dawn.\n")
-        self.env = dict(os.environ, HOME=self.temp.name)
+        self.env = isolated_home_env(os.environ, self.temp.name)
 
     def cli(self, *argv):
         return subprocess.run([sys.executable, "-m", "context_layer.cli", *argv], cwd=REPO,
@@ -583,20 +586,26 @@ class HookFraming(Vault):
         args = argparse.Namespace(vault=str(self.vault), rest=[], top_k=3, budget=6000,
                                   per_source=2000, budget_tokens=None, method="fts",
                                   extra_tokens=None, compact=False)   # unset, as the parser leaves them
-        seen = {}
-
-        def slow(command, **kwargs):
-            seen["timeout"] = kwargs.get("timeout")
-            raise subprocess.TimeoutExpired(command, kwargs.get("timeout"))
+        pid_file = self.root / "slow-retriever.pid"
+        script = ("import os,sys,time; open(sys.argv[1], 'w').write(str(os.getpid())); "
+                  "time.sleep(60)")
+        def slow(*_args):
+            return [sys.executable, "-c", script, str(pid_file)]
 
         stderr = io.StringIO()
-        with mock.patch.object(mcp_server.subprocess, "run", slow), \
+        with mock.patch.object(mcp_server, "HOOK_TIMEOUT", 1.0), \
+                mock.patch.object(mcp_server, "retrieval_command", slow), \
                 mock.patch.object(sys, "stdin", io.StringIO(json.dumps({"prompt": "alpha"}))), \
                 mock.patch.object(sys, "stderr", stderr):
             code = mcp_server.cmd_hook(args)
         self.assertEqual(code, 1)
-        self.assertEqual(seen["timeout"], mcp_server.HOOK_TIMEOUT)
-        self.assertIn(f"timed out after {mcp_server.HOOK_TIMEOUT} s", stderr.getvalue())
+        self.assertIn("timed out after 1.0 s", stderr.getvalue())
+        self.assertTrue(pid_file.exists(), "the slow retriever never started")
+        pid = int(pid_file.read_text())
+        deadline = time.monotonic() + 5
+        while not process_is_gone(pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(process_is_gone(pid), "the timed-out retriever process survived")
 
 
 # ---------------------------------------------------------------------------
@@ -664,7 +673,8 @@ class SynapticHookInstall(Vault):
                         "300", "--apply")
         self.assertEqual(done.returncode, 0, done.stderr)
         entry = json.loads(settings.read_text())["hooks"]["UserPromptSubmit"][0]["hooks"][0]
-        self.assertIn("hook claude-code --method synaptic --extra-tokens 300", entry["command"])
+        self.assertIn("hook claude-code --method synaptic --extra-tokens 300",
+                      readable_hook_command(entry["command"]))
         self.assertEqual(entry["timeout"], 30)
         ran = subprocess.run(entry["command"], shell=True, capture_output=True, text=True,
                              input=json.dumps({"prompt": "alpha lantern"}), env=self.env)
@@ -678,7 +688,7 @@ class SynapticHookInstall(Vault):
         self.assertEqual(again.returncode, 0, again.stderr)
         groups = json.loads(settings.read_text())["hooks"]["UserPromptSubmit"]
         self.assertEqual(len(groups), 1)
-        self.assertNotIn("--method", groups[0]["hooks"][0]["command"])
+        self.assertNotIn("--method", readable_hook_command(groups[0]["hooks"][0]["command"]))
         removed = self.cli("uninstall", "claude-code", "--vault", str(self.vault), "--project",
                            str(project), "--apply")
         self.assertEqual(removed.returncode, 0, removed.stderr)
@@ -706,7 +716,8 @@ class SynapticHookInstall(Vault):
         self.assertEqual(self.cli("index", str(self.vault)).returncode, 0)
         small = hook_command("--compact", "--budget-tokens", "40")
         large = hook_command("--compact", "--budget-tokens", "1200")
-        self.assertIn("--method synaptic --compact --budget-tokens 40", small)
+        self.assertIn("--method synaptic --compact --budget-tokens 40",
+                      readable_hook_command(small))
         self.assertLessEqual(est_tokens(small), 40)
         self.assertGreater(est_tokens(large), est_tokens(small))
 
@@ -765,13 +776,15 @@ class RollbackGraph(Vault):
         pair = ((self.ctx / "index.sqlite.prev").read_bytes(),
                 (self.ctx / "graph.sqlite.prev").read_bytes())
         # 0.4: a note that is not UTF-8 is skipped and reported, not a failed build. Make the
-        # build fail for real: the state directory cannot be written.
-        mode = self.ctx.stat().st_mode
-        self.ctx.chmod(0o500)
+        # build fail for real on both systems by blocking the state-directory path.
+        moved_context = self.vault / ".context.saved"
+        self.ctx.rename(moved_context)
+        self.ctx.write_text("blocked", encoding="ascii")
         try:
             self.assertEqual(self.cli("index", str(self.vault)).returncode, 1)
         finally:
-            self.ctx.chmod(mode)
+            self.ctx.unlink()
+            moved_context.rename(self.ctx)
         self.assertEqual(((self.ctx / "index.sqlite.prev").read_bytes(),
                           (self.ctx / "graph.sqlite.prev").read_bytes()), pair)
 

@@ -16,6 +16,10 @@ import tempfile
 import time
 import unittest
 
+from _portable_helpers import process_is_gone
+
+from _portable_helpers import isolated_home_env
+
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 RUNNER = REPO / "eval" / "live_compare.py"
 
@@ -169,9 +173,10 @@ class LiveCompare(unittest.TestCase):
         self.cases.write_text("".join(json.dumps(case) + "\n" for case in CASES))
         self.out = self.root / "out"
         self.log = self.root / "host-calls.jsonl"
-        self.fake = self.root / "fake-claude"
+        self.fake = self.root / "fake-claude.py"
         self.fake.write_text("#!" + sys.executable + "\n" + FAKE_BODY)
-        self.fake.chmod(self.fake.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+        if os.name != "nt":
+            self.fake.chmod(self.fake.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
     # -- helpers ----------------------------------------------------------
 
@@ -180,7 +185,7 @@ class LiveCompare(unittest.TestCase):
                               "--cases", str(self.cases), "--out", str(out or self.out),
                               "--claude", str(self.fake), *flags],
                              capture_output=True, text=True,
-                             env=dict(os.environ, HOME=str(self.home),
+                             env=dict(isolated_home_env(os.environ, str(self.home)),
                                       FAKE_HOST_LOG=str(self.log)))
         self.assertEqual(run.returncode, expect, run.stdout + run.stderr)
         return run
@@ -418,16 +423,17 @@ class TimeoutsAndLines(unittest.TestCase):
         self.out = self.root / "out"
         self.log = self.root / "calls.jsonl"
         self.child = self.root / "child.pid"
-        self.fake = self.root / "slow-claude"
+        self.fake = self.root / "slow-claude.py"
         self.fake.write_text("#!" + sys.executable + "\n" + SLOW_BODY)
-        self.fake.chmod(self.fake.stat().st_mode | stat.S_IEXEC)
+        if os.name != "nt":
+            self.fake.chmod(self.fake.stat().st_mode | stat.S_IEXEC)
 
     def run_runner(self, *flags):
         return subprocess.run([sys.executable, str(RUNNER), "--vault", str(self.vault),
                                "--cases", str(self.cases), "--out", str(self.out),
                                "--claude", str(self.fake), "--arms", "baseline", *flags],
                               capture_output=True, text=True,
-                              env=dict(os.environ, HOME=str(self.home),
+                              env=dict(isolated_home_env(os.environ, str(self.home)),
                                        FAKE_HOST_LOG=str(self.log),
                                        FAKE_CHILD_PID=str(self.child)))
 
@@ -446,9 +452,7 @@ class TimeoutsAndLines(unittest.TestCase):
         self.assertFalse(rows["T02"]["is_error"])          # the run went on
         pid = int(self.child.read_text())
         for _ in range(50):                                # the host's child went with it
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
+            if process_is_gone(pid):
                 break
             time.sleep(0.1)
         else:
@@ -499,7 +503,7 @@ class OrchestrationCostTable(unittest.TestCase):
     def run_eval(self, *flags):
         done = subprocess.run([sys.executable, str(REPO / "eval" / "orchestration_cost.py"),
                                *flags, "--json"], cwd=REPO, capture_output=True, text=True,
-                              env=dict(os.environ, HOME=self.temp.name))
+                              env=isolated_home_env(os.environ, self.temp.name))
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout), done.stdout
 

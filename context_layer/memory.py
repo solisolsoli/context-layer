@@ -48,16 +48,11 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
-import secrets
 import shlex
 import sys
-import time
 from urllib.parse import quote
-
-try:  # POSIX advisory locking. Absent on some platforms; see _lock().
-    import fcntl
-except ImportError:  # pragma: no cover - exercised by patching fcntl to None
-    fcntl = None
+from .platform_support import (LockTimeout, atomic_write as _portable_atomic_write,
+                               file_lock)
 
 KINDS = ("decision", "task", "result", "note")
 STATES = ("draft", "approved", "published")
@@ -236,23 +231,8 @@ def _write_atomic(path: Path, data: bytes) -> None:
     A crash leaves the old file or the new one, never half of either. The
     staging file gets the usual umask-derived mode, not mkstemp's 0600.
     """
-    directory = path.parent
-    directory.mkdir(parents=True, exist_ok=True)
-    staging = directory / f".{path.name}.{secrets.token_hex(6)}.tmp"
-    descriptor = os.open(str(staging), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(data)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(staging, path)
-    except BaseException:
-        try:
-            staging.unlink()
-        except OSError:
-            pass
-        raise
-    _fsync_dir(directory)
+    _portable_atomic_write(path, data, mode=0o666)
+    _fsync_dir(path.parent)
 
 
 def _write_new(path: Path, data: bytes) -> None:
@@ -271,44 +251,17 @@ def _write_new(path: Path, data: bytes) -> None:
 
 @contextmanager
 def _lock(directory: Path):
-    """Serialise append + mirror regeneration.
-
-    flock() is released by the kernel when the process dies. The O_EXCL
-    fallback cannot be: a crash there leaves `.lock` behind and the next writer
-    times out with a message naming the file to delete.
-    """
+    """Serialise append + mirror regeneration with an OS-released file lock."""
     directory.mkdir(parents=True, exist_ok=True)
-    lock_file = directory / LOCK_NAME
-    if fcntl is not None:
-        handle = open(lock_file, "a+", encoding="utf-8")
-        try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            yield
-        finally:
-            try:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-            finally:
-                handle.close()
-        return
-    deadline = time.monotonic() + LOCK_TIMEOUT
-    while True:
-        try:
-            descriptor = os.open(str(lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            break
-        except FileExistsError:
-            if time.monotonic() >= deadline:
-                raise MemoryStoreError(
-                    f"Timed out waiting for the memory lock ({_store_name(LOCK_NAME)}). "
-                    "If no other writer is running, delete that file.") from None
-            time.sleep(LOCK_RETRY)
     try:
-        os.close(descriptor)
-        yield
-    finally:
-        try:
-            os.unlink(lock_file)
-        except FileNotFoundError:
-            pass
+        with file_lock(directory / LOCK_NAME, timeout=LOCK_TIMEOUT,
+                       poll_interval=LOCK_RETRY):
+            yield
+    except LockTimeout as exc:
+        raise MemoryStoreError(
+            "Timed out waiting for the memory store lock; retry after the other "
+            "writer finishes. The lock file is persistent and must not be deleted."
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -1178,12 +1131,11 @@ def _session_log(vault: Path, op: str, events: list) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         created = not path.exists()
-        with path.open("a", encoding="utf-8", newline="") as handle:
-            if fcntl is not None:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            handle.write("".join(lines))
-            handle.flush()
-            os.fsync(handle.fileno())
+        with file_lock(path.with_name(path.name + ".lock")):
+            with path.open("a", encoding="utf-8", newline="") as handle:
+                handle.write("".join(lines))
+                handle.flush()
+                os.fsync(handle.fileno())
         if created:
             _fsync_dir(path.parent)
     except OSError as exc:

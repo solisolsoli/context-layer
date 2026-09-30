@@ -104,7 +104,8 @@ check on Python 3.10-3.13 on Ubuntu and on one macOS job (Python 3.12), plus
 Ubuntu jobs for the plugin's build check and Node tests (Node 24), the sealed
 benchmark's checks, `bench-reproduce` (reruns the benchmark and the README's
 numbers), `doc-claims`, and `reproducible build` (two builds, one sha256), and
-a Windows smoke job that never blocks. `.github/workflows/release-audit.yml`
+a required Windows job (Python 3.12) running all suites, lint, the network
+boundary check and the installed distribution walk. `.github/workflows/release-audit.yml`
 runs the history audit on every `v*` tag. The [hosted run for `db9b8ac`](https://github.com/solisolsoli/context-layer/actions/runs/36732194741)
 passed all 11 required jobs. The exploratory Windows job failed; its 36 new
 GitHub-context tests passed, but existing POSIX locks, permission and process
@@ -131,7 +132,7 @@ account name ends up in the tar headers.
 `check_distribution.py` builds nothing itself; it takes the wheel and the sdist
 of the same version beside it (a missing sdist fails the check, unless
 `--no-sdist` says that only the wheel is being checked). In one throwaway
-directory it:
+directory it (with both POSIX and Windows home variables isolated):
 
 1. creates a fresh virtual environment **outside the checkout**, installs the
    wheel with `--no-index --no-deps`, and asserts the imported package really

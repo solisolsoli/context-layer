@@ -61,11 +61,7 @@ import time
 import unicodedata
 
 from .session_evidence import safe_stem
-
-try:  # POSIX advisory locking; the O_EXCL fallback below covers the rest.
-    import fcntl
-except ImportError:  # pragma: no cover
-    fcntl = None
+from .platform_support import file_lock
 
 RULE_FILES = ("CLAUDE.md", "AGENTS.md")
 LOG_FILE = "LOG.md"
@@ -492,43 +488,8 @@ def _marker_age(marker: Path) -> float | None:
 def _lock(root: Path):
     directory = root / ".context"
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / LOCK_NAME
-    if fcntl is not None:
-        with open(path, "a+", encoding="utf-8") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-        return
-    # Without fcntl (Windows): an exclusive-create marker holding "<pid> <time>".
-    # A holder that died leaves the marker behind; one older than STALE_LOCK_S is
-    # broken. Age is checked right before removal, so a marker a live process just
-    # re-created (fresh timestamp) is never taken. Process ids are not probed: on
-    # Windows os.kill would terminate the process, not test it.
-    deadline = time.monotonic() + LOCK_TIMEOUT
-    marker = path.with_suffix(".excl")
-    while True:
-        try:
-            fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            try:
-                os.write(fd, f"{os.getpid()} {time.time():.3f}\n".encode("ascii"))
-            finally:
-                os.close(fd)
-            break
-        except FileExistsError:
-            age = _marker_age(marker)
-            if age is not None and age > STALE_LOCK_S:
-                marker.unlink(missing_ok=True)
-                continue
-            if time.monotonic() > deadline:
-                raise RulesError(f"timed out waiting for .context/{marker.name}; if no other "
-                                 "context-layer process is running, delete that file") from None
-            time.sleep(0.02)
-    try:
+    with file_lock(directory / LOCK_NAME, timeout=LOCK_TIMEOUT, poll_interval=0.02):
         yield
-    finally:
-        marker.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
