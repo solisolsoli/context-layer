@@ -826,12 +826,21 @@ class OutputDirectoryIntegrity(TaskBase):
                 module._sha256_nofollow(target, single_link=True)
         self.assertTrue(swapped)
 
+    def test_output_identity_is_read_from_the_persisted_task_spec(self):
+        task = self.new()
+        spec = json.loads((self.task_dir(task["id"]) / "task.json").read_text(
+            encoding="utf-8"))
+        self.assertEqual(spec["output_identity"],
+                         module._identity(self.vault, task["output_dir"]))
+
     def test_reparse_junction_output_is_rejected(self):
         if os.name != "nt":
             self.skipTest("Windows junction regression")
         task = self.new()
         out = self.vault / task["output_dir"]
         target = self.vault / "other"
+        spec = json.loads((self.task_dir(task["id"]) / "task.json").read_text(
+            encoding="utf-8"))
         out.rmdir()
         result = subprocess.run(
             f'cmd.exe /d /c mklink /J "{out}" "{target}"',
@@ -843,7 +852,7 @@ class OutputDirectoryIntegrity(TaskBase):
         self.assertTrue(any("output directory replaced" in item for item in problems),
                         problems)
         identity_problems = module._identity_problems(
-            self.vault, task["output_dir"], task["output_identity"])
+            self.vault, task["output_dir"], spec["output_identity"])
         self.assertTrue(any("now a symlink" in item for item in identity_problems),
                         identity_problems)
 
