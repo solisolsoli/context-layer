@@ -80,10 +80,12 @@ WINDOW = '''#!/usr/bin/env python3
 import json, os, pathlib, sys, time
 sys.stdin.read()
 start = time.time()
-time.sleep(2.0)   # long enough for both children to be alive at once on a loaded machine
-end = time.time()
 out = pathlib.Path(os.environ["CONTEXT_LAYER_OUT_DIR"])
+time.sleep(1.5)   # both children are alive at the midpoint, even on a slow runner
 out.mkdir(parents=True, exist_ok=True)
+(out / "midpoint.txt").write_text("written while the sibling task runs")
+time.sleep(1.5)
+end = time.time()
 (out / "window.json").write_text(json.dumps({"start": start, "end": end}))
 print(json.dumps({"result": "ran", "is_error": False, @USAGE@}))
 '''

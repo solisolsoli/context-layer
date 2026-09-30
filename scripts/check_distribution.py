@@ -199,8 +199,9 @@ def release_walk(cli, py, root, vault):
     project = root / "project"; project.mkdir()
     printed = run([str(cli), "install", "print", "generic", "--vault", str(vault)], cwd=root)
     entry = json.loads(printed)["mcpServers"]["context-layer"]
-    check("env" not in entry and "PYTHONPATH" not in printed,
-          f"the installed console script still exports an env: {entry}")
+    # install sets PYTHONUTF8=1 for every host command (E-17); nothing else, and never PYTHONPATH
+    check(entry.get("env", {}) == {"PYTHONUTF8": "1"} and "PYTHONPATH" not in printed,
+          f"the installed console script exports an unexpected env: {entry}")
     check(pathlib.Path(entry["command"]).name == "context-layer",
           f"the printed command is not the console script: {entry['command']}")
     check(json.loads(run([str(cli), "install", "generic", "--vault", str(vault)], cwd=root)) ==
