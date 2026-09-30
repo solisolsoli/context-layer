@@ -201,14 +201,29 @@ def cmd_search(args: argparse.Namespace) -> int:
         print(f"context-layer search: {packet.get('error')}", file=sys.stderr)
         return done.returncode or 1
     if advisor is not None and isinstance(packet, dict):
-        advised = jev.advise_search(vault.resolve(), args.prompt, args.method, packet, advisor)
-        sys.stdout.write(json.dumps(advised, ensure_ascii=False, separators=(",", ":")) + "\n")
-    else:
-        sys.stdout.write(text)
+        packet = jev.advise_search(vault.resolve(), args.prompt, args.method, packet, advisor)
+        text = json.dumps(packet, ensure_ascii=False, separators=(",", ":")) + "\n"
+    if args.github and not args.no_github and done.returncode == 0 and isinstance(packet, dict):
+        augmented = mcp_server.github_fallback(vault.resolve(), args.prompt, packet)
+        if augmented is not packet:
+            packet = augmented
+            text = json.dumps(packet, ensure_ascii=False, separators=(",", ":")) + "\n"
+    sys.stdout.write(text)
     note = mcp_server.withheld_note(packet)
     if note:
         print(f"context-layer search: {note}", file=sys.stderr)
     return done.returncode
+
+
+def cmd_github_context(args: argparse.Namespace) -> int:
+    """Explicit external evidence lookup when the host identifies a knowledge gap."""
+    if args.rest:
+        print("context-layer github-context: unrecognised arguments", file=sys.stderr)
+        return 2
+    from . import github_context
+    packet = github_context.fetch(Path(args.vault).expanduser(), args.prompt, args.source)
+    print(json.dumps(packet, ensure_ascii=False))
+    return 1 if packet.get("status") == "ERROR" else 0
 
 
 def cmd_eval(args: argparse.Namespace) -> int:
@@ -287,7 +302,19 @@ def build_parser() -> argparse.ArgumentParser:
                                "default synaptic). Unconfigured, off or killed: the plain search.")
     p_search.add_argument("--no-jev", action="store_true",
                           help="Never ask the advisor for this call (wins over --jev).")
+    p_search.add_argument("--github", action="store_true",
+                          help="On a clean local NOT_FOUND, fetch configured public GitHub "
+                               "sources as external_context (docs/github-context.md).")
+    p_search.add_argument("--no-github", action="store_true",
+                          help="Never fetch GitHub context for this call (wins over --github).")
     p_search.set_defaults(func=cmd_search, forward_to="eval/retrieve.py")
+
+    p_github = sub.add_parser("github-context", help="Fetch allowlisted GitHub evidence for a gap.")
+    p_github.add_argument("vault")
+    p_github.add_argument("--prompt", required=True, help="Matched locally; never sent to GitHub.")
+    p_github.add_argument("--source", action="append",
+                          help="Configured source id (repeatable); otherwise match local keywords.")
+    p_github.set_defaults(func=cmd_github_context)
 
     p_eval = sub.add_parser("eval", help="Run the hit/cost evaluation harness.")
     p_eval.add_argument("--cwd", default=None,

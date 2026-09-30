@@ -366,13 +366,13 @@ The rule file a naive worker loads is a synthetic 250-line stand-in: 250 lines, 
 python3 eval/orchestration_cost.py --rules templates/vault/CLAUDE.md
 ```
 
-This run uses the vault rule template: 166 lines, 1,929 estimated tokens.
+This run uses the vault rule template: 173 lines, 2,063 estimated tokens.
 
 | Arm | Initial worker payload, est. tokens | vs naive |
 | --- | ---: | ---: |
-| naive | 12,847 | 100% |
-| lean-own | 9,441 | 73% |
-| lean-shared | 11,626 | 90% |
+| naive | 13,383 | 100% |
+| lean-own | 9,441 | 71% |
+| lean-shared | 11,626 | 87% |
 
 Verification reading is the same as above (12,452 vs 2,580).
 

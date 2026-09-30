@@ -38,6 +38,10 @@ modules and five test files (jev_contracts, jev_client, jev, jev_answer,
 jev_memory), so that
 jev_client.py stays the only code that can open a network connection or start a
 model CLI for the advisor, one auditable file that scripts/check_network_surface.py checks.
+GitHub evidence is separate: only github_client.py may fetch allowlisted public
+files for github_context.py. It uses pinned commits, no credentials, no prompt
+upload, and no code execution. Keep external evidence outside local source
+validation and Jev; preserve local NOT_FOUND, withheld and ERROR states.
 Component state stays plain files under the vault's
 .context. Never install into, configure or run against a live host without the
 user's authority for that action: dry run is the default, every write keeps a

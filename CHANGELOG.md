@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Optional GitHub evidence for knowledge gaps: `github-context`,
+  `search --github` and an MCP tool. Owner-enabled allowlists, commit-pinned
+  public files, anonymous bounded reads, verified blob hashes and immutable
+  citations. Questions and vault notes stay local. External evidence remains
+  separate from local evidence, Jev and the session ledger; local retrieval
+  defaults, errors and withheld-source handling are preserved.
+
 - Brain View: the HUD title and counts line take a lighter typography
   (a light, widely spaced title and a
   monospace line; local font stacks, themeable through `--nb-hud-font` and

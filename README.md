@@ -6,8 +6,8 @@ SHA-256, follows your own `[[links]]` when a question spans several notes, shows
 you in Obsidian which notes and links the last retrieval used, and keeps the
 agent's work recorded, planned and checkable.
 
-Python 3.10+, standard library only. No cloud and no model API calls unless you
-enable the optional advisor (off by default). No database you cannot open. MIT.
+Python 3.10+, standard library only. No network by default. GitHub
+context and the model advisor are separate opt-ins. No database you cannot open. MIT.
 
 <p align="center">
   <img src="docs/images/brain-view.png" width="520"
@@ -34,6 +34,7 @@ each line a resolved link; colour and size follow how many notes a note links to
 | **Lean sub-agents** | Shared evidence packets, a bounded `support-job/v1` contract, a ~5,000-token payload budget, evidence-record returns and `handback check`, which mechanically catches fabricated quotes. | [subagents](docs/subagents.md) · [tasks](docs/tasks.md) |
 | **Memory and health** | Append-only JSONL memory whose records go stale when their sources change; `status` and `rollback` for the index and the link graph. | [memory](docs/memory.md) |
 | **Optional advisor (Jev)** *(off by default)* | `search --jev` asks a model provider you configure whether delivered passages and link-reached notes help the question; `shadow` only counts, `on` (which needs a calibration receipt) appends byte-exact passages within their own budget. Design after Avenox Beyin's Jev; any provider, including a local server or the host's own CLI. | [jev](docs/jev.md) |
+| **GitHub context** *(off by default)* | On a local miss, fetch bounded passages from owner-allowlisted public files pinned to a commit. The prompt stays local; citations carry immutable URLs and hashes. No token or model required. | [GitHub context](docs/github-context.md) |
 | **Host integration** | MCP stdio server and a Claude Code prompt hook. Every install is a dry run until `--apply`, backs up first, and has an `uninstall`. | [host integration](docs/host-integration.md) |
 
 ## Quick start

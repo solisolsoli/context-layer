@@ -967,9 +967,9 @@ class McpCheckClaims(Case):
         proc = self.server()
         tools = self.request(proc, "tools/list", {})["result"]["tools"]
         names = [tool["name"] for tool in tools]
-        self.assertEqual(len(names), 9)
-        self.assertEqual(names[-1], "check_claims")
-        tool = tools[-1]
+        self.assertEqual(len(names), 10)
+        self.assertIn("check_claims", names)
+        tool = next(item for item in tools if item["name"] == "check_claims")
         self.assertTrue(tool["title"])
         self.assertFalse(tool["annotations"]["readOnlyHint"])
         self.assertFalse(tool["annotations"]["openWorldHint"])

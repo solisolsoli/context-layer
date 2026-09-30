@@ -104,9 +104,10 @@ wins over `--jev`.
 
 ## Providers and where your text goes
 
-The transport lives in `context_layer/jev_client.py`, the only module of the
-package that may open a network connection and the only one that starts a model
-command line for the advisor. Other modules start programs of their own (the
+The advisor transport lives in `context_layer/jev_client.py`, the only module
+that may open a provider connection or start a model command line for the advisor.
+The separate `github_client.py` transport only fetches public documentation
+([GitHub context](github-context.md)). Other modules start programs of their own (the
 task backends run the host's CLI when you run a task); `make network-guard`
 scans `context_layer/`, `router/` and `eval/` for the two rules above and does
 not cover `bench/` or `scripts/`.

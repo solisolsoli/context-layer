@@ -1,9 +1,12 @@
 # Privacy: what context-layer writes, and how to remove it
 
-context-layer makes no network request of its own unless you enable the
-optional advisor ([jev.md](jev.md)), which is off by default. Without it,
-indexing, search, memory, status and the task runner read and write local files
-only. That is narrower
+context-layer makes no network request of its own unless you explicitly use
+configured [GitHub context](github-context.md) or enable the
+optional advisor ([jev.md](jev.md)). Both are off by default. GitHub context
+sends only configured public repository paths and pinned commits, never a
+prompt, local note or credential; it writes no fetched content or cache.
+Without these opt-ins, indexing, search, memory, status and the task runner
+read and write local files only. That is narrower
 than "your notes never leave your machine". Evidence it hands to an AI host
 (through the MCP server, the prompt hook or a task backend such as `claude`)
 goes wherever that host sends it, and is kept under that host's retention.
@@ -16,6 +19,7 @@ process and no automatic pruning: nothing is deleted unless you delete it.
 | Path | Written by | Contains | Kept until |
 | --- | --- | --- | --- |
 | `.context/routes.json` | `context-layer init` (refuses to overwrite without `--force`) | Route names, trigger terms guessed from folder names, file names and headings, vault-relative paths, exclusion prefixes, optional `stopwords`. No note text. | You delete or edit it. |
+| `.context/github.json` | You, by hand | Public repository names, pinned commit SHAs, file paths and local routing keywords. No tokens, prompts or note text. Read only; disabled unless enabled explicitly. | You delete or edit it. |
 | `.context/facts.json` | You, by hand (the router only reads it) | Answer cards: short quotes and the paths they come from. | You delete it. |
 | `.context/index.sqlite` | `context-layer index` | **A full-text copy of every indexed file**, plus each file's path, SHA-256 and modification time, and the absolute vault path in its metadata. | The next `index` replaces it. |
 | `.context/index.sqlite.prev` | `context-layer index` (keeps the previous build for `rollback`) | The previous full-text copy. Text from a note you deleted or newly excluded survives here for one more build. | The build after next. |

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Fail when any module but context_layer/jev_client.py can reach the network, or
-start a model CLI for the optional advisor (Jev).
+"""Keep network access in the two explicit transports, and model CLI access
+in the optional advisor transport (Jev).
 
 An AST scan (nothing is imported or run) of every .py file under context_layer/,
 router/ and eval/. Three rules:
 
-  network-import    Only context_layer/jev_client.py may import urllib.request,
+  network-import    Only context_layer/jev_client.py and github_client.py may import urllib.request,
                     http.client, ssl, socket, asyncio or another network module
                     (plain imports, `from urllib import request`, attribute use
                     such as `urllib.request.urlopen`, `__import__("socket")` and
@@ -36,6 +36,7 @@ import sys
 
 SCANNED = ("context_layer", "router", "eval")
 ALLOWED = "context_layer/jev_client.py"
+NETWORK_ALLOWED = frozenset({ALLOWED, "context_layer/github_client.py"})
 SPAWN_EXEMPT = ("context_layer/tasks.py", "context_layer/backends.py")
 NETWORK_MODULES = (
     "urllib.request", "http.client", "http.server", "http.cookiejar", "ssl", "socket",
@@ -110,6 +111,7 @@ class Scanner(ast.NodeVisitor):
     def __init__(self, relative: str, jev_reference: bool):
         self.relative = relative
         self.allowed = relative == ALLOWED
+        self.network_allowed = relative in NETWORK_ALLOWED
         self.jev_reference = jev_reference and not self.allowed \
             and relative not in SPAWN_EXEMPT
         self.jev_module = Path(relative).name.startswith("jev") and not self.allowed
@@ -125,7 +127,7 @@ class Scanner(ast.NodeVisitor):
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
-            if is_network(alias.name) and not self.allowed:
+            if is_network(alias.name) and not self.network_allowed:
                 self.flag(node, "network-import", f"imports {alias.name}")
             root = alias.name.split(".")[0]
             if self.jev_module and root in SPAWN_MODULES:
@@ -140,7 +142,7 @@ class Scanner(ast.NodeVisitor):
         module = node.module or ""
         for alias in node.names:
             full = f"{module}.{alias.name}" if module else alias.name
-            if node.level == 0 and (is_network(module) or is_network(full)) and not self.allowed:
+            if node.level == 0 and (is_network(module) or is_network(full)) and not self.network_allowed:
                 self.flag(node, "network-import", f"imports {full}")
             if node.level == 0 and module.split(".")[0] in SPAWN_MODULES:
                 if self.jev_module:
@@ -163,7 +165,7 @@ class Scanner(ast.NodeVisitor):
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
         name = dotted(node)
-        if name and not self.allowed and name.split(".")[0] in ("urllib", "http", "xmlrpc"):
+        if name and not self.network_allowed and name.split(".")[0] in ("urllib", "http", "xmlrpc"):
             head = ".".join(name.split(".")[:2])
             if is_network(head):
                 self.flag(node, "network-import", f"uses {head}")
@@ -192,7 +194,7 @@ class Scanner(ast.NodeVisitor):
         if name in ("__import__", "importlib.import_module") and node.args:
             first = node.args[0]
             if isinstance(first, ast.Constant) and isinstance(first.value, str) \
-                    and is_network(first.value) and not self.allowed:
+                    and is_network(first.value) and not self.network_allowed:
                 self.flag(node, "network-import", f"imports {first.value} dynamically")
         target = self.spawn_target(node.func)
         if target is not None:
@@ -248,8 +250,8 @@ def main(argv: list | None = None) -> int:
     if violations:
         print(f"network surface: {len(violations)} violation(s) in {files} files", file=sys.stderr)
         return 1
-    print(f"network surface: ok ({files} files; only {ALLOWED} may reach the network "
-          "or start a model CLI for Jev)")
+    print(f"network surface: ok ({files} files; network only in "
+          f"{', '.join(sorted(NETWORK_ALLOWED))}; model CLI for Jev only in {ALLOWED})")
     return 0
 
 

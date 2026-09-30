@@ -286,3 +286,14 @@ number of full-text rows on every open, so an emptied or dropped full-text table
 is an error rather than a clean `NOT_FOUND`. `status` additionally runs the FTS5
 integrity check on an in-memory copy, which also catches a full-text row that no
 longer matches its record's text; the per-search check does not.
+
+## GitHub context (opt-in)
+
+`github-context VAULT --prompt TEXT [--source ID ...]` fetches configured public
+files pinned to full commit SHAs. `search --github` uses the same reader only
+after clean local NOT_FOUND; `--no-github` overrides it. Both require an enabled
+`.context/github.json`. No prompt or note is sent to GitHub. The standalone
+command exits 1 on ERROR, 0 otherwise; fallback keeps the local result and exit
+status with external failures visible in `external_context`.
+See [github-context.md](github-context.md) for configuration, bounds, evidence
+fields and failure semantics.

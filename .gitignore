@@ -14,6 +14,7 @@ index-manifest.json.prev
 example-vault/.index/
 run-output/
 *.local.json
+**/.context/github.json
 
 # Packaging and contributor tooling
 .venv/

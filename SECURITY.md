@@ -95,3 +95,15 @@ scope; a practical way to make them worse than described is in scope.
 - The optional `retrieval-patches/` are experimental diffs against an upstream
   project, not part of the installed package, and have not had the adversarial
   testing the package has.
+
+## Optional GitHub evidence
+
+The owner must enable and allowlist public files in `.context/github.json`
+before a caller can fetch them. The separate `github_client.py` transport
+uses anonymous HTTPS GET to GitHub's contents API, validates pinned commit and
+path inputs, refuses redirects, bounds responses and verifies blob hashes.
+It never reads credentials, sends prompts or vault notes, executes source
+text, follows source links or installs an MCP server. Fetched text remains
+untrusted data and cannot override host instructions. Commit pinning binds a
+version; it does not certify correctness or currency. Details and removal:
+[GitHub context](docs/github-context.md).

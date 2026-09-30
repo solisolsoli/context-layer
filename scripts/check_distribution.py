@@ -91,6 +91,7 @@ SDIST_REQUIRED = (
     "retrieval-patches/hook-visible-error.example.sh",
     "docs/host-integration.md", "docs/memory.md", "docs/tasks.md", "docs/source-lifecycle.md",
     "docs/privacy.md", "docs/cli.md", "docs/synapse.md", "docs/subagents.md",
+    "docs/github-context.md",
     "context_layer/data/worker_core.md", "router/index_format.py", "router/source_policy.py",
 )
 WHEEL_REQUIRED = (
@@ -98,6 +99,7 @@ WHEEL_REQUIRED = (
     "context_layer/templates/vault/CLAUDE.md", "context_layer/router/source_policy.py",
     "context_layer/router/index_format.py", "context_layer/router/build_index.py",
     "context_layer/eval/retrieve.py",
+    "context_layer/github_context.py", "context_layer/github_client.py",
 )
 # pyproject `license-files`; setuptools copies each under *.dist-info/licenses/.
 WHEEL_LICENSES = ("LICENSE", "THIRD_PARTY.md", "retrieval-patches/LICENSE.upstream.txt")
@@ -342,6 +344,8 @@ def walk_03(cli, root):
                     "clientInfo": {"name": "check_distribution", "version": "0"}}},
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+        {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+         "params": {"name": "github_context", "arguments": {"prompt": "project setup"}}},
     ]
     served = run([str(cli), "mcp", "--vault", str(vault)], cwd=root,
                  stdin="".join(json.dumps(m) + "\n" for m in messages))
@@ -349,8 +353,18 @@ def walk_03(cli, root):
     check(isinstance(replies.get(1, {}).get("result", {}).get("protocolVersion"), str),
           f"MCP initialize answered without a protocolVersion: {replies.get(1)}")
     tools = [tool["name"] for tool in replies.get(2, {}).get("result", {}).get("tools", [])]
-    check("search_vault" in tools and "read_source" in tools, f"MCP tools/list is missing tools: {tools}")
+    check({"search_vault", "read_source", "github_context"} <= set(tools),
+          f"MCP tools/list is missing tools: {tools}")
     facts["mcp"] = f"initialize ok, tools/list: {len(tools)} tools"
+    remote_result = replies.get(3, {}).get("result", {})
+    check(not remote_result.get("isError", True), "unconfigured GitHub MCP call failed")
+    check(json.loads(remote_result["content"][0]["text"])["status"] == "OFF",
+          "GitHub MCP did not remain off without configuration")
+    remote_cli = json.loads(run([str(cli), "github-context", str(vault),
+                                 "--prompt", "project setup"], cwd=root))
+    check(remote_cli["status"] == "OFF" and remote_cli["evidence"] == [],
+          "GitHub CLI did not remain off without configuration")
+    facts["github_context"] = "installed CLI and MCP: OFF without owner configuration"
 
     # -- the Claude Code prompt hook on stdin --
     hooked = json.loads(run([str(cli), "hook", "claude-code", "--vault", str(vault)], cwd=root,

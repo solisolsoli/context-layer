@@ -14,6 +14,7 @@ overview; [QUICKSTART.md](../QUICKSTART.md) is the same ground as commands, and
 | [subagents.md](subagents.md) | 0.3 — lean sub-agent jobs and hand-back checks | `packet`, `job`, `handback`, `handoff` |
 | [brain-guide.md](brain-guide.md) | 0.3 — building your own brain; rules and hooks | `brain init`, `rules init/check/record`, `brief` |
 | [jev.md](jev.md) | 0.4 — the optional advisor, off by default | `jev status`, `off`, `shadow`, `on`, `report`, `purge`, `record`, `calibrate`, `answer`, `review-memory`, `search --jev` |
+| [github-context.md](github-context.md) | Optional public GitHub evidence for knowledge gaps | `github-context`, `search --github`, MCP `github_context` |
 | [cli.md](cli.md) | Every command: exit codes, packet statuses, format versions | all |
 | [privacy.md](privacy.md) | Every artifact the tool writes; retention, deletion, threat model | — |
 | [design-rationale.md](design-rationale.md) | Why it is built this way, with public sources | — |

@@ -144,7 +144,7 @@ The method follows these rules:
 
 **Decision.**
 - State lives in the vault, under `.context/`, as SQLite, JSON, JSONL and Markdown that a person can open and delete.
-- The package's own code makes no network request unless the optional advisor is enabled ([docs/jev.md](jev.md)); a clean install never loads its client.
+- The package makes no network request by default. The optional [advisor](jev.md) can send selected text to a provider; [GitHub context](github-context.md) can fetch owner-allowlisted public files without sending prompts or local notes.
 - The optional sub-agent runner starts a host command-line tool, which talks to its model provider.
 - Retrieval exclusions apply before any source read. Paths are compared case-insensitively and against the exact on-disk name, and one strict loader serves every entry point.
 - The documentation lists every file the tool writes, what it contains and how to remove it. That includes the previous index generation, which keeps text from notes that were later excluded or deleted until it is removed.

@@ -209,7 +209,7 @@ class McpServer(HostFixture):
         self.assertEqual([tool["name"] for tool in tools],
                          ["search_vault", "read_source", "vault_status",
                           "memory_record", "memory_resume", "graph_neighbors",
-                          "read_packet", "jev_status", "check_claims"])
+                          "read_packet", "jev_status", "check_claims", "github_context"])
         described = {tool["name"]: tool["description"] for tool in tools}
         self.assertIn("not an answer", described["search_vault"])
         self.assertIn("NOT_FOUND", described["search_vault"])
@@ -373,7 +373,8 @@ class McpCaps(McpServer):
         self.assertEqual((claims["maxItems"], claims["items"]["properties"]["citations"]["maxItems"]),
                          (20, 8))
         self.assertFalse(hints["memory_record"]["destructiveHint"])
-        self.assertEqual({hint["openWorldHint"] for hint in hints.values()}, {False})
+        self.assertEqual({name for name, hint in hints.items() if hint["openWorldHint"]},
+                         {"search_vault", "github_context"})
 
     def test_server_defaults_above_a_cap_are_refused_at_start(self):
         for flag, value in (("--top-k", "21"), ("--budget", "24001"), ("--per-source", "6001")):
@@ -425,7 +426,7 @@ class McpConformance(HostFixture):
         self.assertEqual(listed["resultType"], "complete")
         self.assertGreater(listed["ttlMs"], 0)
         self.assertIn(listed["cacheScope"], ("public", "private"))
-        self.assertEqual(len(listed["tools"]), 9)
+        self.assertEqual(len(listed["tools"]), 10)
         called = client.request(3, "tools/call", {
             "_meta": META, "name": "search_vault",
             "arguments": {"prompt": "release versioning policy"}})["result"]
@@ -452,7 +453,7 @@ class McpConformance(HostFixture):
     def test_json_rpc_edge_cases(self):
         client = self.client()
         early = client.request(1, "tools/list")            # before initialize: served
-        self.assertEqual(len(early["result"]["tools"]), 9)
+        self.assertEqual(len(early["result"]["tools"]), 10)
         self.assertEqual(client.initialize("2025-06-18", ident=2)["result"]["protocolVersion"],
                          "2025-06-18")
         client.send({"jsonrpc": "2.0", "method": "notifications/initialized"})

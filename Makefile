@@ -63,6 +63,9 @@ test:  ## Run all router, scanner, integrity, hardening and evaluation regressio
 	$(PYTHON) tests/test_dev_jev.py
 	$(PYTHON) tests/test_synapse.py
 	$(PYTHON) tests/test_coactivation.py
+	$(PYTHON) tests/test_github_client.py
+	$(PYTHON) tests/test_github_context.py
+	$(PYTHON) tests/test_github_integration.py
 
 demo:  ## End-to-end: init + index + one packet, on a throwaway copy of the fixture vault
 	@rm -rf .demo-vault
@@ -89,7 +92,7 @@ lint:  ## Byte-compile every Python file and run pyflakes (required in CI, optio
 	  echo "For the full check: pip install pyflakes && make lint"; \
 	fi
 
-network-guard:  ## Fail if any module but context_layer/jev_client.py can reach the network
+network-guard:  ## Check the two explicit network transports and the advisor process boundary
 	$(PYTHON) scripts/check_network_surface.py
 
 plugin:  ## Build the Obsidian plugin (plain JS, no npm) from obsidian-plugin/

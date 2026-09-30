@@ -32,7 +32,8 @@ agent such as Claude Code or Codex, and you want the agent to:
 
 You need Python 3.10 or newer (with SQLite FTS5, which standard CPython builds
 include). Nothing else is installed: the package has no runtime dependencies
-and makes no network calls unless you enable the optional advisor (off by default; [docs/jev.md](jev.md)).
+and makes no network calls by default. The [advisor](jev.md) and
+[GitHub context](github-context.md) are separate opt-ins.
 
 ## Setup in ten minutes
 
@@ -115,7 +116,7 @@ context-layer install claude-code --vault ~/Brain            # diff only
 context-layer install claude-code --vault ~/Brain --apply    # write .mcp.json
 ```
 
-This gives the agent the nine MCP tools listed in
+This gives the agent the ten MCP tools listed in
 [host-integration.md](host-integration.md#tools) (search, read a source, index
 status, shared memory, link neighbours, shared packets, claim checks and the
 optional advisor's status). Add `--hook` to also inject
@@ -630,7 +631,8 @@ most recent entries by default; the full history is in `LOG.md`.
 copy it), then run `rules check`. The sections marked `CUSTOMIZE` are meant for
 it.
 
-**Does anything leave my machine?** context-layer makes no network calls unless you enable the optional advisor (off by default; [docs/jev.md](jev.md)). Your
+**Does anything leave my machine?** context-layer makes no network calls by default. The [advisor](jev.md) and
+[GitHub context](github-context.md) are separate opt-ins. Your
 AI host sends what it reads to its model provider, as it always does; exclude
 private folders in `.context/routes.json` to keep them out of search.
 

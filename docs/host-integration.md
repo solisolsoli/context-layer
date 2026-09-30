@@ -5,7 +5,7 @@ Two ways to give an AI host the vault's evidence without pasting it by hand:
 - **MCP server** (`context-layer mcp`) — the host calls tools when it decides it
   needs them: `search_vault`, `read_source`, `vault_status`, `memory_record`
   (drafts only), `memory_resume`, `graph_neighbors`, `read_packet`, `jev_status`,
-  `check_claims`. Any MCP client
+  `check_claims`, `github_context`. Any MCP client
   that speaks stdio can use it. It speaks MCP revision 2026-07-28 and the
   `initialize`-era revisions 2025-11-25, 2025-06-18, 2025-03-26 and 2024-11-05
   (see [Protocol revisions](#protocol-revisions)).
@@ -30,6 +30,11 @@ globs. The synaptic method also adds linked notes that did not match the query
 SECURITY.md. Evidence carries `source_path` and `source_sha256` so a reader can
 check what it got; `NOT_FOUND` means no evidence was found, not that the answer
 is "no".
+
+For an owner-enabled public documentation fallback, use `search_vault` with
+`github: true`, or `github_context` when local evidence is insufficient.
+External passages have immutable URL/commit/hash citations and stay outside
+the local evidence ledger and Jev. See [GitHub context](github-context.md).
 
 ## Install, with nothing written by surprise
 
@@ -84,7 +89,7 @@ Writes `<project>/.mcp.json` (default project: the vault directory itself):
 
 Other `mcpServers` keys and every other key in the file are kept. Claude Code
 asks for approval the first time it sees a project MCP server. Confirm with
-`/mcp` in the session; the nine tools appear as `mcp__context-layer__*`.
+`/mcp` in the session; the ten tools appear as `mcp__context-layer__*`.
 
 ### MCP, local or user scope
 
@@ -577,7 +582,7 @@ macOS (Darwin 25.6.0), CPython 3.12.4, by `tests/test_mcp_install.py`,
 - the server as a subprocess over real pipes: `initialize` for every supported
   revision and for unknown ones, 2026-07-28 requests without `initialize`
   (`server/discover`, `tools/list`, `tools/call`, `-32022`, `-32602`), `ping`,
-  `tools/list` (nine tools, titles, annotations, every `maximum`),
+  `tools/list` (ten tools, titles, annotations, every `maximum`),
   `search_vault` evidence with a path and a 64-hex hash, every limit refused as a
   tool error naming it, `read_source` (happy path, offset, the 6000 limit, hash
   mismatch, `..`, excluded prefix, dotted path, absolute path, missing file,

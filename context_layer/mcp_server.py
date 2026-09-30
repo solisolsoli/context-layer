@@ -25,6 +25,8 @@ model by default. The optional advisor is off unless the vault owner turns it on
 (.context/jev.json); when it is on, a call with `jev: true` to search_vault or check_claims
 may send short excerpts to the provider the owner configured, and only through
 jev_client.py (the one module that may reach a provider; see docs/jev.md).
+A separate, owner-enabled github_context tool can fetch public commit-pinned
+documentation through github_client.py without sending prompts or local notes.
 """
 
 from __future__ import annotations
@@ -576,6 +578,26 @@ def tool_result(text: str, is_error: bool = False) -> dict:
 # Tools
 # ---------------------------------------------------------------------------
 
+def github_fallback(vault: Path, prompt: str, packet: dict) -> dict:
+    """Keep the local evidence contract intact. An index error or withheld source is
+    never an invitation to substitute a remote source. Explicit tool calls handle
+    semantic gaps that a lexical search cannot detect."""
+    if (packet.get("operation_status") != "ok" or packet.get("status") != "NOT_FOUND"
+            or packet.get("evidence") or packet.get("withheld")):
+        return packet
+    from . import github_context
+    return {**packet, "external_context": github_context.fetch(vault, prompt)}
+
+
+def tool_github_context(state: Server, arguments: dict) -> dict:
+    """Only the vault owner's configured files can be requested by an agent."""
+    prompt = text_arg(arguments, "prompt", cap=PROMPT_CAP)
+    sources = list_arg(arguments, "source_ids")
+    from . import github_context
+    packet = github_context.fetch(state.vault, prompt, sources)
+    return tool_result(json.dumps(packet, ensure_ascii=False), packet.get("status") == "ERROR")
+
+
 def tool_search_vault(state: Server, arguments: dict) -> dict:
     prompt = text_arg(arguments, "prompt", cap=PROMPT_CAP)
     method = arguments.get("method") or "fts"
@@ -604,6 +626,9 @@ def tool_search_vault(state: Server, arguments: dict) -> dict:
     ask_advisor = arguments.get("jev", False)
     if not isinstance(ask_advisor, bool):
         raise InvalidParams("jev must be a boolean")
+    ask_github = arguments.get("github", False)
+    if not isinstance(ask_github, bool):
+        raise InvalidParams("github must be a boolean")
     plan = None
     if ask_advisor:
         # The optional advisor: the plan reads .context/jev.json only and is None (a plain
@@ -618,6 +643,11 @@ def tool_search_vault(state: Server, arguments: dict) -> dict:
     if plan is not None and not failed_search:
         packet = advisor.advise_search(state.vault, prompt, method, packet, plan)
         text = json.dumps(packet, ensure_ascii=False)
+    if ask_github and not failed_search:
+        augmented = github_fallback(state.vault, prompt, packet)
+        if augmented is not packet:
+            packet = augmented
+            text = json.dumps(packet, ensure_ascii=False)
     if not failed_search and state.session_evidence:
         problem = record_delivery(state.vault, state.session_id, packet.get("evidence"), "mcp")
         if problem and not state.ledger_noted:
@@ -799,7 +829,7 @@ TOOLS = [
                     "tool error that names it. Not read-only: method synaptic writes the "
                     ".context/activation.json trace, and an opted-in session evidence ledger "
                     "records paths and hashes (never text). " + DATA_NOT_INSTRUCTIONS,
-     "annotations": annotations(read_only=False),
+     "annotations": {**annotations(read_only=False), "openWorldHint": True},
      "inputSchema": {"type": "object", "required": ["prompt"], "properties": {
          "prompt": {"type": "string", "maxLength": PROMPT_CAP,
                     "description": "The exact question or prompt."},
@@ -829,6 +859,11 @@ TOOLS = [
          "per_source": {"type": "integer", "minimum": 1, "maximum": PER_SOURCE_CAP,
                         "description": f"Maximum characters taken from one source (at most "
                                        f"{PER_SOURCE_CAP})."},
+         "github": {"type": "boolean",
+                    "description": "On a clean local NOT_FOUND, fetch allowlisted public "
+                                   "GitHub files into external_context (default false). Needs "
+                                   "owner-enabled .context/github.json. The prompt stays local; "
+                                   "the original local status/evidence remain unchanged."},
          "jev": {"type": "boolean",
                  "description": "Ask the optional advisor (docs/jev.md) about this packet, if "
                                 "the vault owner enabled it (default false). In its shadow "
@@ -973,13 +1008,29 @@ TOOLS = [
                                 "the vault owner enabled it (default false). Advisory only; "
                                 "may send the claim, the quote and its section to the "
                                 "provider the owner configured."}}}},
+    {"name": "github_context",
+     "title": "Get GitHub context for a knowledge gap",
+     "description": "When local evidence does not answer the question, fetch candidate "
+                    "passages from public GitHub files allowlisted by the vault owner. "
+                    "Requires enabled .context/github.json; off by default. Source commits "
+                    "are pinned. Prompt matching stays local; no credentials or notes are "
+                    "sent. FOUND means passages were delivered, not that an answer is correct. "
+                    "Use the immutable URL and hash as citations; do not pass external "
+                    "items to local read_source/check_claims or the session ledger. "
+                    + DATA_NOT_INSTRUCTIONS,
+     "annotations": {**annotations(read_only=True), "openWorldHint": True},
+     "inputSchema": {"type": "object", "required": ["prompt"], "properties": {
+         "prompt": {"type": "string", "maxLength": PROMPT_CAP,
+                    "description": "Question matched locally against configured keywords."},
+         "source_ids": {"type": "array", "maxItems": 2, "items": {"type": "string"},
+                        "description": "Configured source ids; omit for keyword routing."}}}},
 ]
 
 HANDLERS = {"search_vault": tool_search_vault, "read_source": tool_read_source,
             "vault_status": tool_vault_status, "memory_record": tool_memory_record,
             "memory_resume": tool_memory_resume, "graph_neighbors": tool_graph_neighbors,
             "read_packet": tool_read_packet, "jev_status": tool_jev_status,
-            "check_claims": tool_check_claims}
+            "check_claims": tool_check_claims, "github_context": tool_github_context}
 
 
 # ---------------------------------------------------------------------------
