@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Brain View: the HUD title and counts line take a lighter typography
+  (a light, widely spaced title and a
+  monospace line; local font stacks, themeable through `--nb-hud-font` and
+  `--nb-hud-mono`). The resting colours, point sizes, opacities and link width
+  already followed a fixed degree scale; `tests/look.test.js` now pins
+  them and checks that the retrieval overlay colours stay distinct from them.
+
 ## 0.4.0
 
 Retrieval that says what it searched and what it left out, hosts that get

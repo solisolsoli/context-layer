@@ -44,6 +44,17 @@ retrieval touched, not whether that was the right evidence for your question.
   eight largest regions get one of eight colours chosen to stay apart under
   the common colour-vision deficiencies (see Accessibility); smaller regions
   share "Other". No folder or tag names are built in.
+- **The look at rest.** A black stage. Colour and diameter come from a note's
+  real number of distinct linked notes on a fixed scale of log2(1 + links):
+  blue-violet for a note with one or a few links, through blue and cyan, to a
+  bright cyan-white for a hub with hundreds; the point for a hub is about twice
+  as wide as the point for a note with one link. Linked notes are drawn at 55%
+  opacity, unlinked notes in the outer shell at 12%, links as ribbons 1.5
+  pixels wide whose colour runs between the colours of their two notes. The
+  title is a quiet, light, widely spaced line (CONTEXT LAYER BRAIN VIEW) with a
+  monospace line under it that counts notes, links and unlinked notes; both
+  use local font stacks (SF Pro, Helvetica Neue, SF Mono, Menlo, then
+  Obsidian's own fonts). The scale is fixed by `tests/look.test.js`.
 - **Orbit, zoom, hover, click, keys.** Drag to rotate, scroll to zoom, hover
   for the note's path and neighbours, click to open the note in a new tab
   (modifier-clicks follow Obsidian's conventions for a split or a new window).
@@ -103,7 +114,8 @@ the `context-layer` documentation for how to run those.
 The plugin notices the new file within about a second and, while the trace is
 fresh (by default generated in the last 10 minutes):
 
-- **Seeds** (notes found by full-text search, hop 0) are drawn in warm amber.
+- **Seeds** (notes found by full-text search, hop 0) are drawn in warm amber,
+  a hue none of the blue-to-cyan base colours has.
 - **Hop notes** (reached by following links) are drawn in cyan that whitens
   with the activation score. Size also grows with the score.
 - **In the packet vs reached only.** Notes that contributed a passage to the
@@ -116,7 +128,11 @@ fresh (by default generated in the last 10 minutes):
   reverse are one ribbon. Only the explicit link kinds in the trace contract
   (`wikilink`, `embed`, `mdlink`, `frontmatter`, `backlink`) are drawn;
   anything else is dropped.
-- **Everything else dims**, so the retrieval stands out.
+- **Everything else dims** to about a fifth of its resting opacity, so the
+  retrieval stands out. `tests/look.test.js` checks that every overlay style
+  stays at least 15 CIEDE2000 units from the dimmed base colours, and the amber
+  seed at least 30 units from the base colours at rest, also under simulated
+  colour-vision deficiency; size is a second cue.
 
 The HUD line reads, with parts separated by a middle dot:
 `Last retrieval at <generated_at> . <method> [<mode>] . <passages> passages .
@@ -250,8 +266,9 @@ the `--advisor` option of the demo script below.
 - **Motion.** Reduced motion is respected (see Settings).
 - **Theme.** The 3D stage is dark by design: the renderer draws light on
   black. The text layers on top of it (HUD, legend, summary, tooltip) use CSS
-  variables such as `--nb-text` and `--nb-panel`, and Obsidian's font, size
-  and radius variables, so a theme or CSS snippet can restyle them.
+  variables such as `--nb-text`, `--nb-panel`, `--nb-hud-font` and
+  `--nb-hud-mono`, and Obsidian's font, size and radius variables, so a theme
+  or CSS snippet can restyle them.
 
 ## Privacy
 
@@ -389,7 +406,7 @@ real advisor code with a scripted provider by
 
 Source layout: `src/main.js` (plugin entry), `src/view.js` (view and renderer),
 `src/graph.js` (link graph model), `src/layout.js` (layout solver and worker),
-`src/edges.js`, `src/shaders.js`, `src/field.js`, `src/palette.js`,
+`src/edges.js`, `src/shaders.js`, `src/field.js`, `src/palette.js` (the degree scale and the resting opacities),
 `src/regions.js`, `src/activation.js` (trace parsing, overlay state and the
 advisor layer's data),
 `src/settings.js`, `src/math.js`, `src/metrics.js`, `src/gl-program.js`.

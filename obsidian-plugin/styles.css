@@ -16,6 +16,10 @@
   --nb-key-reached: rgb(115, 133, 163);
   --nb-key-rescued: rgb(140, 255, 184);
   --nb-key-flagged: rgb(242, 240, 232);
+  /* HUD type: a light, widely spaced title and a monospace counts line. Local
+     font stacks only; a theme can replace them. */
+  --nb-hud-font: "SF Pro Display", "Helvetica Neue", var(--font-interface, sans-serif), sans-serif;
+  --nb-hud-mono: "SF Mono", Menlo, var(--font-monospace, monospace), monospace;
   /* Region colours; must match REGION_COLORS and OTHER_COLOR in src/regions.js. */
   --nb-region-0: #E19600;
   --nb-region-1: #A596FF;
@@ -57,25 +61,26 @@
 
 .nb-hud {
   position: absolute;
-  top: 16px;
-  left: 20px;
+  top: 18px;
+  left: 22px;
   pointer-events: none;
   user-select: none;
-  max-width: calc(100% - 40px);
+  max-width: calc(100% - 44px);
 }
 .nb-title {
+  font-family: var(--nb-hud-font);
   font-weight: 300;
-  font-size: var(--font-ui-smaller);
-  letter-spacing: 0.24em;
+  font-size: 13px;
+  letter-spacing: 0.28em;
   text-transform: none; /* title text is written in capitals: locale-aware uppercasing turns i into a dotted I in Turkish */
-  opacity: 0.8;
+  opacity: 0.85;
 }
 .nb-counters,
 .nb-dev {
   margin-top: 4px;
-  font-family: var(--font-monospace);
-  font-size: var(--font-ui-smaller);
-  letter-spacing: 0.04em;
+  font-family: var(--nb-hud-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
   opacity: 0.55;
 }
 .nb-activation,

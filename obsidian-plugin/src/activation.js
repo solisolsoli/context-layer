@@ -58,6 +58,9 @@ const HOP_RGB_LOW = Object.freeze([0.30, 0.78, 1.0]);
 const HOP_RGB_HIGH = Object.freeze([0.90, 0.98, 1.0]);
 const REACHED_RGB = Object.freeze([0.52, 0.58, 0.68]);
 const REACHED_MIX = 0.6;
+// Opacity factor for every note outside an active retrieval, so the notes of
+// the retrieval stand out against the degree palette.
+const OVERLAY_NODE_DIM = 0.22;
 // Advisor marks are outlines around the note: a solid ring for a rescued
 // note, a dashed ring for a note judged off-topic. Applied verdicts are
 // bright; shadow ("would") verdicts are faint. A flagged note is also dimmed
@@ -472,7 +475,7 @@ function createWatcher(options) {
 module.exports = {
   DEFAULT_PATH, MAX_BYTES, MAX_NODES, MAX_EDGES, EDGE_KINDS, MODES, MODE_NOTES, STATUS_TEXT,
   ADVISOR_MODES, ADVISOR_PROVIDERS, ADVISOR_VERDICTS, ADVISOR_NOTE, ADVISOR_LAYER_NOTE, ADVISOR_LAYER_EMPTY, ADVISOR_LAYER_NO_DATA, ADVISOR_LAYER_OFF,
-  SEED_RGB, HOP_RGB_LOW, HOP_RGB_HIGH, REACHED_RGB, RESCUED_RGB, FLAGGED_RGB, FLAGGED_DIM,
+  SEED_RGB, HOP_RGB_LOW, HOP_RGB_HIGH, REACHED_RGB, RESCUED_RGB, FLAGGED_RGB, FLAGGED_DIM, OVERLAY_NODE_DIM,
   PULSE_STEP_MS, PULSE_TRAVEL_MS, PULSE_REST_MS,
   sanitizeVaultPath, sanitizeTracePath, parseTimestamp, normalizeTrace, normalizeAdvisor, parseActivation, isFresh, formatAge,
   statusText, methodLabel, formatHud, advisorView, formatAdvisor, advisorLayerModel, overlayNodeStyle, advisorMark, mapOverlay,

@@ -22,9 +22,9 @@ const { clamp, lerp, nearestAngle, mat4Perspective, mat4LookAt } = require('./ma
 const { ItemView, Notice } = obsidian;
 const VIEW_TYPE = 'context-layer-brain-view';
 const EDGE_SEGMENTS = 12;                 // ribbon tessellation per link
-const NODE_ALPHA = 0.55, ORPHAN_ALPHA = 0.12;
+const { NODE_ALPHA, ORPHAN_ALPHA } = Palette;
 const REGION_DIM = 0.25;                  // notes outside a focused region
-const OVERLAY_NODE_DIM = 0.22;            // notes outside an active retrieval
+const { OVERLAY_NODE_DIM } = Activation;   // notes outside an active retrieval
 const OVERLAY_EDGE_DIM = 0.3;             // links outside an active retrieval
 const OVERLAY_EDGE_ALPHA = 0.22, OVERLAY_EDGE_PULSE = 0.55, OVERLAY_EDGE_STATIC = 0.45, OVERLAY_EDGE_HALF_WIDTH = 1.1;
 const MARK_SIZE = 2.4;                    // advisor ring size relative to its note

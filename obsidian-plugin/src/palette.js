@@ -1,7 +1,10 @@
 'use strict';
 
-// Fixed degree anchors avoid vault-wide normalization: a note keeps the same
-// visual meaning when unrelated notes are added to the graph.
+// The resting look of the graph. A note's colour and diameter come from its real number of distinct
+// linked notes (its degree) on a fixed log2(1 + degree) scale: blue-violet for
+// a note with few links, through cyan, to a bright cyan-white hub. Fixed
+// anchors avoid vault-wide normalization: a note keeps the same visual
+// meaning when unrelated notes are added to the graph.
 const ANCHORS = Object.freeze([
   [0, '#46516D', .009], [1, '#8278ED', .009], [4, '#678FFE', .0108],
   [16, '#4EBBFA', .0126], [64, '#68DBF5', .0144], [256, '#ACEEFF', .0162],
@@ -11,6 +14,8 @@ const ANCHORS = Object.freeze([
   rgb: Object.freeze([1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)),
 })));
 const DURATION_MS = 650;
+// Opacity at rest: a note with links, and an unlinked note in the outer shell.
+const NODE_ALPHA = 0.55, ORPHAN_ALPHA = 0.12;
 
 function styleForDegree(degree) {
   const d = Math.max(0, Number.isFinite(degree) ? degree : 0);
@@ -161,4 +166,4 @@ function createAnimator() {
   return { refresh, seedInitialAsync, tick, get, setVisible, summary, activeCount: () => active.length, durationMs: DURATION_MS };
 }
 
-module.exports = { ANCHORS, DURATION_MS, styleForDegree, createAnimator };
+module.exports = { ANCHORS, DURATION_MS, NODE_ALPHA, ORPHAN_ALPHA, styleForDegree, createAnimator };

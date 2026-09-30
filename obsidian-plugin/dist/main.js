@@ -63,6 +63,9 @@ const HOP_RGB_LOW = Object.freeze([0.30, 0.78, 1.0]);
 const HOP_RGB_HIGH = Object.freeze([0.90, 0.98, 1.0]);
 const REACHED_RGB = Object.freeze([0.52, 0.58, 0.68]);
 const REACHED_MIX = 0.6;
+// Opacity factor for every note outside an active retrieval, so the notes of
+// the retrieval stand out against the degree palette.
+const OVERLAY_NODE_DIM = 0.22;
 // Advisor marks are outlines around the note: a solid ring for a rescued
 // note, a dashed ring for a note judged off-topic. Applied verdicts are
 // bright; shadow ("would") verdicts are faint. A flagged note is also dimmed
@@ -477,7 +480,7 @@ function createWatcher(options) {
 module.exports = {
   DEFAULT_PATH, MAX_BYTES, MAX_NODES, MAX_EDGES, EDGE_KINDS, MODES, MODE_NOTES, STATUS_TEXT,
   ADVISOR_MODES, ADVISOR_PROVIDERS, ADVISOR_VERDICTS, ADVISOR_NOTE, ADVISOR_LAYER_NOTE, ADVISOR_LAYER_EMPTY, ADVISOR_LAYER_NO_DATA, ADVISOR_LAYER_OFF,
-  SEED_RGB, HOP_RGB_LOW, HOP_RGB_HIGH, REACHED_RGB, RESCUED_RGB, FLAGGED_RGB, FLAGGED_DIM,
+  SEED_RGB, HOP_RGB_LOW, HOP_RGB_HIGH, REACHED_RGB, RESCUED_RGB, FLAGGED_RGB, FLAGGED_DIM, OVERLAY_NODE_DIM,
   PULSE_STEP_MS, PULSE_TRAVEL_MS, PULSE_REST_MS,
   sanitizeVaultPath, sanitizeTracePath, parseTimestamp, normalizeTrace, normalizeAdvisor, parseActivation, isFresh, formatAge,
   statusText, methodLabel, formatHud, advisorView, formatAdvisor, advisorLayerModel, overlayNodeStyle, advisorMark, mapOverlay,
@@ -1857,8 +1860,11 @@ module.exports = { FrameMetrics };
 "palette": function (module, exports, require) {
 'use strict';
 
-// Fixed degree anchors avoid vault-wide normalization: a note keeps the same
-// visual meaning when unrelated notes are added to the graph.
+// The resting look of the graph. A note's colour and diameter come from its real number of distinct
+// linked notes (its degree) on a fixed log2(1 + degree) scale: blue-violet for
+// a note with few links, through cyan, to a bright cyan-white hub. Fixed
+// anchors avoid vault-wide normalization: a note keeps the same visual
+// meaning when unrelated notes are added to the graph.
 const ANCHORS = Object.freeze([
   [0, '#46516D', .009], [1, '#8278ED', .009], [4, '#678FFE', .0108],
   [16, '#4EBBFA', .0126], [64, '#68DBF5', .0144], [256, '#ACEEFF', .0162],
@@ -1868,6 +1874,8 @@ const ANCHORS = Object.freeze([
   rgb: Object.freeze([1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)),
 })));
 const DURATION_MS = 650;
+// Opacity at rest: a note with links, and an unlinked note in the outer shell.
+const NODE_ALPHA = 0.55, ORPHAN_ALPHA = 0.12;
 
 function styleForDegree(degree) {
   const d = Math.max(0, Number.isFinite(degree) ? degree : 0);
@@ -2018,7 +2026,7 @@ function createAnimator() {
   return { refresh, seedInitialAsync, tick, get, setVisible, summary, activeCount: () => active.length, durationMs: DURATION_MS };
 }
 
-module.exports = { ANCHORS, DURATION_MS, styleForDegree, createAnimator };
+module.exports = { ANCHORS, DURATION_MS, NODE_ALPHA, ORPHAN_ALPHA, styleForDegree, createAnimator };
 },
 "regions": function (module, exports, require) {
 'use strict';
@@ -2451,9 +2459,9 @@ const { clamp, lerp, nearestAngle, mat4Perspective, mat4LookAt } = require('./ma
 const { ItemView, Notice } = obsidian;
 const VIEW_TYPE = 'context-layer-brain-view';
 const EDGE_SEGMENTS = 12;                 // ribbon tessellation per link
-const NODE_ALPHA = 0.55, ORPHAN_ALPHA = 0.12;
+const { NODE_ALPHA, ORPHAN_ALPHA } = Palette;
 const REGION_DIM = 0.25;                  // notes outside a focused region
-const OVERLAY_NODE_DIM = 0.22;            // notes outside an active retrieval
+const { OVERLAY_NODE_DIM } = Activation;   // notes outside an active retrieval
 const OVERLAY_EDGE_DIM = 0.3;             // links outside an active retrieval
 const OVERLAY_EDGE_ALPHA = 0.22, OVERLAY_EDGE_PULSE = 0.55, OVERLAY_EDGE_STATIC = 0.45, OVERLAY_EDGE_HALF_WIDTH = 1.1;
 const MARK_SIZE = 2.4;                    // advisor ring size relative to its note
