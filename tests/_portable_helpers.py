@@ -196,38 +196,77 @@ def assert_private_path(testcase, path, *, directory=False):
     sid_to_string = advapi32.ConvertSidToStringSidW
     sid_to_string.argtypes = (ctypes.c_void_p, ctypes.POINTER(wintypes.LPWSTR))
     sid_to_string.restype = wintypes.BOOL
+    open_process_token = advapi32.OpenProcessToken
+    open_process_token.argtypes = (wintypes.HANDLE, wintypes.DWORD,
+                                   ctypes.POINTER(wintypes.HANDLE))
+    open_process_token.restype = wintypes.BOOL
+    get_token_information = advapi32.GetTokenInformation
+    get_token_information.argtypes = (wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p,
+                                      wintypes.DWORD, ctypes.POINTER(wintypes.DWORD))
+    get_token_information.restype = wintypes.BOOL
+    get_current_process = kernel32.GetCurrentProcess
+    get_current_process.argtypes = ()
+    get_current_process.restype = wintypes.HANDLE
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = (wintypes.HANDLE,)
+    close_handle.restype = wintypes.BOOL
     local_free = kernel32.LocalFree
     local_free.argtypes = (ctypes.c_void_p,)
     local_free.restype = ctypes.c_void_p
 
-    owner = ctypes.c_void_p()
     group = ctypes.c_void_p()
     dacl = ctypes.c_void_p()
     sacl = ctypes.c_void_p()
     descriptor = ctypes.c_void_p()
-    status = get_named_security(str(path), 1, 0x00000004, ctypes.byref(owner),
+    status = get_named_security(str(path), 1, 0x00000004, None,
                                 ctypes.byref(group), ctypes.byref(dacl), ctypes.byref(sacl),
                                 ctypes.byref(descriptor))
     testcase.assertEqual(status, 0, f"GetNamedSecurityInfoW failed: {status}")
     try:
-        owner_text = wintypes.LPWSTR()
-        testcase.assertTrue(sid_to_string(owner, ctypes.byref(owner_text)))
+        class SID_AND_ATTRIBUTES(ctypes.Structure):
+            _fields_ = [("Sid", ctypes.c_void_p), ("Attributes", wintypes.DWORD)]
+
+        class TOKEN_USER(ctypes.Structure):
+            _fields_ = [("User", SID_AND_ATTRIBUTES)]
+
+        token = wintypes.HANDLE()
+        testcase.assertTrue(open_process_token(get_current_process(), 0x0008,
+                                               ctypes.byref(token)),
+                            f"OpenProcessToken failed: {ctypes.get_last_error()}")
         try:
-            owner_sid = owner_text.value
+            token_bytes = wintypes.DWORD()
+            get_token_information(token, 1, None, 0, ctypes.byref(token_bytes))
+            testcase.assertGreater(token_bytes.value, 0,
+                                   f"GetTokenInformation size failed: {ctypes.get_last_error()}")
+            token_user_buffer = ctypes.create_string_buffer(token_bytes.value)
+            testcase.assertTrue(get_token_information(
+                token, 1, token_user_buffer, token_bytes, ctypes.byref(token_bytes)),
+                f"GetTokenInformation failed: {ctypes.get_last_error()}")
+            user_sid = ctypes.cast(token_user_buffer, ctypes.POINTER(TOKEN_USER)).contents.User.Sid
+            user_text = wintypes.LPWSTR()
+            testcase.assertTrue(sid_to_string(user_sid, ctypes.byref(user_text)),
+                                f"ConvertSidToStringSidW failed: {ctypes.get_last_error()}")
+            try:
+                token_user_sid = user_text.value
+            finally:
+                local_free(ctypes.cast(user_text, ctypes.c_void_p))
         finally:
-            local_free(ctypes.cast(owner_text, ctypes.c_void_p))
+            testcase.assertTrue(close_handle(token), "CloseHandle(token) failed")
         control = wintypes.WORD()
         revision = wintypes.DWORD()
         testcase.assertTrue(get_control(descriptor, ctypes.byref(control), ctypes.byref(revision)))
         testcase.assertTrue(control.value & 0x1000, "private DACL must block inherited access")
         info = ACL_SIZE_INFORMATION()
         testcase.assertTrue(get_acl_info(dacl, ctypes.byref(info), ctypes.sizeof(info), 2))
+        testcase.assertEqual(info.AceCount, 2, "private DACL must contain exactly two ACEs")
         principals = set()
         for index in range(info.AceCount):
             ace_ptr = ctypes.c_void_p()
             testcase.assertTrue(get_ace(dacl, index, ctypes.byref(ace_ptr)))
             header = ctypes.cast(ace_ptr, ctypes.POINTER(ACE_HEADER)).contents
             testcase.assertEqual(header.AceType, 0, "private DACL may contain only allow ACEs")
+            testcase.assertEqual(header.AceFlags, 0x03 if directory else 0,
+                                 "private DACL ACE inheritance flags differ")
             ace = ctypes.cast(ace_ptr, ctypes.POINTER(ACCESS_ALLOWED_ACE)).contents
             sid = ctypes.c_void_p(ace_ptr.value + ACCESS_ALLOWED_ACE.SidStart.offset)
             sid_text = wintypes.LPWSTR()
@@ -237,11 +276,8 @@ def assert_private_path(testcase, path, *, directory=False):
             finally:
                 local_free(ctypes.cast(sid_text, ctypes.c_void_p))
             principals.add(principal)
-            testcase.assertEqual(ace.Mask & 0x001F01FF, 0x001F01FF,
-                                f"principal {principal} lacks full private access")
-        # A protected DACL naming the actual owner and SYSTEM is the Windows
-        # equivalent of a private file; GetNamedSecurityInfo reports the owner
-        # SID here, not the Owner Rights well-known SID.
-        testcase.assertEqual(principals, {owner_sid, "S-1-5-18"})
+            testcase.assertEqual(ace.Mask, 0x001F01FF,
+                                 f"principal {principal} must have exactly full private access")
+        testcase.assertEqual(principals, {token_user_sid, "S-1-5-18"})
     finally:
         local_free(descriptor)
