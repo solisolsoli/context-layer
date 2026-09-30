@@ -1,0 +1,1602 @@
+{
+  "scope": "synthetic demonstration; semantic quality not measured",
+  "python": "3.12.4",
+  "contract_sha256": "52622db3d2098ce09531d2531e701dc1342a77f2fe00322b5a3beff4260917a5",
+  "code_sha256": {
+    "eval/retrieve.py": "88771f3abbcce3d0966bb3c780626c839cf95f23059c3bd08459880379628f77",
+    "eval/evaluate.py": "9ad1354ced5a54c9fc9f43d609df184c880efb7c948f6465f51eb78b42c326c7",
+    "eval/evidence_contract.py": "729ab1f8ebe1dca66093b51057110ade2a48dcf68b3576a231f8518ad1ce2098",
+    "router/context_router.py": "68c2638343e5a52c9cdfdbb14d2a9bb04c24f3a7e83629bee27d4906ea7f0454",
+    "router/source_policy.py": "a5fdbbd2ef45e52f07e573cc91727ff85da9699e08fbc5a0ed50b0d35bc2dc23"
+  },
+  "bounds": {
+    "top_k": 3,
+    "content_characters": 6000,
+    "per_source": 2000
+  },
+  "results": {
+    "grep": {
+      "summary": {
+        "contract_content_sha256": "8b42ff3a5317a42dafacf9811fbf91c321d8d65c68eaf78e7f8473cd473416eb",
+        "measurement_kind": "evidence_delivery_v1",
+        "semantic_quality_measured": false,
+        "promotion_eligible": false,
+        "correct_abstentions": 0,
+        "delivery_passes": 19,
+        "n": 24,
+        "total_expected": 25,
+        "total_hit": 24,
+        "hit_rate": 0.96,
+        "fully_hit_prompts": 19,
+        "zero_hit_prompts": 5,
+        "router_failures": 0,
+        "total_cost_chars": 72080,
+        "mean_cost_chars": 3003.3333333333335,
+        "cost_per_hit_chars": 3003.3333333333335
+      },
+      "by_split": {
+        "dev": {
+          "n": 12,
+          "expected": 12,
+          "hit": 11,
+          "hit_rate": 0.9166666666666666,
+          "mean_cost_chars": 2965.25
+        },
+        "acceptance": {
+          "n": 12,
+          "expected": 13,
+          "hit": 13,
+          "hit_rate": 1.0,
+          "mean_cost_chars": 3041.4166666666665
+        }
+      }
+    },
+    "fts": {
+      "summary": {
+        "contract_content_sha256": "8b42ff3a5317a42dafacf9811fbf91c321d8d65c68eaf78e7f8473cd473416eb",
+        "measurement_kind": "evidence_delivery_v1",
+        "semantic_quality_measured": false,
+        "promotion_eligible": false,
+        "correct_abstentions": 0,
+        "delivery_passes": 20,
+        "n": 24,
+        "total_expected": 25,
+        "total_hit": 25,
+        "hit_rate": 1.0,
+        "fully_hit_prompts": 20,
+        "zero_hit_prompts": 4,
+        "router_failures": 0,
+        "total_cost_chars": 67546,
+        "mean_cost_chars": 2814.4166666666665,
+        "cost_per_hit_chars": 2701.84
+      },
+      "by_split": {
+        "dev": {
+          "n": 12,
+          "expected": 12,
+          "hit": 12,
+          "hit_rate": 1.0,
+          "mean_cost_chars": 2819.9166666666665
+        },
+        "acceptance": {
+          "n": 12,
+          "expected": 13,
+          "hit": 13,
+          "hit_rate": 1.0,
+          "mean_cost_chars": 2808.9166666666665
+        }
+      }
+    },
+    "fts-canonical": {
+      "summary": {
+        "contract_content_sha256": "8b42ff3a5317a42dafacf9811fbf91c321d8d65c68eaf78e7f8473cd473416eb",
+        "measurement_kind": "evidence_delivery_v1",
+        "semantic_quality_measured": false,
+        "promotion_eligible": false,
+        "correct_abstentions": 0,
+        "delivery_passes": 20,
+        "n": 24,
+        "total_expected": 25,
+        "total_hit": 25,
+        "hit_rate": 1.0,
+        "fully_hit_prompts": 20,
+        "zero_hit_prompts": 4,
+        "router_failures": 0,
+        "total_cost_chars": 68080,
+        "mean_cost_chars": 2836.6666666666665,
+        "cost_per_hit_chars": 2723.2
+      },
+      "by_split": {
+        "dev": {
+          "n": 12,
+          "expected": 12,
+          "hit": 12,
+          "hit_rate": 1.0,
+          "mean_cost_chars": 2864.4166666666665
+        },
+        "acceptance": {
+          "n": 12,
+          "expected": 13,
+          "hit": 13,
+          "hit_rate": 1.0,
+          "mean_cost_chars": 2808.9166666666665
+        }
+      }
+    },
+    "router": {
+      "summary": {
+        "contract_content_sha256": "8b42ff3a5317a42dafacf9811fbf91c321d8d65c68eaf78e7f8473cd473416eb",
+        "measurement_kind": "evidence_delivery_v1",
+        "semantic_quality_measured": false,
+        "promotion_eligible": false,
+        "correct_abstentions": 1,
+        "delivery_passes": 4,
+        "n": 24,
+        "total_expected": 25,
+        "total_hit": 7,
+        "hit_rate": 0.28,
+        "fully_hit_prompts": 4,
+        "zero_hit_prompts": 17,
+        "router_failures": 0,
+        "total_cost_chars": 26687,
+        "mean_cost_chars": 1111.9583333333333,
+        "cost_per_hit_chars": 3812.4285714285716
+      },
+      "by_split": {
+        "dev": {
+          "n": 12,
+          "expected": 12,
+          "hit": 4,
+          "hit_rate": 0.3333333333333333,
+          "mean_cost_chars": 1339.75
+        },
+        "acceptance": {
+          "n": 12,
+          "expected": 13,
+          "hit": 3,
+          "hit_rate": 0.23076923076923078,
+          "mean_cost_chars": 884.1666666666666
+        }
+      }
+    }
+  },
+  "promotion_eligible": false,
+  "per_case": {
+    "grep": [
+      {
+        "id": "dev01",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 3023,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev02",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2679,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev03",
+        "expected_count": 1,
+        "hit_count": 0,
+        "cost_chars": 3307,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          false
+        ],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "dev04",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2559,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev05",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2497,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev06",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2748,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev07",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2978,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev08",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 3317,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev09",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 3042,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev10",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 3199,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev11",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 3059,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev12",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 3175,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc01",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 3022,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc02",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2788,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc03",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2823,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc04",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2852,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc05",
+        "expected_count": 2,
+        "hit_count": 2,
+        "cost_chars": 2801,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true,
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc06",
+        "expected_count": 3,
+        "hit_count": 3,
+        "cost_chars": 2719,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true,
+          true,
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc07",
+        "expected_count": 2,
+        "hit_count": 2,
+        "cost_chars": 3089,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true,
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc08",
+        "expected_count": 2,
+        "hit_count": 2,
+        "cost_chars": 3222,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true,
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc09",
+        "expected_count": 0,
+        "hit_count": 0,
+        "cost_chars": 3278,
+        "split": "acceptance",
+        "answerable": false,
+        "group_hits": [],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "acc10",
+        "expected_count": 0,
+        "hit_count": 0,
+        "cost_chars": 3301,
+        "split": "acceptance",
+        "answerable": false,
+        "group_hits": [],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "acc11",
+        "expected_count": 0,
+        "hit_count": 0,
+        "cost_chars": 3300,
+        "split": "acceptance",
+        "answerable": false,
+        "group_hits": [],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "acc12",
+        "expected_count": 0,
+        "hit_count": 0,
+        "cost_chars": 3302,
+        "split": "acceptance",
+        "answerable": false,
+        "group_hits": [],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      }
+    ],
+    "fts": [
+      {
+        "id": "dev01",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2772,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev02",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2755,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev03",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2569,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev04",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2599,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev05",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2560,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev06",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2725,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev07",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2783,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev08",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2874,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev09",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 3110,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev10",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 3301,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev11",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 3159,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev12",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2632,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc01",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2770,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc02",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2800,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc03",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2644,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc04",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2695,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc05",
+        "expected_count": 2,
+        "hit_count": 2,
+        "cost_chars": 2670,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true,
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc06",
+        "expected_count": 3,
+        "hit_count": 3,
+        "cost_chars": 2855,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true,
+          true,
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc07",
+        "expected_count": 2,
+        "hit_count": 2,
+        "cost_chars": 2656,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true,
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc08",
+        "expected_count": 2,
+        "hit_count": 2,
+        "cost_chars": 3420,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true,
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc09",
+        "expected_count": 0,
+        "hit_count": 0,
+        "cost_chars": 2756,
+        "split": "acceptance",
+        "answerable": false,
+        "group_hits": [],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "acc10",
+        "expected_count": 0,
+        "hit_count": 0,
+        "cost_chars": 2812,
+        "split": "acceptance",
+        "answerable": false,
+        "group_hits": [],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "acc11",
+        "expected_count": 0,
+        "hit_count": 0,
+        "cost_chars": 2810,
+        "split": "acceptance",
+        "answerable": false,
+        "group_hits": [],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "acc12",
+        "expected_count": 0,
+        "hit_count": 0,
+        "cost_chars": 2819,
+        "split": "acceptance",
+        "answerable": false,
+        "group_hits": [],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      }
+    ],
+    "fts-canonical": [
+      {
+        "id": "dev01",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2772,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev02",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2755,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev03",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2569,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev04",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2599,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev05",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2560,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev06",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2725,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev07",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2783,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev08",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 3408,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev09",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 3110,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev10",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 3301,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev11",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 3159,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev12",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2632,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc01",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2770,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc02",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2800,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc03",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2644,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc04",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2695,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc05",
+        "expected_count": 2,
+        "hit_count": 2,
+        "cost_chars": 2670,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true,
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc06",
+        "expected_count": 3,
+        "hit_count": 3,
+        "cost_chars": 2855,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true,
+          true,
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc07",
+        "expected_count": 2,
+        "hit_count": 2,
+        "cost_chars": 2656,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true,
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc08",
+        "expected_count": 2,
+        "hit_count": 2,
+        "cost_chars": 3420,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true,
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc09",
+        "expected_count": 0,
+        "hit_count": 0,
+        "cost_chars": 2756,
+        "split": "acceptance",
+        "answerable": false,
+        "group_hits": [],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "acc10",
+        "expected_count": 0,
+        "hit_count": 0,
+        "cost_chars": 2812,
+        "split": "acceptance",
+        "answerable": false,
+        "group_hits": [],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "acc11",
+        "expected_count": 0,
+        "hit_count": 0,
+        "cost_chars": 2810,
+        "split": "acceptance",
+        "answerable": false,
+        "group_hits": [],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "acc12",
+        "expected_count": 0,
+        "hit_count": 0,
+        "cost_chars": 2819,
+        "split": "acceptance",
+        "answerable": false,
+        "group_hits": [],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      }
+    ],
+    "router": [
+      {
+        "id": "dev01",
+        "expected_count": 1,
+        "hit_count": 0,
+        "cost_chars": 861,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          false
+        ],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "dev02",
+        "expected_count": 1,
+        "hit_count": 0,
+        "cost_chars": 93,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          false
+        ],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "dev03",
+        "expected_count": 1,
+        "hit_count": 0,
+        "cost_chars": 861,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          false
+        ],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "dev04",
+        "expected_count": 1,
+        "hit_count": 0,
+        "cost_chars": 2561,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          false
+        ],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "dev05",
+        "expected_count": 1,
+        "hit_count": 0,
+        "cost_chars": 861,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          false
+        ],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "dev06",
+        "expected_count": 1,
+        "hit_count": 0,
+        "cost_chars": 861,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          false
+        ],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "dev07",
+        "expected_count": 1,
+        "hit_count": 0,
+        "cost_chars": 861,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          false
+        ],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "dev08",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2404,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev09",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 1633,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev10",
+        "expected_count": 1,
+        "hit_count": 0,
+        "cost_chars": 93,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          false
+        ],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "dev11",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2427,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "dev12",
+        "expected_count": 1,
+        "hit_count": 1,
+        "cost_chars": 2561,
+        "split": "dev",
+        "answerable": true,
+        "group_hits": [
+          true
+        ],
+        "delivery_pass": true,
+        "correct_abstention": false,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc01",
+        "expected_count": 1,
+        "hit_count": 0,
+        "cost_chars": 1135,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          false
+        ],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "acc02",
+        "expected_count": 1,
+        "hit_count": 0,
+        "cost_chars": 861,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          false
+        ],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "acc03",
+        "expected_count": 1,
+        "hit_count": 0,
+        "cost_chars": 861,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          false
+        ],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "acc04",
+        "expected_count": 1,
+        "hit_count": 0,
+        "cost_chars": 861,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          false
+        ],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "acc05",
+        "expected_count": 2,
+        "hit_count": 1,
+        "cost_chars": 861,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          false,
+          true
+        ],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "acc06",
+        "expected_count": 3,
+        "hit_count": 0,
+        "cost_chars": 861,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          false,
+          false,
+          false
+        ],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "acc07",
+        "expected_count": 2,
+        "hit_count": 1,
+        "cost_chars": 861,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true,
+          false
+        ],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "acc08",
+        "expected_count": 2,
+        "hit_count": 1,
+        "cost_chars": 1633,
+        "split": "acceptance",
+        "answerable": true,
+        "group_hits": [
+          true,
+          false
+        ],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "acc09",
+        "expected_count": 0,
+        "hit_count": 0,
+        "cost_chars": 93,
+        "split": "acceptance",
+        "answerable": false,
+        "group_hits": [],
+        "delivery_pass": false,
+        "correct_abstention": true,
+        "case_pass": true,
+        "errors": []
+      },
+      {
+        "id": "acc10",
+        "expected_count": 0,
+        "hit_count": 0,
+        "cost_chars": 861,
+        "split": "acceptance",
+        "answerable": false,
+        "group_hits": [],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "acc11",
+        "expected_count": 0,
+        "hit_count": 0,
+        "cost_chars": 861,
+        "split": "acceptance",
+        "answerable": false,
+        "group_hits": [],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      },
+      {
+        "id": "acc12",
+        "expected_count": 0,
+        "hit_count": 0,
+        "cost_chars": 861,
+        "split": "acceptance",
+        "answerable": false,
+        "group_hits": [],
+        "delivery_pass": false,
+        "correct_abstention": false,
+        "case_pass": false,
+        "errors": []
+      }
+    ]
+  }
+}

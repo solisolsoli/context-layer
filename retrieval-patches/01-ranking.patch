@@ -1,0 +1,28 @@
+--- a/beyin_v3.py
++++ b/beyin_v3.py
+@@ -234,12 +234,24 @@
+             statusless_note = snapshot and "status" not in record and record.get("kind", "note") != "task"
+             if statuses is not None and record.get("status") not in statuses and not statusless_note:
+                 continue
++            src = str(record.get("source", ""))
++            if src.rsplit("/", 1)[-1].startswith("._") or "-._" in src.rsplit("/", 1)[-1]:
++                continue  # AppleDouble metadata files are never sources
+             vocabulary = _tokens(record["text"] + " " + _json(record["facts"]) + " " + str(record.get("title", ""))) - STOPWORDS
+             score = len(terms & vocabulary)
+             if score or scoped_listing or snapshot:
+                 ranked.append((score, record))
++        # collapse mirror copies (identical text) to the copy nearest the vault root,
++        # then rank by score, then by path depth (root files first), then recency, then id.
++        seen = {}
++        for score, record in ranked:
++            key = (score, record["text"])
++            depth = str(record.get("source", "")).count("/")
++            if key not in seen or depth < str(seen[key].get("source", "")).count("/"):
++                seen[key] = record
++        ranked = [(score, rec) for (score, _), rec in seen.items()]
+         ranked.sort(key=lambda item: (item[1].get("updated_at", ""), item[1]["id"]), reverse=True)
+-        ranked.sort(key=lambda item: -item[0])
++        ranked.sort(key=lambda item: (-item[0], str(item[1].get("source", "")).count("/")))
+         selected, citations = [], []
+         used = 0
+         clipped_any = False

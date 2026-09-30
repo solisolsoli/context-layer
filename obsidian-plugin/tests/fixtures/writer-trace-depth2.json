@@ -1,0 +1,188 @@
+{
+ "version": 1,
+ "generated_at": "2026-09-29T15:40:57Z",
+ "run_id": "e877f50f0da60c7a67779a1ab262d1a5",
+ "query": null,
+ "method": "synaptic",
+ "mode": "superset",
+ "max_hops": 2,
+ "budget_tokens": 600,
+ "nodes": [
+  {
+   "path": "notes/town-hall.md",
+   "activation": 1.0,
+   "hop": 0,
+   "role": "seed",
+   "selected": true
+  },
+  {
+   "path": "projects/lantern.md",
+   "activation": 0.7194,
+   "hop": 0,
+   "role": "seed",
+   "selected": true
+  },
+  {
+   "path": "projects/brightwater.md",
+   "activation": 0.2792,
+   "hop": 0,
+   "role": "seed",
+   "selected": true
+  },
+  {
+   "path": "people/Selka Brandt.md",
+   "activation": 0.1144,
+   "hop": 1,
+   "role": "hop",
+   "selected": true
+  },
+  {
+   "path": "people/Orin Maple.md",
+   "activation": 0.0801,
+   "hop": 1,
+   "role": "hop",
+   "selected": false
+  },
+  {
+   "path": "people/Tilde Ulm.md",
+   "activation": 0.0694,
+   "hop": 1,
+   "role": "hop",
+   "selected": false
+  },
+  {
+   "path": "people/Otto Rask.md",
+   "activation": 0.0376,
+   "hop": 1,
+   "role": "hop",
+   "selected": true
+  },
+  {
+   "path": "people/Frida Birch.md",
+   "activation": 0.025,
+   "hop": 1,
+   "role": "hop",
+   "selected": false
+  },
+  {
+   "path": "people/Wenna Lind.md",
+   "activation": 0.025,
+   "hop": 1,
+   "role": "hop",
+   "selected": false
+  },
+  {
+   "path": "crews/orchard-crew.md",
+   "activation": 0.0062,
+   "hop": 2,
+   "role": "hop",
+   "selected": false
+  }
+ ],
+ "edges": [
+  {
+   "from": "projects/lantern.md",
+   "to": "people/Selka Brandt.md",
+   "kind": "wikilink",
+   "hop": 1,
+   "weight": 0.1144,
+   "anchor": {
+    "path": "projects/lantern.md",
+    "line": 5
+   }
+  },
+  {
+   "from": "projects/lantern.md",
+   "to": "people/Orin Maple.md",
+   "kind": "wikilink",
+   "hop": 1,
+   "weight": 0.0801,
+   "anchor": {
+    "path": "projects/lantern.md",
+    "line": 6
+   }
+  },
+  {
+   "from": "projects/lantern.md",
+   "to": "people/Tilde Ulm.md",
+   "kind": "wikilink",
+   "hop": 1,
+   "weight": 0.0694,
+   "anchor": {
+    "path": "projects/lantern.md",
+    "line": 6
+   }
+  },
+  {
+   "from": "projects/brightwater.md",
+   "to": "people/Otto Rask.md",
+   "kind": "wikilink",
+   "hop": 1,
+   "weight": 0.0376,
+   "anchor": {
+    "path": "projects/brightwater.md",
+    "line": 5
+   }
+  },
+  {
+   "from": "projects/brightwater.md",
+   "to": "people/Frida Birch.md",
+   "kind": "wikilink",
+   "hop": 1,
+   "weight": 0.025,
+   "anchor": {
+    "path": "projects/brightwater.md",
+    "line": 6
+   }
+  },
+  {
+   "from": "projects/brightwater.md",
+   "to": "people/Wenna Lind.md",
+   "kind": "wikilink",
+   "hop": 1,
+   "weight": 0.025,
+   "anchor": {
+    "path": "projects/brightwater.md",
+    "line": 6
+   }
+  },
+  {
+   "from": "people/Selka Brandt.md",
+   "to": "projects/lantern.md",
+   "kind": "backlink",
+   "hop": 2,
+   "weight": 0.0185,
+   "anchor": {
+    "path": "projects/lantern.md",
+    "line": 5
+   }
+  },
+  {
+   "from": "people/Orin Maple.md",
+   "to": "projects/lantern.md",
+   "kind": "backlink",
+   "hop": 2,
+   "weight": 0.0074,
+   "anchor": {
+    "path": "projects/lantern.md",
+    "line": 6
+   }
+  },
+  {
+   "from": "people/Orin Maple.md",
+   "to": "crews/orchard-crew.md",
+   "kind": "backlink",
+   "hop": 2,
+   "weight": 0.0062,
+   "anchor": {
+    "path": "crews/orchard-crew.md",
+    "line": 5
+   }
+  }
+ ],
+ "packet": {
+  "passages": 5,
+  "est_tokens": 317,
+  "status": "PARTIAL"
+ }
+}

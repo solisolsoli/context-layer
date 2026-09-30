@@ -1,0 +1,85 @@
+{
+ "version": 1,
+ "generated_at": "2026-09-29T16:08:46Z",
+ "run_id": "59794752479ab18c44bcdc96060e33e5",
+ "query": null,
+ "method": "synaptic",
+ "mode": "superset",
+ "max_hops": 1,
+ "budget_tokens": 600,
+ "nodes": [
+  {
+   "path": "projects/Harbor Lights.md",
+   "activation": 1.0,
+   "hop": 0,
+   "role": "seed",
+   "selected": true,
+   "jev": "off_topic"
+  },
+  {
+   "path": "plans/Launch Plan.md",
+   "activation": 0.57,
+   "hop": 0,
+   "role": "seed",
+   "selected": true,
+   "jev": "off_topic"
+  },
+  {
+   "path": "people/Ansel Varga.md",
+   "activation": 0.25,
+   "hop": 1,
+   "role": "hop",
+   "selected": false,
+   "jev": "off_topic"
+  },
+  {
+   "path": "people/Mira Holt.md",
+   "activation": 0.25,
+   "hop": 1,
+   "role": "hop",
+   "selected": false,
+   "jev": "on_topic"
+  }
+ ],
+ "edges": [
+  {
+   "from": "projects/Harbor Lights.md",
+   "to": "people/Ansel Varga.md",
+   "kind": "wikilink",
+   "hop": 1,
+   "weight": 0.25,
+   "anchor": {
+    "path": "projects/Harbor Lights.md",
+    "line": 7
+   }
+  },
+  {
+   "from": "projects/Harbor Lights.md",
+   "to": "people/Mira Holt.md",
+   "kind": "wikilink",
+   "hop": 1,
+   "weight": 0.25,
+   "anchor": {
+    "path": "projects/Harbor Lights.md",
+    "line": 5
+   }
+  }
+ ],
+ "packet": {
+  "passages": 2,
+  "est_tokens": 73,
+  "status": "PARTIAL"
+ },
+ "jev": {
+  "mode": "shadow",
+  "applied": false,
+  "superset": true,
+  "provider_kind": "fake",
+  "gate_passed": null,
+  "kept": 0,
+  "flagged": 2,
+  "rescued": 0,
+  "would_rescue": 1,
+  "degraded": false
+ }
+}

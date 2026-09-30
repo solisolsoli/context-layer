@@ -1,0 +1,290 @@
+/* Context Layer Brain View. The 3D stage is dark by design: the renderer
+   draws light on black. The colours of the text layers on top of it are
+   plugin variables that themes and CSS snippets can override; fonts, sizes,
+   radii and layers come from Obsidian's own variables. No network fonts. */
+
+.workspace-leaf-content[data-type="context-layer-brain-view"] {
+  --nb-stage: #000000;
+  --nb-text: #F2EFE9;
+  --nb-text-accent: #FFD48A;
+  --nb-panel: rgba(8, 8, 10, 0.72);
+  --nb-panel-border: rgba(242, 239, 233, 0.15);
+  --nb-hover: rgba(242, 239, 233, 0.08);
+  --nb-focus: #FFD48A;
+  --nb-key-seed: rgb(255, 194, 87);
+  --nb-key-hop: rgb(150, 220, 255);
+  --nb-key-reached: rgb(115, 133, 163);
+  --nb-key-rescued: rgb(140, 255, 184);
+  --nb-key-flagged: rgb(242, 240, 232);
+  /* Region colours; must match REGION_COLORS and OTHER_COLOR in src/regions.js. */
+  --nb-region-0: #E19600;
+  --nb-region-1: #A596FF;
+  --nb-region-2: #FFFFB4;
+  --nb-region-3: #C3D2FF;
+  --nb-region-4: #C396B4;
+  --nb-region-5: #87D278;
+  --nb-region-6: #FFE12D;
+  --nb-region-7: #A5FFF0;
+  --nb-region-other: #C3C3B4;
+}
+
+.workspace-leaf-content[data-type="context-layer-brain-view"],
+.workspace-leaf-content[data-type="context-layer-brain-view"] .view-content,
+.nb-root {
+  background: var(--nb-stage, #000000);
+}
+
+.nb-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+  font-family: var(--font-interface);
+  color: var(--nb-text, #F2EFE9);
+}
+
+.nb-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+.nb-canvas:focus { outline: none; }
+.nb-canvas:focus-visible { outline: 2px solid var(--nb-focus, #FFD48A); outline-offset: -2px; }
+
+.nb-hud {
+  position: absolute;
+  top: 16px;
+  left: 20px;
+  pointer-events: none;
+  user-select: none;
+  max-width: calc(100% - 40px);
+}
+.nb-title {
+  font-weight: 300;
+  font-size: var(--font-ui-smaller);
+  letter-spacing: 0.24em;
+  text-transform: none; /* title text is written in capitals: locale-aware uppercasing turns i into a dotted I in Turkish */
+  opacity: 0.8;
+}
+.nb-counters,
+.nb-dev {
+  margin-top: 4px;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  letter-spacing: 0.04em;
+  opacity: 0.55;
+}
+.nb-activation,
+.nb-advisor {
+  margin-top: 6px;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  color: var(--nb-text-accent, #FFD48A);
+  opacity: 0.9;
+}
+.nb-advisor { margin-top: 2px; color: var(--nb-key-rescued); }
+.nb-activation-stale { color: var(--nb-text, #F2EFE9); opacity: 0.5; }
+
+.nb-overlay-key {
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: var(--font-ui-smaller);
+  opacity: 0.75;
+}
+.nb-key-item { display: inline-flex; align-items: center; gap: 5px; }
+.nb-key-note { font-style: italic; }
+.nb-key-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; box-sizing: border-box; }
+.nb-key-seed { background: var(--nb-key-seed); }
+.nb-key-hop { background: var(--nb-key-hop); }
+.nb-key-reached { background: var(--nb-key-reached); }
+.nb-key-rescued { width: 9px; height: 9px; border: 1.5px solid var(--nb-key-rescued); }
+.nb-key-flagged { width: 9px; height: 9px; border: 1.5px dashed var(--nb-key-flagged); }
+.nb-key-would { opacity: 0.55; }
+
+.nb-legend {
+  position: absolute;
+  left: 20px;
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  max-height: 45%;
+  overflow-y: auto;
+  font-size: var(--font-ui-smaller);
+}
+.nb-root .nb-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: auto;
+  padding: 1px 6px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.nb-root .nb-legend-item:hover,
+.nb-root .nb-legend-active { opacity: 1; background: var(--nb-hover); }
+.nb-root .nb-legend-item:focus-visible { opacity: 1; outline: 2px solid var(--nb-focus, #FFD48A); }
+.nb-legend-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.nb-region-0 { background-color: var(--nb-region-0); }
+.nb-region-1 { background-color: var(--nb-region-1); }
+.nb-region-2 { background-color: var(--nb-region-2); }
+.nb-region-3 { background-color: var(--nb-region-3); }
+.nb-region-4 { background-color: var(--nb-region-4); }
+.nb-region-5 { background-color: var(--nb-region-5); }
+.nb-region-6 { background-color: var(--nb-region-6); }
+.nb-region-7 { background-color: var(--nb-region-7); }
+.nb-region-other { background-color: var(--nb-region-other); }
+.nb-legend-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+.nb-legend-count { font-family: var(--font-monospace); opacity: 0.55; }
+
+.nb-summary {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  max-width: min(380px, 45%);
+  max-height: 60%;
+  overflow: auto;
+  padding: 3px 10px;
+  border-radius: var(--radius-m);
+  background: var(--nb-panel);
+  box-shadow: inset 0 0 0 1px var(--nb-panel-border);
+  font-size: var(--font-ui-smaller);
+}
+.nb-summary > summary { cursor: pointer; opacity: 0.8; }
+.nb-summary > summary:focus-visible { outline: 2px solid var(--nb-focus, #FFD48A); }
+.nb-summary-status { margin: 4px 0; font-family: var(--font-monospace); }
+.nb-summary-list { margin: 0; padding-left: 0; list-style: none; }
+.nb-root .nb-summary-note {
+  display: block;
+  width: 100%;
+  height: auto;
+  padding: 1px 4px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.nb-root .nb-summary-note:hover { background: var(--nb-hover); }
+.nb-root .nb-summary-note:focus-visible { outline: 2px solid var(--nb-focus, #FFD48A); }
+
+.nb-advisor-layer {
+  position: absolute;
+  right: 16px;
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: min(380px, 45%);
+  max-height: 55%;
+  font-size: var(--font-ui-smaller);
+}
+.nb-advisor-panel {
+  overflow: auto;
+  padding: 6px 10px;
+  border-radius: var(--radius-m);
+  background: var(--nb-panel);
+  box-shadow: inset 0 0 0 1px var(--nb-panel-border);
+}
+.nb-advisor-heading { font-weight: 600; opacity: 0.9; }
+.nb-advisor-subheading { margin-top: 6px; opacity: 0.8; }
+.nb-advisor-message { margin: 4px 0; opacity: 0.8; }
+.nb-advisor-note-text { margin-top: 6px; font-style: italic; opacity: 0.75; }
+.nb-advisor-facts,
+.nb-advisor-notes { margin: 4px 0 0; padding-left: 0; list-style: none; font-family: var(--font-monospace); }
+.nb-advisor-note-missing { opacity: 0.55; overflow-wrap: anywhere; }
+.nb-root .nb-advisor-toggle,
+.nb-root .nb-advisor-note {
+  height: auto;
+  padding: 2px 8px;
+  border: none;
+  border-radius: var(--radius-m);
+  background: var(--nb-panel);
+  box-shadow: inset 0 0 0 1px var(--nb-panel-border);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.nb-root .nb-advisor-note {
+  display: block;
+  width: 100%;
+  padding: 1px 4px;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.nb-root .nb-advisor-toggle:hover,
+.nb-root .nb-advisor-note:hover { background: var(--nb-hover); }
+.nb-root .nb-advisor-toggle:focus-visible,
+.nb-root .nb-advisor-note:focus-visible { outline: 2px solid var(--nb-focus, #FFD48A); }
+
+.nb-tooltip {
+  position: absolute;
+  left: var(--nb-tooltip-x, 0px);
+  top: var(--nb-tooltip-y, 0px);
+  pointer-events: none;
+  font-size: var(--font-ui-smaller);
+  font-weight: 300;
+  line-height: 1.5;
+  background: var(--nb-panel);
+  box-shadow: inset 0 0 0 1px var(--nb-panel-border);
+  border-radius: var(--radius-s);
+  padding: 3px 8px;
+  white-space: pre-line;
+  max-width: min(420px, 65%);
+  overflow-wrap: anywhere;
+  z-index: var(--layer-tooltip);
+}
+
+.nb-message {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.nb-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.nb-hidden { display: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .nb-root * { transition: none !important; animation: none !important; }
+}

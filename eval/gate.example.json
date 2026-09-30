@@ -1,0 +1,19 @@
+{
+  "_comment": "EXAMPLE thresholds. Every number here was measured by running evaluate.py and score_packet.py against the baseline in fixtures/ (the demo router with its default flags): hit rate 15/17 = 0.882, release_request 5/6 = 0.833, authoring_request 2/3 = 0.667, mean packet cost 2177 chars, rubric 46/58 = 0.793. Do not copy these numbers. Measure your own baseline and put those numbers here. See PROMOTION_GATE.md.",
+  "baseline_measured": {
+    "date": "2026-09-19",
+    "command": "python3 fixtures/demo_router.py",
+    "hit_rate": 0.882,
+    "mean_cost_chars": 2177,
+    "rubric_score_ratio": 0.793
+  },
+  "min_hit_rate": 0.882,
+  "min_facet_hit_rate": {
+    "intent_type": {
+      "release_request": 0.833,
+      "authoring_request": 0.667
+    }
+  },
+  "max_mean_cost_chars": 2900,
+  "min_rubric_score": 0.793
+}

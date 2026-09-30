@@ -1,0 +1,33 @@
+name: release audit
+# The history audit runs before a release, not on every push: publishing the repository
+# publishes every commit, and a finding needs the owner's decision
+# (docs/publishing-checklist.md step 1b), not a quick fix.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  PYTHONUTF8: '1'
+
+jobs:
+  history:
+    name: history audit
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with: {python-version: '3.12'}
+      # HEAD is the tagged commit (or the ref chosen for a manual run): the history that
+      # release publishes, not every branch the runner happens to have fetched.
+      - name: every blob and commit message that is public (English, home paths, e-mail, private traces)
+        run: python3 scripts/audit_history.py --rev HEAD
+      - name: identities in the history
+        if: always()
+        run: git log --all --format='%an <%ae>%n%cn <%ce>' | sort | uniq -c

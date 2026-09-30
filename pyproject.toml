@@ -1,0 +1,61 @@
+[build-system]
+# Pinned so two builds on different days use the same backend (PEP 639 licence
+# metadata needs setuptools 77 or newer). Update the pin deliberately.
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "context-layer"
+version = "0.4.0"
+authors = [{name = "solisolsoli"}]
+description = "Verbatim, hash-pinned evidence from a Markdown or Obsidian vault for AI agents: FTS search plus explicit-link (synaptic) retrieval, MCP server and Claude Code hook, an Obsidian Brain View of each retrieval, a starter brain with enforceable rule files, append-only memory, bounded sub-agent tasks and a sealed benchmark. Standard library only."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY.md", "retrieval-patches/LICENSE.upstream.txt"]
+keywords = ["obsidian", "obsidian-plugin", "markdown", "retrieval", "context", "mcp", "claude-code", "knowledge-base", "evaluation"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: MacOS",
+  "Topic :: Text Processing :: Indexing",
+]
+# Runtime dependencies: none, deliberately. The router, the indexer and the
+# evaluation harness are Python standard library only (sqlite3 + FTS5).
+dependencies = []
+
+[project.scripts]
+context-layer = "context_layer.cli:main"
+
+[tool.setuptools]
+packages = [
+  "context_layer", "context_layer.router", "context_layer.eval", "context_layer.eval.adapters",
+  "context_layer.eval.comparison", "context_layer.eval.fixtures", "context_layer.eval.fixtures.docs",
+  "context_layer.templates", "context_layer.templates.vault", "context_layer.data",
+]
+
+[tool.setuptools.package-dir]
+"context_layer" = "context_layer"
+"context_layer.router" = "router"
+"context_layer.eval" = "eval"
+"context_layer.eval.adapters" = "eval/adapters"
+"context_layer.eval.fixtures" = "eval/fixtures"
+"context_layer.eval.comparison" = "eval/comparison"
+"context_layer.eval.fixtures.docs" = "eval/fixtures/docs"
+"context_layer.templates" = "templates"
+"context_layer.templates.vault" = "templates/vault"
+"context_layer.data" = "context_layer/data"
+
+[tool.setuptools.package-data]
+"context_layer.data" = ["*.md"]
+"context_layer.router" = ["*.md", "*.json", "example-vault/.context/routes.json", "example-vault/.context/facts.json", "example-vault/**/*.md"]
+"context_layer.eval" = ["*.md", "*.json", "*.jsonl"]
+"context_layer.eval.comparison" = ["*.md", "*.json", "*.jsonl"]
+"context_layer.eval.fixtures.docs" = ["*.md"]
+"context_layer.templates.vault" = ["*.md"]
+"context_layer.templates" = ["starter-brain/*.md", "starter-brain/*/*.md", "starter-brain/obsidian/*.json"]

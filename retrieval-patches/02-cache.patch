@@ -1,0 +1,80 @@
+--- a/beyin_v3.py
++++ b/beyin_v3.py
+@@ -57,6 +57,8 @@
+                     record TEXT NOT NULL
+                 );
+                 CREATE INDEX IF NOT EXISTS events_record_sequence ON events(record_id,sequence);
++                CREATE TABLE IF NOT EXISTS vocab_cache(key TEXT PRIMARY KEY, tokens TEXT NOT NULL);
++                CREATE TABLE IF NOT EXISTS source_sha_cache(source TEXT PRIMARY KEY, mtime_ns INTEGER NOT NULL, size INTEGER NOT NULL, sha TEXT NOT NULL);
+             """)
+             root = str(self.vault_root)
+             binding = db.execute("SELECT value FROM metadata WHERE key='vault_root'").fetchone()
+@@ -202,8 +204,34 @@
+             raise ValueError("invalid query or budget")
+         if isinstance(statuses, str):
+             statuses = [statuses]
++        # Cache the source sha (keyed on mtime+size) and the token vocabulary (keyed on
++        # the text sha). Result set and ordering are unchanged; this is speed only.
+         with self._connect() as db:
+             records = [json.loads(row[0]) for row in db.execute("SELECT payload FROM records ORDER BY id")]
++            sha_cache = {row[0]: (row[1], row[2], row[3]) for row in db.execute("SELECT source, mtime_ns, size, sha FROM source_sha_cache")}
++            vocab_cache = {row[0]: row[1] for row in db.execute("SELECT key, tokens FROM vocab_cache")}
++        sha_new, vocab_new = {}, {}
++        def _cached_sha(relative):
++            path = self.vault_root / relative
++            st = path.stat()
++            hit = sha_cache.get(relative)
++            if hit and hit[0] == st.st_mtime_ns and hit[1] == st.st_size:
++                return hit[2]
++            digest = hashlib.sha256(path.read_bytes()).hexdigest()
++            sha_new[relative] = (st.st_mtime_ns, st.st_size, digest)
++            return digest
++        def _cached_vocab(record):
++            basis = record["text"] + " " + _json(record["facts"]) + " " + str(record.get("title", ""))
++            key = hashlib.sha256(basis.encode("utf-8")).hexdigest()
++            hit = vocab_cache.get(key)
++            if hit is not None:
++                return hit
++            # Vocabulary with STOPWORDS removed, as one space-joined string. The score is
++            # the number of query terms present in it, which is exactly equal to the set
++            # intersection because query terms never contain whitespace or stopwords.
++            joined = " " + " ".join(sorted(_tokens(basis) - STOPWORDS)) + " "
++            vocab_new[key] = joined
++            return joined
+         allowed = {"public"} if audience == "public" else {"public", "internal"} if audience == "internal" else {"public", "internal", "private"}
+         eligible = []
+         stale_count = 0
+@@ -214,7 +242,7 @@
+                 continue
+             try:
+                 self._source(record["source"])
+-                actual = hashlib.sha256((self.vault_root / record["source"]).read_bytes()).hexdigest()
++                actual = _cached_sha(record["source"])
+                 if actual != record.get("source_sha256"):
+                     stale_count += 1
+                     continue
+@@ -237,8 +265,8 @@
+             src = str(record.get("source", ""))
+             if src.rsplit("/", 1)[-1].startswith("._") or "-._" in src.rsplit("/", 1)[-1]:
+                 continue  # AppleDouble metadata files are never sources
+-            vocabulary = _tokens(record["text"] + " " + _json(record["facts"]) + " " + str(record.get("title", ""))) - STOPWORDS
+-            score = len(terms & vocabulary)
++            vocabulary = _cached_vocab(record)
++            score = sum(1 for term in terms if (" " + term + " ") in vocabulary)
+             if score or scoped_listing or snapshot:
+                 ranked.append((score, record))
+         # collapse mirror copies (identical text) to the copy nearest the vault root,
+@@ -252,6 +280,13 @@
+         ranked = [(score, rec) for (score, _), rec in seen.items()]
+         ranked.sort(key=lambda item: (item[1].get("updated_at", ""), item[1]["id"]), reverse=True)
+         ranked.sort(key=lambda item: (-item[0], str(item[1].get("source", "")).count("/")))
++        if sha_new or vocab_new:
++            try:
++                with self._connect() as db:
++                    db.executemany("INSERT OR REPLACE INTO source_sha_cache VALUES (?,?,?,?)", [(k, v[0], v[1], v[2]) for k, v in sha_new.items()])
++                    db.executemany("INSERT OR REPLACE INTO vocab_cache VALUES (?,?)", list(vocab_new.items()))
++            except sqlite3.OperationalError:
++                pass  # if the cache cannot be written the result is unchanged, only slower
+         selected, citations = [], []
+         used = 0
+         clipped_any = False

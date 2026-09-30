@@ -1,0 +1,93 @@
+{
+  "schema": "packet-intelligence-cases-v1",
+  "note": "INVENTED example cases over the fictional documentation vault in fixtures/docs/. Every pattern below was checked against those files. In a real set, each item carries source_path pointing at the original the fact came from, and a confidence flag when the sourcing is thin; both are kept here so the shape is honest.",
+  "cases": [
+    {
+      "id": "C01",
+      "category": "release",
+      "prompt": "Before the release do we need a full regression run or is the partial one enough? Also confirm the deprecation window for breaking changes.",
+      "decisive_facts": [
+        {"pattern": "full regression suite", "source_path": "docs/release-checklist.md", "confidence": "high"},
+        {"pattern": "deprecation window of 90 days", "source_path": "docs/api-versioning.md", "confidence": "high"}
+      ],
+      "timeliness": {
+        "stale_pattern": "SemVer",
+        "current_pattern": "CalVer",
+        "resolution_pattern": "superseded|Historical note"
+      },
+      "unstated_constraints": [
+        {"pattern": "rolled back the same day|is still a regression", "source_path": "docs/release-checklist.md", "confidence": "high"}
+      ],
+      "pitfalls": [
+        {"pattern": "green partial run is not a sign-off", "source_path": "docs/release-checklist.md", "confidence": "high"}
+      ]
+    },
+    {
+      "id": "C02",
+      "category": "incident",
+      "prompt": "Two of us need to edit the incident doc at the same time during an outage. Is that fine?",
+      "decisive_facts": [
+        {"pattern": "Claim the doc in the channel", "source_path": "docs/incident-runbook.md", "confidence": "high"}
+      ],
+      "unstated_constraints": [
+        {"pattern": "Page the on-call engineer first", "source_path": "docs/incident-runbook.md", "confidence": "high"}
+      ],
+      "pitfalls": [
+        {"pattern": "silently overwritten", "source_path": "docs/incident-runbook.md", "confidence": "high"}
+      ]
+    },
+    {
+      "id": "C03",
+      "category": "retention",
+      "prompt": "We deleted a draft page last month by accident. Can we still get it back?",
+      "decisive_facts": [
+        {"pattern": "180 days", "source_path": "docs/data-retention.md", "confidence": "high"}
+      ],
+      "abstention_trap": {
+        "forbidden_pattern": "(we|you) can always (recover|restore)|guaranteed recovery|recovery is guaranteed",
+        "hedge_pattern": "No guarantee|best effort|is not promised"
+      },
+      "unstated_constraints": [
+        {"pattern": "aggregated after 30 days", "source_path": "docs/data-retention.md", "confidence": "medium"}
+      ]
+    },
+    {
+      "id": "C04",
+      "category": "authoring",
+      "prompt": "Rewrite this page intro in our voice. It currently opens with 'simply click the button in the corner'.",
+      "decisive_facts": [
+        {"pattern": "80 to 100 characters", "source_path": "docs/style-guide.md", "confidence": "high"}
+      ],
+      "unstated_constraints": [
+        {"pattern": "Do not use the phrase", "source_path": "docs/style-guide.md", "confidence": "high"}
+      ],
+      "pitfalls": [
+        {"pattern": "rejected pages for it twice", "source_path": "docs/style-guide.md", "confidence": "medium"}
+      ]
+    },
+    {
+      "id": "C05",
+      "category": "onboarding",
+      "prompt": "A new writer joins the docs team on Monday. What access do they get on day one and what should they read first?",
+      "decisive_facts": [
+        {"pattern": "read access on day one", "source_path": "docs/onboarding.md", "confidence": "high"}
+      ],
+      "unstated_constraints": [
+        {"pattern": "through the docs lead", "source_path": "docs/onboarding.md", "confidence": "high"}
+      ]
+    },
+    {
+      "id": "C06",
+      "category": "lookup",
+      "prompt": "version scheme?",
+      "decisive_facts": [
+        {"pattern": "CalVer", "source_path": "docs/api-versioning.md", "confidence": "high"}
+      ],
+      "timeliness": {
+        "stale_pattern": "SemVer",
+        "current_pattern": "CalVer",
+        "resolution_pattern": "superseded|until\\s+2026-06-30"
+      }
+    }
+  ]
+}

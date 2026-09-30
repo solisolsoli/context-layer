@@ -1,0 +1,11 @@
+{
+  "upstream_tag": "v3.0.1",
+  "commit": "61a88467d748fbf94ebc340cb932da7c7e9a78b7",
+  "engine": "template/.claude/scripts/beyin_v3.py",
+  "original_sha256": "9f92e03f770651501146363bcd8404bcadd4d85823337509c47e1f608dee48cb",
+  "final_sha256": "be4c3b4c65ae61cc44eb3e456221bfaad98263a7c9fcb1fff50d42c7a4660f6a",
+  "reversed_sha256": "9f92e03f770651501146363bcd8404bcadd4d85823337509c47e1f608dee48cb",
+  "same_size_mtime_detected": true,
+  "compile": "pass",
+  "reverse_all_three": "pass"
+}

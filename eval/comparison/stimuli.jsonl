@@ -1,0 +1,24 @@
+{"id": "dev01", "prompt": "What current API version scheme does Orchard Docs use?", "split": "dev", "answerable": true, "expected_sources": ["orchard/api-versioning.md"]}
+{"id": "dev02", "prompt": "Which version format is current for the Orchard Docs API?", "split": "dev", "answerable": true, "expected_sources": ["orchard/api-versioning.md"]}
+{"id": "dev03", "prompt": "How long does Orchard Docs retain deleted drafts?", "split": "dev", "answerable": true, "expected_sources": ["orchard/data-retention.md"]}
+{"id": "dev04", "prompt": "What does packet mean in the Orchard Docs glossary?", "split": "dev", "answerable": true, "expected_sources": ["orchard/glossary.md"]}
+{"id": "dev05", "prompt": "Who is paged first in an Orchard Docs incident?", "split": "dev", "answerable": true, "expected_sources": ["orchard/incident-runbook.md"]}
+{"id": "dev06", "prompt": "What access does a new Orchard Docs writer get?", "split": "dev", "answerable": true, "expected_sources": ["orchard/onboarding.md"]}
+{"id": "dev07", "prompt": "What checks must happen before an Orchard Docs release?", "split": "dev", "answerable": true, "expected_sources": ["orchard/release-checklist.md"]}
+{"id": "dev08", "prompt": "What summary length does the Orchard Docs style guide require?", "split": "dev", "answerable": true, "expected_sources": ["orchard/style-guide.md"]}
+{"id": "dev09", "prompt": "What is the current house-style note summary range?", "split": "dev", "answerable": true, "expected_sources": ["notes/writing-standards.md"]}
+{"id": "dev10", "prompt": "Which dated project-history decision changed the note summary length?", "split": "dev", "answerable": true, "expected_sources": ["notes/project-history.md"]}
+{"id": "dev11", "prompt": "What summary range did the legacy note style guide specify?", "split": "dev", "answerable": true, "expected_sources": ["notes/reference-docs/legacy-style-guide.md"]}
+{"id": "dev12", "prompt": "How does the notes glossary define canonical source?", "split": "dev", "answerable": true, "expected_sources": ["notes/reference-docs/glossary.md"]}
+{"id": "acc01", "prompt": "Does the current Orchard Docs API policy use CalVer?", "split": "acceptance", "answerable": true, "expected_sources": ["orchard/api-versioning.md"]}
+{"id": "acc02", "prompt": "What API scheme did Orchard Docs use before July 2026?", "split": "acceptance", "answerable": true, "expected_sources": ["orchard/api-versioning.md"]}
+{"id": "acc03", "prompt": "What happens to Orchard Docs raw analytics rows after 30 days?", "split": "acceptance", "answerable": true, "expected_sources": ["orchard/data-retention.md"]}
+{"id": "acc04", "prompt": "What public communication must await confirmed incident impact at Orchard Docs?", "split": "acceptance", "answerable": true, "expected_sources": ["orchard/incident-runbook.md"]}
+{"id": "acc05", "prompt": "Who grants a new Orchard Docs writer access, and what summary length must their page follow?", "split": "acceptance", "answerable": true, "expected_sources": ["orchard/onboarding.md", "orchard/style-guide.md"]}
+{"id": "acc06", "prompt": "Which release checks, API version format and deprecation window apply at Orchard Docs?", "split": "acceptance", "answerable": true, "expected_sources": ["orchard/release-checklist.md", "orchard/api-versioning.md"]}
+{"id": "acc07", "prompt": "What voice should Orchard Docs instructions use, and who is paged first during an incident?", "split": "acceptance", "answerable": true, "expected_sources": ["orchard/style-guide.md", "orchard/incident-runbook.md"]}
+{"id": "acc08", "prompt": "Give the binding house-style note summary rule and its dated project-history change.", "split": "acceptance", "answerable": true, "expected_sources": ["notes/writing-standards.md", "notes/project-history.md"]}
+{"id": "acc09", "prompt": "Who is the Orchard Docs CFO?", "split": "acceptance", "answerable": false, "expected_sources": []}
+{"id": "acc10", "prompt": "Which database hosts Orchard Docs billing?", "split": "acceptance", "answerable": false, "expected_sources": []}
+{"id": "acc11", "prompt": "What is the Orchard Docs office street address?", "split": "acceptance", "answerable": false, "expected_sources": []}
+{"id": "acc12", "prompt": "How many people work on the Orchard Docs team?", "split": "acceptance", "answerable": false, "expected_sources": []}

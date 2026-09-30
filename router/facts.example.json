@@ -1,0 +1,28 @@
+{
+  "schema": "context-router-fact-cards-v1",
+  "note": "Short answer cards for rule-shaped prompts. Each card names ONE file in the vault and ONE verbatim quote. At load time the quote is checked byte-for-byte against that file; a card whose quote no longer matches is dropped, so the fast path cannot answer from a stale or invented rule. A card is a pointer with provenance, never approval and never proof of anything outside the file.",
+  "cards": [
+    {
+      "id": "summary-line-length",
+      "answer": "A summary line is 40 to 80 visible characters, punctuation and spaces included.",
+      "terms": ["summary line", "characters", "how long", "length", "limit"],
+      "min_matches": 2,
+      "evidence_grade": "SUPPORTED",
+      "rule_state": "current",
+      "supersedes": "30 to 80 (reference-docs/legacy-style-guide.md)",
+      "superseded_note": "Raised on 2026-01-14; the 30 to 80 range is historical and is not applied.",
+      "path": "writing-standards.md",
+      "quote": "40 to 80 visible characters"
+    },
+    {
+      "id": "open-question",
+      "answer": "A claim with no named source is recorded as an open question, not written as a fact.",
+      "terms": ["open question", "source", "claim", "fact", "unsourced"],
+      "min_matches": 2,
+      "evidence_grade": "SUPPORTED",
+      "rule_state": "current",
+      "path": "reference-docs/glossary.md",
+      "quote": "a claim with no named source; never written as a fact"
+    }
+  ]
+}

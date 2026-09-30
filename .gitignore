@@ -1,0 +1,36 @@
+__pycache__/
+*.pyc
+.DS_Store
+*.sqlite
+*.sqlite.prev
+*.sqlite3
+*.db
+index-manifest.json
+index-manifest.json.prev
+**/.context/memory/
+**/.context/tasks/
+.venv/
+# Never commit a real vault, real prompts or real packets
+example-vault/.index/
+run-output/
+*.local.json
+
+# Packaging and contributor tooling
+.venv/
+build/
+dist/
+*.egg-info/
+.demo-vault/
+
+.context-runs/
+.env
+.env.*
+!.env.example
+
+# Harness worktrees and local host settings never belong in the package
+.claude/worktrees/
+.claude/settings.local.json
+.mcp.json
+
+# The Obsidian plugin bundle is committed so users can install without building.
+!obsidian-plugin/dist/

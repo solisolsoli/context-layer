@@ -1,0 +1,25 @@
+{
+  "_comment": "How score_packet.py finds structure inside YOUR packets. Every value is a Python regex. Replace these with the shapes your own router emits; nothing here is semantic, it is all structural.",
+  "echoed_prompt_pattern": "## Exact user prompt\\s*\\n+```text\\n.*?\\n```",
+  "routing_metadata_pattern": "## Routing metadata\\s*\\n+```json\\n.*?\\n```",
+  "block_pattern": "^### (.+?)\\n(.*?)(?=^### |\\Z)",
+  "evidence_block_id_pattern": "^E\\d+\\b",
+  "evidence_fields": {
+    "locator": "^- Locator: `.+?`",
+    "timestamp": "^- Timestamp: `.+?`",
+    "authority": "^- Authority class: `.+?`",
+    "hash_state": "^- Source hash state: `verified`"
+  },
+  "card_fields": {
+    "evidence_grade": "^- Evidence grade: `.+?`",
+    "source": "^- Source: `.+?`",
+    "source_hash": "^- Source SHA-256: `.+?`"
+  },
+  "card_block_marker_pattern": "Evidence grade:|Source SHA-256:",
+  "claims_support_pattern": "Evidence status: \\*\\*(SUPPORTED|USER_STATED)\\*\\*",
+  "structural_field_line_pattern": "^-\\s+[A-Z][A-Za-z0-9 /_\\-]*:\\s",
+  "hedge_word_pattern": "NOT_FOUND|not verified|unverified|unknown|uncertain|no guarantee|not promised|best effort|cannot be confirmed",
+  "duplicate_similarity_threshold": 0.9,
+  "waste_bands": {"two": 0.5, "one": 0.15},
+  "waste_v2_bands": {"two": 0.2, "one": 0.05}
+}

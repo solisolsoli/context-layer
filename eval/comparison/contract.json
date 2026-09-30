@@ -1,0 +1,342 @@
+{
+  "schema": "evidence-contract-v1",
+  "sources": {
+    "orchard/api-versioning.md": {
+      "text": "# API versioning policy\n\nStatus: canonical. Last reviewed 2026-09-10.\n\nThe current scheme is **CalVer** (`YYYY.MM.PATCH`). Adopted 2026-07-01.\n\nHistorical note: the vault used **SemVer** (`MAJOR.MINOR.PATCH`) until\n2026-06-30. SemVer references in older pages are superseded by this document.\n\nBreaking changes require a deprecation window of 90 days.\n",
+      "sha256": "101c7b6087cdbec5a8f34d9394b40036e40ec3a7080c9ba64fc4379571ebdca3"
+    },
+    "orchard/data-retention.md": {
+      "text": "# Data retention policy\n\nStatus: canonical. Last reviewed 2026-07-20.\n\nDraft pages are kept for 180 days after deletion. Published pages are kept\nindefinitely. Reader analytics are aggregated after 30 days and raw event rows\nare dropped.\n\nNo guarantee is offered that a deleted draft can be recovered after the 180-day\nwindow; recovery is best effort and is not promised to anyone.\n",
+      "sha256": "e07a63c40f5abd5e4654d1bbd6dd4d79f8e1440c3d2dca596127b8151a35b840"
+    },
+    "orchard/glossary.md": {
+      "text": "# Glossary\n\nStatus: reference. Last reviewed 2026-06-15.\n\n**Packet** — the bundle of source text handed to an agent for one question.\n\n**Router** — the component that decides which sources enter the packet.\n\n**Hit** — an expected source file whose name appears in the router output.\n",
+      "sha256": "151aa583a94915bcad12702cbd458d27f9ed060150292b21b1424e3c06c0198f"
+    },
+    "orchard/incident-runbook.md": {
+      "text": "# Incident runbook\n\nStatus: canonical. Last reviewed 2026-09-05.\n\nPage the on-call engineer first, then open the incident doc. Do not start a\npublic status post before the on-call has confirmed impact.\n\nKnown pitfall: during the 2026-05 outage, two responders edited the same\nincident doc at once and one set of notes was silently overwritten. Claim the\ndoc in the channel before editing it.\n",
+      "sha256": "9bec4d7220bb908e2e844a2aae9215b160fa98a7e5ae49982bb279c35a086ba0"
+    },
+    "orchard/onboarding.md": {
+      "text": "# Onboarding a new writer\n\nStatus: canonical. Last reviewed 2026-08-12.\n\nA new writer gets read access on day one and write access only after their\nfirst reviewed page is merged. Access requests go through the docs lead, never\nthrough a direct ticket to infrastructure.\n\nNew writers read `style-guide.md` in full before their first page.\n",
+      "sha256": "caf76264fe2ea4f19cdd6f3fb0d0bc5e698f0798e0ac35e9bddf9f0f3cf3e738"
+    },
+    "orchard/release-checklist.md": {
+      "text": "# Release checklist\n\nStatus: canonical. Last reviewed 2026-09-02.\n\nBefore any release goes out:\n\n1. Freeze the changelog and get it signed off by the on-call reviewer.\n2. Run the full regression suite. A green partial run is not a sign-off.\n3. Confirm the version bump follows the API versioning policy.\n4. Announce in the release channel **before** the deploy, not after.\n\nRollback rule: if a release degrades any measured capability, it is rolled back\nthe same day. A cheaper or faster release that loses capability is still a\nregression.\n",
+      "sha256": "cd272750ed1726da14a0479cad8fb746136ae3797a8f58f88a13624eeefb7f60"
+    },
+    "orchard/style-guide.md": {
+      "text": "# Orchard Docs — writing style guide\n\nStatus: canonical. Last reviewed 2026-08-30.\n\n## Summaries\n\nEvery page opens with a one-line summary. The summary is **80 to 100 characters**\nof visible text, counted including spaces and punctuation. Shorter summaries are\nrejected by the docs linter; longer ones are truncated in search results.\n\n## Voice\n\nWrite in the second person. Do not use the phrase \"simply\" or \"just\" in\ninstructions — reviewers have rejected pages for it twice.\n\n## Screenshots\n\nA screenshot never replaces the text it illustrates. If the screenshot is\nremoved the page must still be complete.\n",
+      "sha256": "9c52e55143f4c9a473875cb5ac53133c6cb8c699b35b075c6905e5f5b19cd7e3"
+    },
+    "notes/writing-standards.md": {
+      "text": "# Writing standards\n\nThe current, binding house style for every published note. If an older document\ndisagrees with this file, this file wins.\n\n## Summary line\n\nEvery note opens with one summary line of **40 to 80 visible characters**,\npunctuation and spaces included. One line, no forced line break, no arrow, no\ntrailing \"read on\".\n\n## Body\n\nThe body is a single paragraph of 120 to 160 words. It states what changed, who\ndecided it, and what the reader has to do next. It does not restate the summary\nline.\n\n## Sourcing\n\nAny factual claim names the file it came from. A claim with no named source is\nmarked as an open question instead of being written as a fact. A draft is not a\ndecision, and silence is not approval.\n\n## Terminology\n\nUse the terms defined in `reference-docs/glossary.md`. Do not invent a synonym\nfor a term that already has a definition there.\n",
+      "sha256": "7c0085283b93c0fa94fc0e616f186138ba08b89f4fad0c309fba35c60ed592a0"
+    },
+    "notes/project-history.md": {
+      "text": "# Project history\n\nA dated log of decisions. Reference data, not instructions.\n\n## 2026-01-14 — summary line length raised\n\nThe summary line limit moved from 30 to 80 characters up to 40 to 80 characters.\nThe earlier range lives in `reference-docs/legacy-style-guide.md` and is no\nlonger applied.\n\n## 2026-02-03 — glossary becomes canonical\n\nThe glossary was made the single place where a term is defined. Earlier\ndefinitions scattered through meeting notes are historical.\n\n## 2026-02-20 — review gate added\n\nNo note is published before a second reader has opened every source it cites.\nA prepared draft is not publication evidence.\n",
+      "sha256": "fe7cfd811d9138cdcda1918dc05954b63eac92b0a724d4a057960038367dcd4d"
+    },
+    "notes/reference-docs/legacy-style-guide.md": {
+      "text": "# Legacy style guide (superseded)\n\nKept for reference only. Superseded by `writing-standards.md` on 2026-01-14.\n\n## Summary line\n\nThe summary line is **30 to 80 visible characters**. This range is historical and\nmust not be applied to new notes.\n\n## Body\n\nAn earlier draft asked for two paragraphs. The current standard is one paragraph.\n",
+      "sha256": "6947bbcd4274b4a5b34e5cfa23e160112ec66b6773356f72701666b93651505a"
+    },
+    "notes/reference-docs/glossary.md": {
+      "text": "# Glossary\n\nCanonical definitions. A term used in a note means what it means here.\n\n- **summary line** — the single opening line of a note, 40 to 80 visible characters.\n- **packet** — a bundle of verbatim source passages assembled for one prompt.\n- **route** — a named group of trigger terms and the canonical files they open.\n- **canonical source** — a file a route always opens, regardless of search rank.\n- **open question** — a claim with no named source; never written as a fact.\n",
+      "sha256": "9dc347aa29a97f0810be5cf45a88cb13fbea5d9c9d9ea3b42dfff90abb5818b5"
+    }
+  },
+  "queries": {
+    "dev01": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "orchard/api-versioning.md",
+            "source_sha256": "101c7b6087cdbec5a8f34d9394b40036e40ec3a7080c9ba64fc4379571ebdca3",
+            "required_text": "The current scheme is **CalVer** (`YYYY.MM.PATCH`). Adopted 2026-07-01."
+          }
+        ]
+      ]
+    },
+    "dev02": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "orchard/api-versioning.md",
+            "source_sha256": "101c7b6087cdbec5a8f34d9394b40036e40ec3a7080c9ba64fc4379571ebdca3",
+            "required_text": "The current scheme is **CalVer** (`YYYY.MM.PATCH`). Adopted 2026-07-01."
+          }
+        ]
+      ]
+    },
+    "dev03": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "orchard/data-retention.md",
+            "source_sha256": "e07a63c40f5abd5e4654d1bbd6dd4d79f8e1440c3d2dca596127b8151a35b840",
+            "required_text": "Draft pages are kept for 180 days after deletion. Published pages are kept\nindefinitely. Reader analytics are aggregated after 30 days and raw event rows\nare dropped."
+          }
+        ]
+      ]
+    },
+    "dev04": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "orchard/glossary.md",
+            "source_sha256": "151aa583a94915bcad12702cbd458d27f9ed060150292b21b1424e3c06c0198f",
+            "required_text": "**Packet** — the bundle of source text handed to an agent for one question."
+          }
+        ]
+      ]
+    },
+    "dev05": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "orchard/incident-runbook.md",
+            "source_sha256": "9bec4d7220bb908e2e844a2aae9215b160fa98a7e5ae49982bb279c35a086ba0",
+            "required_text": "Page the on-call engineer first, then open the incident doc. Do not start a\npublic status post before the on-call has confirmed impact."
+          }
+        ]
+      ]
+    },
+    "dev06": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "orchard/onboarding.md",
+            "source_sha256": "caf76264fe2ea4f19cdd6f3fb0d0bc5e698f0798e0ac35e9bddf9f0f3cf3e738",
+            "required_text": "A new writer gets read access on day one and write access only after their\nfirst reviewed page is merged. Access requests go through the docs lead, never\nthrough a direct ticket to infrastructure."
+          }
+        ]
+      ]
+    },
+    "dev07": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "orchard/release-checklist.md",
+            "source_sha256": "cd272750ed1726da14a0479cad8fb746136ae3797a8f58f88a13624eeefb7f60",
+            "required_text": "1. Freeze the changelog and get it signed off by the on-call reviewer.\n2. Run the full regression suite. A green partial run is not a sign-off.\n3. Confirm the version bump follows the API versioning policy.\n4. Announce in the release channel **before** the deploy, not after."
+          }
+        ]
+      ]
+    },
+    "dev08": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "orchard/style-guide.md",
+            "source_sha256": "9c52e55143f4c9a473875cb5ac53133c6cb8c699b35b075c6905e5f5b19cd7e3",
+            "required_text": "Every page opens with a one-line summary. The summary is **80 to 100 characters**\nof visible text, counted including spaces and punctuation. Shorter summaries are\nrejected by the docs linter; longer ones are truncated in search results."
+          }
+        ]
+      ]
+    },
+    "dev09": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "notes/writing-standards.md",
+            "source_sha256": "7c0085283b93c0fa94fc0e616f186138ba08b89f4fad0c309fba35c60ed592a0",
+            "required_text": "Every note opens with one summary line of **40 to 80 visible characters**,\npunctuation and spaces included. One line, no forced line break, no arrow, no\ntrailing \"read on\"."
+          }
+        ]
+      ]
+    },
+    "dev10": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "notes/project-history.md",
+            "source_sha256": "fe7cfd811d9138cdcda1918dc05954b63eac92b0a724d4a057960038367dcd4d",
+            "required_text": "## 2026-01-14 — summary line length raised\n\nThe summary line limit moved from 30 to 80 characters up to 40 to 80 characters.\nThe earlier range lives in `reference-docs/legacy-style-guide.md` and is no\nlonger applied."
+          }
+        ]
+      ]
+    },
+    "dev11": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "notes/reference-docs/legacy-style-guide.md",
+            "source_sha256": "6947bbcd4274b4a5b34e5cfa23e160112ec66b6773356f72701666b93651505a",
+            "required_text": "The summary line is **30 to 80 visible characters**. This range is historical and\nmust not be applied to new notes."
+          }
+        ]
+      ]
+    },
+    "dev12": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "notes/reference-docs/glossary.md",
+            "source_sha256": "9dc347aa29a97f0810be5cf45a88cb13fbea5d9c9d9ea3b42dfff90abb5818b5",
+            "required_text": "- **canonical source** — a file a route always opens, regardless of search rank."
+          }
+        ]
+      ]
+    },
+    "acc01": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "orchard/api-versioning.md",
+            "source_sha256": "101c7b6087cdbec5a8f34d9394b40036e40ec3a7080c9ba64fc4379571ebdca3",
+            "required_text": "The current scheme is **CalVer** (`YYYY.MM.PATCH`). Adopted 2026-07-01."
+          }
+        ]
+      ]
+    },
+    "acc02": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "orchard/api-versioning.md",
+            "source_sha256": "101c7b6087cdbec5a8f34d9394b40036e40ec3a7080c9ba64fc4379571ebdca3",
+            "required_text": "Historical note: the vault used **SemVer** (`MAJOR.MINOR.PATCH`) until\n2026-06-30. SemVer references in older pages are superseded by this document."
+          }
+        ]
+      ]
+    },
+    "acc03": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "orchard/data-retention.md",
+            "source_sha256": "e07a63c40f5abd5e4654d1bbd6dd4d79f8e1440c3d2dca596127b8151a35b840",
+            "required_text": "Draft pages are kept for 180 days after deletion. Published pages are kept\nindefinitely. Reader analytics are aggregated after 30 days and raw event rows\nare dropped."
+          }
+        ]
+      ]
+    },
+    "acc04": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "orchard/incident-runbook.md",
+            "source_sha256": "9bec4d7220bb908e2e844a2aae9215b160fa98a7e5ae49982bb279c35a086ba0",
+            "required_text": "Page the on-call engineer first, then open the incident doc. Do not start a\npublic status post before the on-call has confirmed impact."
+          }
+        ]
+      ]
+    },
+    "acc05": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "orchard/onboarding.md",
+            "source_sha256": "caf76264fe2ea4f19cdd6f3fb0d0bc5e698f0798e0ac35e9bddf9f0f3cf3e738",
+            "required_text": "A new writer gets read access on day one and write access only after their\nfirst reviewed page is merged. Access requests go through the docs lead, never\nthrough a direct ticket to infrastructure."
+          }
+        ],
+        [
+          {
+            "source_path": "orchard/style-guide.md",
+            "source_sha256": "9c52e55143f4c9a473875cb5ac53133c6cb8c699b35b075c6905e5f5b19cd7e3",
+            "required_text": "Every page opens with a one-line summary. The summary is **80 to 100 characters**\nof visible text, counted including spaces and punctuation. Shorter summaries are\nrejected by the docs linter; longer ones are truncated in search results."
+          }
+        ]
+      ]
+    },
+    "acc06": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "orchard/release-checklist.md",
+            "source_sha256": "cd272750ed1726da14a0479cad8fb746136ae3797a8f58f88a13624eeefb7f60",
+            "required_text": "1. Freeze the changelog and get it signed off by the on-call reviewer.\n2. Run the full regression suite. A green partial run is not a sign-off.\n3. Confirm the version bump follows the API versioning policy.\n4. Announce in the release channel **before** the deploy, not after."
+          }
+        ],
+        [
+          {
+            "source_path": "orchard/api-versioning.md",
+            "source_sha256": "101c7b6087cdbec5a8f34d9394b40036e40ec3a7080c9ba64fc4379571ebdca3",
+            "required_text": "The current scheme is **CalVer** (`YYYY.MM.PATCH`). Adopted 2026-07-01."
+          }
+        ],
+        [
+          {
+            "source_path": "orchard/api-versioning.md",
+            "source_sha256": "101c7b6087cdbec5a8f34d9394b40036e40ec3a7080c9ba64fc4379571ebdca3",
+            "required_text": "Breaking changes require a deprecation window of 90 days."
+          }
+        ]
+      ]
+    },
+    "acc07": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "orchard/style-guide.md",
+            "source_sha256": "9c52e55143f4c9a473875cb5ac53133c6cb8c699b35b075c6905e5f5b19cd7e3",
+            "required_text": "Write in the second person. Do not use the phrase \"simply\" or \"just\" in\ninstructions — reviewers have rejected pages for it twice."
+          }
+        ],
+        [
+          {
+            "source_path": "orchard/incident-runbook.md",
+            "source_sha256": "9bec4d7220bb908e2e844a2aae9215b160fa98a7e5ae49982bb279c35a086ba0",
+            "required_text": "Page the on-call engineer first, then open the incident doc. Do not start a\npublic status post before the on-call has confirmed impact."
+          }
+        ]
+      ]
+    },
+    "acc08": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "notes/writing-standards.md",
+            "source_sha256": "7c0085283b93c0fa94fc0e616f186138ba08b89f4fad0c309fba35c60ed592a0",
+            "required_text": "Every note opens with one summary line of **40 to 80 visible characters**,\npunctuation and spaces included. One line, no forced line break, no arrow, no\ntrailing \"read on\"."
+          }
+        ],
+        [
+          {
+            "source_path": "notes/project-history.md",
+            "source_sha256": "fe7cfd811d9138cdcda1918dc05954b63eac92b0a724d4a057960038367dcd4d",
+            "required_text": "## 2026-01-14 — summary line length raised\n\nThe summary line limit moved from 30 to 80 characters up to 40 to 80 characters.\nThe earlier range lives in `reference-docs/legacy-style-guide.md` and is no\nlonger applied."
+          }
+        ]
+      ]
+    },
+    "acc09": {
+      "answerable": false,
+      "required_groups": []
+    },
+    "acc10": {
+      "answerable": false,
+      "required_groups": []
+    },
+    "acc11": {
+      "answerable": false,
+      "required_groups": []
+    },
+    "acc12": {
+      "answerable": false,
+      "required_groups": []
+    }
+  }
+}

@@ -1,0 +1,9 @@
+# Proposes updates to the SHA-pinned actions in .github/workflows/ (the only
+# dependencies this repository has: the runtime is the Python standard library).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

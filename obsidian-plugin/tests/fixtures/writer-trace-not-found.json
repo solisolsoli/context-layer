@@ -1,0 +1,17 @@
+{
+ "version": 1,
+ "generated_at": "2026-09-29T15:40:58Z",
+ "run_id": "b4bfee6f9e7a23d588613229bb592c97",
+ "query": null,
+ "method": "synaptic",
+ "mode": "superset",
+ "max_hops": 1,
+ "budget_tokens": 600,
+ "nodes": [],
+ "edges": [],
+ "packet": {
+  "passages": 0,
+  "est_tokens": 0,
+  "status": "NOT_FOUND"
+ }
+}

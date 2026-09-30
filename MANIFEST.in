@@ -1,0 +1,33 @@
+include README.md LICENSE THIRD_PARTY.md Makefile QUICKSTART.md CONTRIBUTING.md CHANGELOG.md AGENTS.md CLAUDE.md CITATION.cff
+include SCOPE.md SECURITY.md CODE_OF_CONDUCT.md
+recursive-include discipline *.md
+recursive-include templates *.md *.json
+recursive-include context_layer/data *.md
+include CREDITS.md
+recursive-include docs *.md *.png
+recursive-include retrieval-patches *.patch *.md *.txt *.json *.sh
+recursive-include tests *.py *.json *.jsonl
+recursive-include scripts *.py
+recursive-include eval *.py *.md *.json *.jsonl *.sh
+# The 0.3 live pilot's raw answers stay in the repository only.
+prune eval/live-pilot-0.3
+recursive-include router *.py *.md *.json
+include router/example-vault/.context/routes.json router/example-vault/.context/facts.json
+
+# Offline benchmark: the fictional vault, sealed cases and scorer ship with the
+# source, and so does the committed result table; other run output never does.
+recursive-include bench *.py *.md *.json *.jsonl *.sha256
+prune bench/results
+include bench/results/SUMMARY.md
+
+# Obsidian plugin: sources, tests and the build script ship with the source;
+# the built bundle and any local Node state do not.
+recursive-include obsidian-plugin *.js *.css *.json *.md *.py
+include obsidian-plugin/LICENSE
+prune obsidian-plugin/dist
+prune obsidian-plugin/node_modules
+
+global-exclude __pycache__ *.py[cod] *.sqlite *.sqlite.prev *.sqlite3 *.db index-manifest.json index-manifest.json.prev
+global-exclude .DS_Store *.bak-*
+prune eval/run-output
+prune router/example-vault/.context-runs

@@ -1,0 +1,247 @@
+{
+  "schema_version": 1,
+  "engine_version": "1.0.0-generic-example",
+  "_about": "Every value below is an EXAMPLE matched to router/example-vault/. Replace the routes, paths and terms with your own; keep the shape.",
+  "max_routes": 4,
+  "lexical_reserve": 6,
+  "canonical_source_floor": 3,
+  "routes": {
+    "writing-standards": {
+      "priority": 2,
+      "triggers": [
+        "writing standard",
+        "house style",
+        "style guide",
+        "summary line",
+        "word count",
+        "how long should",
+        "writing rules",
+        "style rules"
+      ],
+      "canonical_sources": [
+        {
+          "path": "notes/writing-standards.md",
+          "rule_state": "current"
+        },
+        {
+          "path": "notes/reference-docs/legacy-style-guide.md",
+          "rule_state": "superseded",
+          "superseded_by": "notes/writing-standards.md",
+          "attachment": "opportunistic"
+        }
+      ],
+      "path_hints": [
+        "notes/notes/"
+      ]
+    },
+    "project-history": {
+      "priority": 1,
+      "triggers": [
+        "project history",
+        "decision log",
+        "why did we",
+        "when did we",
+        "discussed",
+        "decided",
+        "decision history",
+        "when was it decided"
+      ],
+      "canonical_sources": [
+        {
+          "path": "notes/project-history.md",
+          "rule_state": "current"
+        }
+      ],
+      "path_hints": [
+        "notes/notes/"
+      ]
+    },
+    "reference-docs": {
+      "priority": 1,
+      "triggers": [
+        "glossary",
+        "terminology",
+        "definition",
+        "what does it mean",
+        "canonical source",
+        "meaning of",
+        "defined as"
+      ],
+      "canonical_sources": [
+        {
+          "path": "notes/reference-docs/glossary.md"
+        }
+      ],
+      "path_hints": [
+        "notes/reference-docs/"
+      ]
+    }
+  },
+  "fallback_routes": [
+    {
+      "term": "style",
+      "route": "writing-standards",
+      "unless_routes": [
+        "writing-standards",
+        "reference-docs"
+      ]
+    }
+  ],
+  "aliases": {
+    "glossary": [
+      "terminology",
+      "definitions"
+    ],
+    "terminology": [
+      "glossary"
+    ],
+    "summary line": [
+      "headline"
+    ],
+    "headline": [
+      "summary line"
+    ]
+  },
+  "freshness_terms": [
+    "currently",
+    "today",
+    "latest",
+    "still",
+    "current",
+    "right now",
+    "as of now",
+    "up to date",
+    "most recent"
+  ],
+  "external_fact_terms": [
+    "policy",
+    "price",
+    "law",
+    "schedule",
+    "company",
+    "who made",
+    "ceo",
+    "pricing",
+    "regulation",
+    "exchange rate"
+  ],
+  "vague_memory_terms": [
+    "remember",
+    "recall",
+    "earlier",
+    "previously",
+    "told",
+    "said",
+    "discussed",
+    "history",
+    "you mentioned",
+    "we talked about",
+    "last time",
+    "in the past"
+  ],
+  "vague_request_routes": [
+    "project-history"
+  ],
+  "ambient_terms": [
+    "note",
+    "notes"
+  ],
+  "continuation_terms": [
+    "continue",
+    "go on",
+    "ok",
+    "okay",
+    "yes",
+    "no",
+    "fine",
+    "good",
+    "sure",
+    "again",
+    "shorter",
+    "longer",
+    "same",
+    "thanks",
+    "this",
+    "that",
+    "keep going",
+    "carry on",
+    "approved",
+    "agreed",
+    "nope",
+    "make it shorter",
+    "make it longer",
+    "shorten",
+    "expand",
+    "once more",
+    "redo",
+    "nice",
+    "i like it",
+    "not quite",
+    "maybe",
+    "i think",
+    "please",
+    "totally",
+    "a bit",
+    "understood",
+    "got it",
+    "did you get it"
+  ],
+  "record_type_allowlist": [
+    "verbatim_text_file",
+    "conversation_message",
+    "complete_document_text_extraction"
+  ],
+  "_exclusions": "exclude_prefixes are the tool's own generated artifacts: they are skipped at index time AND dropped after retrieval, so a measurement file can never be quoted back as vault evidence.",
+  "exclude_prefixes": [],
+  "retrieval_exclude_prefixes": [],
+  "_mirrors": "mirror_prefixes strip a snapshot/mirror directory so an archived revision of a file collapses onto the live one instead of spending a second source slot.",
+  "mirror_prefixes": [],
+  "derived_file_names": [
+    "conversation.md",
+    "transcript.md"
+  ],
+  "derived_path_fragments": [
+    "/ocr-text/",
+    "/pdf-text/",
+    "/history-chunks/"
+  ],
+  "derived_name_fragments": [
+    "complete_transcript",
+    "conversation_transcript"
+  ],
+  "operational_metadata_fragments": [
+    "/requests/",
+    "/job.json"
+  ],
+  "operational_metadata_exceptions": [
+    "correction.json"
+  ],
+  "boost_path_prefixes": {
+    "reference-docs/": 1.0
+  },
+  "demote_path_fragments": [
+    "snapshots/",
+    "/legacy/",
+    "/archive"
+  ],
+  "known_integrity_limits": [
+    {
+      "source_path_contains": "archive/truncated-export.jsonl",
+      "locator": "",
+      "status": "PARTIAL",
+      "reason": "Example entry: this record was supplied truncated by its upstream export; the missing tail is not present in the vault."
+    }
+  ],
+  "stem_suffix_tolerance": {
+    "min_stem_chars": 5,
+    "max_suffix_chars": 12,
+    "blocklist": [
+      "style",
+      "current",
+      "still",
+      "latest",
+      "policy"
+    ],
+    "_note": "Inflection attaches suffixes to the word end, so a real prompt writes 'standardised' where the trigger is 'standard' (a suffixing language does this far more often). Short stems and blocklisted words are excluded so an everyday word cannot open a heavy route."
+  }
+}

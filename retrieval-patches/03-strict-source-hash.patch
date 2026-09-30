@@ -1,0 +1,15 @@
+--- a/beyin_v3.py
++++ b/beyin_v3.py
+@@ -213,11 +213,8 @@
+         sha_new, vocab_new = {}, {}
+         def _cached_sha(relative):
+             path = self.vault_root / relative
++            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+             st = path.stat()
+-            hit = sha_cache.get(relative)
+-            if hit and hit[0] == st.st_mtime_ns and hit[1] == st.st_size:
+-                return hit[2]
+-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+             sha_new[relative] = (st.st_mtime_ns, st.st_size, digest)
+             return digest
+         def _cached_vocab(record):

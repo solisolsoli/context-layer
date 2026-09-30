@@ -1,0 +1,8 @@
+packets*/
+*.json.out
+baseline.json
+rubric-*.json
+result*.json
+run-output/
+.eval-fts-index.sqlite3
+.eval-embed-cache.json

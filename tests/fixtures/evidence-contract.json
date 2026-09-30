@@ -1,0 +1,155 @@
+{
+  "schema": "evidence-contract-v1",
+  "sources": {
+    "docs/policy-current.md": {
+      "text": "Current policy: releases require two reviewers.\nThe approval window is 48 hours.",
+      "sha256": "4d4cc954d94bfdd182a2ff97cbd2abddf096df601e4b1df58af570e3bed1ed5d"
+    },
+    "mirror/policy-current.md": {
+      "text": "Current policy: releases require two reviewers.\nThe approval window is 48 hours.",
+      "sha256": "4d4cc954d94bfdd182a2ff97cbd2abddf096df601e4b1df58af570e3bed1ed5d"
+    },
+    "archive/policy-current.md": {
+      "text": "Old policy: releases require one reviewer.\nThe approval window is 72 hours.",
+      "sha256": "1251463580a41cb405cd8b861ba295cfd2ed350f930fb5bd602420027c8975e7"
+    },
+    "docs/release.md": {
+      "text": "Release procedure: run the full regression suite.\nThen publish the signed artifact.",
+      "sha256": "f8351088eb6f7396a537daff6905a473aebdc4bbca70a02224051b121c51e22c"
+    },
+    "docs/incident.md": {
+      "text": "Incident procedure: freeze deploys.\nPage the on-call owner.",
+      "sha256": "a9e3221ccb5788ac0af8208e8f79cad8c67f8ef156b130d852a6a1c468e811bd"
+    },
+    "docs/retention.md": {
+      "text": "Retention: raw events are deleted after 30 days.",
+      "sha256": "ae039aac3555ab79feb98dab5c1cb2084a52493f3bb81e798a4de470e386bea2"
+    }
+  },
+  "queries": {
+    "filename_only": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "docs/policy-current.md",
+            "source_sha256": "4d4cc954d94bfdd182a2ff97cbd2abddf096df601e4b1df58af570e3bed1ed5d",
+            "required_text": "Current policy: releases require two reviewers.\nThe approval window is 48 hours."
+          }
+        ]
+      ]
+    },
+    "wrong_paragraph_right_file": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "docs/release.md",
+            "source_sha256": "f8351088eb6f7396a537daff6905a473aebdc4bbca70a02224051b121c51e22c",
+            "required_text": "Release procedure: run the full regression suite.\nThen publish the signed artifact."
+          }
+        ]
+      ]
+    },
+    "wrong_source_version": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "docs/policy-current.md",
+            "source_sha256": "4d4cc954d94bfdd182a2ff97cbd2abddf096df601e4b1df58af570e3bed1ed5d",
+            "required_text": "Current policy: releases require two reviewers.\nThe approval window is 48 hours."
+          }
+        ]
+      ]
+    },
+    "wrong_same_path_hash": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "docs/policy-current.md",
+            "source_sha256": "4d4cc954d94bfdd182a2ff97cbd2abddf096df601e4b1df58af570e3bed1ed5d",
+            "required_text": "Current policy: releases require two reviewers.\nThe approval window is 48 hours."
+          }
+        ]
+      ]
+    },
+    "omitted_second_required_source": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "docs/release.md",
+            "source_sha256": "f8351088eb6f7396a537daff6905a473aebdc4bbca70a02224051b121c51e22c",
+            "required_text": "Release procedure: run the full regression suite.\nThen publish the signed artifact."
+          }
+        ],
+        [
+          {
+            "source_path": "docs/incident.md",
+            "source_sha256": "a9e3221ccb5788ac0af8208e8f79cad8c67f8ef156b130d852a6a1c468e811bd",
+            "required_text": "Incident procedure: freeze deploys.\nPage the on-call owner."
+          }
+        ]
+      ]
+    },
+    "truncated_actual_evidence": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "docs/retention.md",
+            "source_sha256": "ae039aac3555ab79feb98dab5c1cb2084a52493f3bb81e798a4de470e386bea2",
+            "required_text": "Retention: raw events are deleted after 30 days."
+          }
+        ]
+      ]
+    },
+    "valid_alternative_sources": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "docs/policy-current.md",
+            "source_sha256": "4d4cc954d94bfdd182a2ff97cbd2abddf096df601e4b1df58af570e3bed1ed5d",
+            "required_text": "Current policy: releases require two reviewers.\nThe approval window is 48 hours."
+          },
+          {
+            "source_path": "mirror/policy-current.md",
+            "source_sha256": "4d4cc954d94bfdd182a2ff97cbd2abddf096df601e4b1df58af570e3bed1ed5d",
+            "required_text": "Current policy: releases require two reviewers.\nThe approval window is 48 hours."
+          }
+        ]
+      ]
+    },
+    "valid_abstention_answerable": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "docs/policy-current.md",
+            "source_sha256": "4d4cc954d94bfdd182a2ff97cbd2abddf096df601e4b1df58af570e3bed1ed5d",
+            "required_text": "Current policy: releases require two reviewers.\nThe approval window is 48 hours."
+          }
+        ]
+      ]
+    },
+    "valid_abstention_unanswerable": {
+      "answerable": false,
+      "required_groups": []
+    },
+    "modified_span": {
+      "answerable": true,
+      "required_groups": [
+        [
+          {
+            "source_path": "docs/policy-current.md",
+            "source_sha256": "4d4cc954d94bfdd182a2ff97cbd2abddf096df601e4b1df58af570e3bed1ed5d",
+            "required_text": "Current policy: releases require two reviewers.\nThe approval window is 48 hours."
+          }
+        ]
+      ]
+    }
+  }
+}

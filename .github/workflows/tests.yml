@@ -1,0 +1,201 @@
+name: tests
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 5 * * 1'   # weekly, Monday 05:17 UTC: catches runner and toolchain drift
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  # The code and the suites use UTF-8; a runner with another locale must not change a result.
+  PYTHONUTF8: '1'
+
+# Actions are pinned by commit. Checked on 2026-09-28 with `git ls-remote` (tag -> commit)
+# and each action.yml at that commit (`runs.using: node24`, the runtime runners now use).
+# Dependabot (.github/dependabot.yml) proposes updates; update the comment with the pin.
+jobs:
+  test:
+    name: python ${{ matrix.python }} on ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ['3.10', '3.11', '3.12', '3.13']
+        include:
+          - os: macos-latest
+            python: '3.12'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with: {python-version: '${{ matrix.python }}'}
+      - run: python -m pip install build==1.6.1 pyflakes==4.0.0
+      # An absolute interpreter path, the form a virtual environment gives.
+      - run: make test PYTHON="$(command -v python)"
+      - run: make demo PYTHON=python
+      - run: make lint PYTHON=python
+      - run: make network-guard PYTHON=python
+      - name: lint covers bench/ and the plugin build script
+        run: make -n lint PYTHON=python | grep -q "bench obsidian-plugin/build.py"
+      - run: python -m build
+      - run: python scripts/check_distribution.py dist/*.whl
+
+  plugin:
+    name: obsidian plugin (node 24)
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with: {node-version: '24', package-manager-cache: false}
+      - run: python3 obsidian-plugin/build.py --check
+      - run: node obsidian-plugin/tests/run-all.js
+
+  bench:
+    name: sealed benchmark (offline)
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with: {python-version: '3.12'}
+      - run: python3 bench/seal.py check
+      # The runner tests run two sealed cases at a 50-token budget: packet sizes, flags and
+      # output formats only. They are listed in bench/INSPECTIONS.md.
+      - run: python3 -m unittest bench/test_scorer.py bench/test_runner.py
+
+  bench-reproduce:
+    name: bench-reproduce
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with: {python-version: '3.12'}
+      - name: the default run reproduces bench/results/SUMMARY.md (the Checkout line aside)
+        run: |
+          python3 bench/run_offline.py --out "$RUNNER_TEMP/bench/default"
+          diff <(grep -v '^Checkout: ' bench/results/SUMMARY.md) \
+               <(grep -v '^Checkout: ' "$RUNNER_TEMP/bench/default/SUMMARY.md")
+          sed -n '/^Checkout: /p' "$RUNNER_TEMP/bench/default/SUMMARY.md"
+      - name: the --compact arm the README quotes
+        run: python3 bench/run_offline.py --methods synaptic --search-arg=--compact --out "$RUNNER_TEMP/bench/compact"
+      - name: the README's benchmark numbers equal the fresh runs
+        run: python3 tests/test_doc_claims.py
+        env:
+          DOC_CLAIMS_BENCH_DIR: ${{ runner.temp }}/bench
+      - name: the synthetic comparison reproduces eval/comparison/results.json
+        run: |
+          python3 eval/compare.py --out "$RUNNER_TEMP/comparison"
+          python3 - "$RUNNER_TEMP/comparison/summary.json" <<'EOF'
+          import json, sys
+          fresh = json.load(open(sys.argv[1], encoding="utf-8"))
+          committed = json.load(open("eval/comparison/results.json", encoding="utf-8"))
+          for key in ("results", "bounds", "contract_sha256", "per_case"):
+              if fresh[key] != committed[key]:
+                  sys.exit(f"eval/comparison/results.json: {key} differs from a fresh run")
+          print("comparison reproduced (code hashes are not compared)")
+          EOF
+
+  doc-claims:
+    name: doc-claims
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with: {python-version: '3.12'}
+      - run: python3 tests/test_doc_claims.py
+      - run: python3 tests/test_docs_links.py
+
+  jev-chain:
+    name: jev recording chain
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with: {python-version: '3.12'}
+      # Oracle capture -> jev record -> replayed evaluation -> jev calibrate -> jev on, on the
+      # fictional development set with the recorded provider; no model, no network. It takes
+      # about a minute and a half, so `make test` leaves it to this job.
+      - name: the recording-to-calibration chain
+        run: python3 tests/test_dev_jev.py
+        env:
+          JEV_DEV_E2E: '1'
+
+  reproducible-build:
+    name: reproducible build
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with: {python-version: '3.12'}
+      - run: python -m pip install build==1.6.1
+      - name: two builds, the second from a fresh copy with new file times, give one sha256
+        run: |
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          python -m build
+          python scripts/normalize_sdist.py dist/*.tar.gz
+          mkdir "$RUNNER_TEMP/second"
+          git archive HEAD | tar -x -C "$RUNNER_TEMP/second"
+          find "$RUNNER_TEMP/second" -exec touch {} +
+          (cd "$RUNNER_TEMP/second" && python -m build && python scripts/normalize_sdist.py dist/*.tar.gz)
+          for artifact in dist/*; do
+            name="$(basename "$artifact")"
+            a="$(sha256sum "$artifact" | cut -d' ' -f1)"
+            b="$(sha256sum "$RUNNER_TEMP/second/dist/$name" | cut -d' ' -f1)"
+            echo "$a  $name"
+            [ "$a" = "$b" ] || { echo "$name differs between two builds: $b"; exit 1; }
+          done
+      - name: no account name in the sdist's tar headers
+        run: |
+          python - dist/*.tar.gz <<'EOF'
+          import sys, tarfile
+          owners = {(m.uname, m.gname) for m in tarfile.open(sys.argv[1]).getmembers()}
+          if owners != {("root", "root")}:
+              sys.exit(f"sdist tar owners: {sorted(owners)}")
+          print("sdist tar owners: root/root")
+          EOF
+
+  windows-smoke:
+    name: windows smoke (non-blocking)
+    # Windows is out of scope (SCOPE.md) until this job has passed twice; it runs to learn
+    # which paths, locks and locale assumptions break there, and never blocks a merge.
+    continue-on-error: true
+    timeout-minutes: 30
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with: {python-version: '3.12'}
+      - run: python router/build_index.py --vault router/example-vault
+      - run: python router/test_context_router.py
+      - name: every suite under tests/ (what make test runs)
+        run: |
+          failed=""
+          for suite in tests/test_*.py; do
+            echo "== $suite"
+            python "$suite" || failed="$failed $suite"
+          done
+          [ -z "$failed" ] || { echo "failed:$failed"; exit 1; }
+      - run: python bench/seal.py check

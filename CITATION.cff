@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Context Layer"
+type: software
+version: "0.4.0"
+license: MIT
+authors:
+  - alias: "solisolsoli"
+abstract: >-
+  Verbatim, hash-pinned evidence from a Markdown or Obsidian vault for AI
+  agents: full-text search plus explicit-link (synaptic) retrieval, an MCP
+  server and Claude Code hook, an Obsidian Brain View of each retrieval,
+  append-only memory, bounded sub-agent tasks and a sealed benchmark. Python
+  standard library only.
+keywords:
+  - obsidian
+  - markdown
+  - retrieval
+  - context
+  - mcp
+  - knowledge-base

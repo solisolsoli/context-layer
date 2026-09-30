@@ -1,0 +1,9 @@
+# Keep every text file LF in the repository and in every checkout. The benchmark
+# seal (bench/SEAL.md, bench/vault.sha256) and the evidence fixtures hash file
+# bytes, so a CRLF checkout would fail those checks.
+* text=auto eol=lf
+*.png binary
+
+# Built from obsidian-plugin/src/ by obsidian-plugin/build.py (CI checks that it
+# matches): collapsed in GitHub diffs and left out of the language statistics.
+obsidian-plugin/dist/main.js linguist-generated=true

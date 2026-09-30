@@ -1,0 +1,9 @@
+{
+  "id": "context-layer-brain",
+  "name": "Context Layer Brain View",
+  "version": "0.4.0",
+  "minAppVersion": "1.0.0",
+  "description": "3D view of your vault's link graph that highlights the notes and links used by the last context-layer synaptic retrieval.",
+  "author": "solisolsoli",
+  "isDesktopOnly": true
+}

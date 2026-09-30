@@ -1,0 +1,190 @@
+{
+  "schema": "evidence-delivery-cases-v1",
+  "cases": [
+    {
+      "id": "filename_only",
+      "packet": {
+        "schema": "evidence-delivery-v1",
+        "operation_status": "ok",
+        "status": "SUPPORTED",
+        "evidence": [],
+        "mentioned_sources": [
+          "docs/policy-current.md"
+        ]
+      },
+      "expected": {
+        "hit_count": 0,
+        "case_pass": false,
+        "safe_abstention": false
+      }
+    },
+    {
+      "id": "wrong_paragraph_right_file",
+      "packet": {
+        "schema": "evidence-delivery-v1",
+        "operation_status": "ok",
+        "status": "SUPPORTED",
+        "evidence": [
+          {
+            "source_path": "docs/release.md",
+            "source_sha256": "f8351088eb6f7396a537daff6905a473aebdc4bbca70a02224051b121c51e22c",
+            "content": "Then publish the signed artifact."
+          }
+        ]
+      },
+      "expected": {
+        "hit_count": 0,
+        "case_pass": false,
+        "safe_abstention": false
+      }
+    },
+    {
+      "id": "wrong_source_version",
+      "packet": {
+        "schema": "evidence-delivery-v1",
+        "operation_status": "ok",
+        "status": "SUPPORTED",
+        "evidence": [
+          {
+            "source_path": "archive/policy-current.md",
+            "source_sha256": "1251463580a41cb405cd8b861ba295cfd2ed350f930fb5bd602420027c8975e7",
+            "content": "Old policy: releases require one reviewer.\nThe approval window is 72 hours."
+          }
+        ]
+      },
+      "expected": {
+        "hit_count": 0,
+        "case_pass": false,
+        "safe_abstention": false
+      }
+    },
+    {
+      "id": "wrong_same_path_hash",
+      "packet": {
+        "schema": "evidence-delivery-v1",
+        "operation_status": "ok",
+        "status": "SUPPORTED",
+        "evidence": [
+          {
+            "source_path": "docs/policy-current.md",
+            "source_sha256": "deadbeef",
+            "content": "Current policy: releases require two reviewers.\nThe approval window is 48 hours."
+          }
+        ]
+      },
+      "expected": {
+        "hit_count": 0,
+        "case_pass": false,
+        "safe_abstention": false
+      }
+    },
+    {
+      "id": "omitted_second_required_source",
+      "packet": {
+        "schema": "evidence-delivery-v1",
+        "operation_status": "ok",
+        "status": "SUPPORTED",
+        "evidence": [
+          {
+            "source_path": "docs/release.md",
+            "source_sha256": "f8351088eb6f7396a537daff6905a473aebdc4bbca70a02224051b121c51e22c",
+            "content": "Release procedure: run the full regression suite.\nThen publish the signed artifact."
+          }
+        ]
+      },
+      "expected": {
+        "hit_count": 1,
+        "case_pass": false,
+        "safe_abstention": false
+      }
+    },
+    {
+      "id": "truncated_actual_evidence",
+      "packet": {
+        "schema": "evidence-delivery-v1",
+        "operation_status": "ok",
+        "status": "SUPPORTED",
+        "evidence": [
+          {
+            "source_path": "docs/retention.md",
+            "source_sha256": "ae039aac3555ab79feb98dab5c1cb2084a52493f3bb81e798a4de470e386bea2",
+            "content": "Retention: raw events"
+          }
+        ]
+      },
+      "expected": {
+        "hit_count": 0,
+        "case_pass": false,
+        "safe_abstention": false
+      }
+    },
+    {
+      "id": "valid_alternative_sources",
+      "packet": {
+        "schema": "evidence-delivery-v1",
+        "operation_status": "ok",
+        "status": "SUPPORTED",
+        "evidence": [
+          {
+            "source_path": "mirror/policy-current.md",
+            "source_sha256": "4d4cc954d94bfdd182a2ff97cbd2abddf096df601e4b1df58af570e3bed1ed5d",
+            "content": "Current policy: releases require two reviewers.\nThe approval window is 48 hours."
+          }
+        ]
+      },
+      "expected": {
+        "hit_count": 1,
+        "case_pass": true,
+        "safe_abstention": false
+      }
+    },
+    {
+      "id": "valid_abstention_answerable",
+      "packet": {
+        "schema": "evidence-delivery-v1",
+        "operation_status": "ok",
+        "status": "ABSTAINED",
+        "evidence": []
+      },
+      "expected": {
+        "hit_count": 0,
+        "case_pass": false,
+        "safe_abstention": true
+      }
+    },
+    {
+      "id": "valid_abstention_unanswerable",
+      "packet": {
+        "schema": "evidence-delivery-v1",
+        "operation_status": "ok",
+        "status": "ABSTAINED",
+        "evidence": []
+      },
+      "expected": {
+        "hit_count": 0,
+        "case_pass": true,
+        "safe_abstention": true
+      }
+    },
+    {
+      "id": "modified_span",
+      "packet": {
+        "schema": "evidence-delivery-v1",
+        "operation_status": "ok",
+        "status": "SUPPORTED",
+        "evidence": [
+          {
+            "source_path": "docs/policy-current.md",
+            "source_sha256": "4d4cc954d94bfdd182a2ff97cbd2abddf096df601e4b1df58af570e3bed1ed5d",
+            "content": "Current policy: releases require three reviewers.\nThe approval window is 48 hours."
+          }
+        ]
+      },
+      "expected": {
+        "hit_count": 0,
+        "case_pass": false,
+        "safe_abstention": false
+      }
+    }
+  ]
+}
