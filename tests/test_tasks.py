@@ -6,6 +6,8 @@ vault. HOME is redirected into the temporary directory so a backend that looks
 for user state cannot find the operator's.
 """
 import contextlib
+import ctypes
+import errno
 import io
 import json
 import os
@@ -377,6 +379,150 @@ class TaskBase(unittest.TestCase):
             if isinstance(done.stdout, bytes) else done.stdout + done.stderr
         self.assertNotIn(str(self.root), text)
         self.assertNotIn(str(self.home), text)
+
+
+class TaskStateRead(TaskBase):
+    def _denial(self, path, winerror=None):
+        error = PermissionError(13, "Permission denied", str(path))
+        if winerror is not None:
+            error.winerror = winerror
+        return error
+
+    def test_windows_transient_sharing_denial_is_retried(self):
+        target = self.root / "state.json"
+        target.write_text('{"state":"queued"}', encoding="utf-8")
+        real_read = Path.read_text
+        for winerror in (None, 5, 32, 33):
+            with self.subTest(winerror=winerror):
+                calls = 0
+
+                def read_once_with_denial(path, *args, **kwargs):
+                    nonlocal calls
+                    if path == target and calls == 0:
+                        calls += 1
+                        raise self._denial(path, winerror)
+                    calls += 1
+                    return real_read(path, *args, **kwargs)
+
+                with mock.patch.object(module, "IS_WINDOWS", True), \
+                        mock.patch.object(Path, "read_text", new=read_once_with_denial):
+                    result = module._read_json(target)
+                self.assertEqual(result, {"state": "queued"})
+                self.assertEqual(calls, 2)
+
+    def test_persistent_windows_denial_stays_an_error_after_a_finite_retry(self):
+        target = self.root / "state.json"
+        target.write_text('{"state":"queued"}', encoding="utf-8")
+        calls = 0
+
+        def always_denied(path, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            raise self._denial(path)
+
+        now = 0.0
+        sleeps = []
+
+        def monotonic():
+            return now
+
+        def advance(seconds):
+            nonlocal now
+            sleeps.append(seconds)
+            now += seconds
+
+        with mock.patch.object(module, "IS_WINDOWS", True), \
+                mock.patch.object(module, "STATE_READ_RETRY_S", 0.025), \
+                mock.patch.object(module.time, "monotonic", new=monotonic), \
+                mock.patch.object(module.time, "sleep", new=advance), \
+                mock.patch.object(Path, "read_text", new=always_denied):
+            with self.assertRaisesRegex(module.TaskError,
+                                        "cannot read state.json: Permission denied") as caught:
+                module._read_json(target)
+        self.assertIsInstance(caught.exception.__cause__, PermissionError)
+        self.assertEqual(caught.exception.__cause__.errno, errno.EACCES)
+        self.assertIsNone(getattr(caught.exception.__cause__, "winerror", None))
+        self.assertGreaterEqual(calls, 2)
+        self.assertLess(calls, 15)
+        self.assertGreater(sum(sleeps), 0)
+        self.assertLessEqual(sum(sleeps), 0.025)
+
+    def test_unrelated_windows_error_is_not_retried(self):
+        target = self.root / "state.json"
+        calls = 0
+
+        def denied(path, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            raise self._denial(path, 1)   # unrelated native error, despite errno EACCES
+
+        with mock.patch.object(module, "IS_WINDOWS", True), \
+                mock.patch.object(Path, "read_text", new=denied):
+            with self.assertRaisesRegex(module.TaskError, "cannot read state.json: Permission denied"):
+                module._read_json(target)
+        self.assertEqual(calls, 1)
+
+    def test_permission_error_is_not_retried_on_posix(self):
+        target = self.root / "state.json"
+        calls = 0
+
+        def denied(path, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            raise self._denial(path)
+
+        with mock.patch.object(module, "IS_WINDOWS", False), \
+                mock.patch.object(Path, "read_text", new=denied):
+            with self.assertRaisesRegex(module.TaskError, "cannot read state.json: Permission denied"):
+                module._read_json(target)
+        self.assertEqual(calls, 1)
+
+    def test_native_windows_errno_only_denial_recovers_when_handle_closes(self):
+        if os.name != "nt":
+            self.skipTest("native Windows share-mode regression")
+        from ctypes import wintypes
+
+        target = self.root / "state.json"
+        target.write_text('{"state":"queued"}', encoding="utf-8")
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                         wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD,
+                                         wintypes.HANDLE]
+        kernel32.CreateFileW.restype = wintypes.HANDLE
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        handle = kernel32.CreateFileW(str(target), 0x80000000, 0, None, 3, 0x80, None)
+        self.assertNotEqual(handle, ctypes.c_void_p(-1).value,
+                            ctypes.WinError(ctypes.get_last_error()))
+        handle_open = True
+        try:
+            with self.assertRaises(PermissionError) as raw:
+                target.read_text(encoding="utf-8")
+            self.assertEqual(raw.exception.errno, errno.EACCES)
+            self.assertIsNone(getattr(raw.exception, "winerror", None))
+
+            real_read = Path.read_text
+            calls = 0
+
+            def counted_read(path, *args, **kwargs):
+                nonlocal calls
+                calls += 1
+                return real_read(path, *args, **kwargs)
+
+            def close_for_retry(_seconds):
+                nonlocal handle_open
+                if handle_open:
+                    if not kernel32.CloseHandle(handle):
+                        raise ctypes.WinError(ctypes.get_last_error())
+                    handle_open = False
+
+            with mock.patch.object(Path, "read_text", new=counted_read), \
+                    mock.patch.object(module.time, "sleep", new=close_for_retry):
+                self.assertEqual(module._read_json(target), {"state": "queued"})
+            self.assertGreaterEqual(calls, 2)
+        finally:
+            if handle_open:
+                kernel32.CloseHandle(handle)
 
 
 class TaskCLI(TaskBase):

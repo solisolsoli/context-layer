@@ -52,8 +52,8 @@ import time
 import unicodedata
 
 from . import backends, memory, orchestrate
-from .platform_support import (file_lock, managed_process_tree, process_is_alive,
-                               private_tempdir, set_private_path)
+from .platform_support import (IS_WINDOWS, file_lock, managed_process_tree,
+                               process_is_alive, private_tempdir, set_private_path)
 
 SCHEMA_TASK = "context-layer-task-v1"
 SCHEMA_PACKET = "context-layer-task-packet-v1"
@@ -94,6 +94,7 @@ DROPPED_LISTED = 50
 POLL_S = 0.05
 HEARTBEAT_S = 1.0
 KILL_GRACE_S = 2.0
+STATE_READ_RETRY_S = 1.0
 RESULT_TEXT_LIMIT = 2000
 STDOUT_PARSE_CAP = 32 * 1024 * 1024
 
@@ -178,10 +179,33 @@ def _task_dir(vault: Path, task_id: str) -> Path:
 
 
 def _read_json(path: Path) -> dict:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise TaskError(f"cannot read {_tail(path)}: {_reason(exc)}") from exc
+    deadline = None
+    delay = 0.002
+    while True:
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except OSError as exc:
+            # A result.json can be atomically replaced by another runner while
+            # this process opens it. Windows may transiently report these
+            # sharing/access errors during rename/delete-pending transitions.
+            # Retry only those native codes on Windows, plus errno-only
+            # EACCES from CPython's _wopen path (which has no winerror).
+            # Persistent ACL errors and every POSIX error remain visible.
+            winerror = getattr(exc, "winerror", None)
+            transient_windows_error = (
+                winerror in (5, 32, 33)
+                or (winerror is None and exc.errno == errno.EACCES))
+            if not IS_WINDOWS or not transient_windows_error:
+                raise TaskError(f"cannot read {_tail(path)}: {_reason(exc)}") from exc
+            if deadline is None:
+                deadline = time.monotonic() + STATE_READ_RETRY_S
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TaskError(f"cannot read {_tail(path)}: {_reason(exc)}") from exc
+            time.sleep(min(delay, remaining))
+            delay = min(delay * 2, 0.05)
+        except ValueError as exc:
+            raise TaskError(f"cannot read {_tail(path)}: {_reason(exc)}") from exc
 
 
 def _write_json(path: Path, payload: dict) -> None:

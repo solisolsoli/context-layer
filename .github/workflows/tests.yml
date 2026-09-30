@@ -192,6 +192,8 @@ jobs:
       # Keep the fixture index present so the sdist exclusion check stays meaningful.
       - run: python -m build
       - run: python scripts/check_distribution.py dist/*.whl
+      - name: native Windows task-state sharing regression
+        run: python tests/test_tasks.py TaskStateRead
       - name: every suite under tests/ (what make test runs)
         run: |
           failed=""
