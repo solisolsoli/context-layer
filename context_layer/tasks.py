@@ -34,6 +34,7 @@ import argparse
 import concurrent.futures
 from contextlib import contextmanager
 from datetime import datetime, timezone
+import errno
 import hashlib
 import json
 import math
@@ -196,14 +197,64 @@ def _cancel_flag(directory: Path) -> Path:
     return directory / "cancel"
 
 
-def _sha256_nofollow(path) -> str:
-    """SHA-256 of a regular file opened without following a symlink swapped in meanwhile."""
-    descriptor = os.open(str(path), os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-    digest = hashlib.sha256()
-    with os.fdopen(descriptor, "rb") as handle:
-        for block in iter(lambda: handle.read(65536), b""):
-            digest.update(block)
-    return digest.hexdigest()
+def _is_link_stat(info) -> bool:
+    """A link or reparse point, based on an already acquired no-follow stat."""
+    return (stat.S_ISLNK(info.st_mode)
+            or bool(getattr(info, "st_file_attributes", 0) & 0x400))
+
+
+def _sha256_nofollow(path, *, single_link: bool = False) -> str:
+    """Hash the checked regular-file handle, rejecting path swaps and reparse leaves.
+
+    On systems without O_NOFOLLOW, no-follow path metadata is bound to the open
+    descriptor before any bytes are read. `single_link` is used for task output:
+    the opened file itself must have one link, even if a directory entry cached
+    stale metadata.
+    """
+    target = Path(path)
+    before = os.lstat(target)
+    if _is_link_stat(before):
+        raise OSError(errno.ELOOP, "link or reparse point", str(target))
+    if not stat.S_ISREG(before.st_mode):
+        raise OSError(errno.EINVAL, "not a regular file", str(target))
+    descriptor = os.open(str(target), os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        opened = os.fstat(descriptor)
+        current = os.lstat(target)
+        if (_is_link_stat(current)
+                or not stat.S_ISREG(opened.st_mode)
+                or (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino)
+                or (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino)):
+            raise OSError(errno.ELOOP, "file changed or became a link while opening",
+                          str(target))
+        if single_link and opened.st_nlink != 1:
+            if opened.st_nlink > 1:
+                raise OSError(errno.EMLINK, f"hard-linked output ({opened.st_nlink} links)",
+                              str(target))
+            raise OSError(errno.EIO, "cannot confirm output has exactly one link", str(target))
+        digest = hashlib.sha256()
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            for block in iter(lambda: handle.read(65536), b""):
+                digest.update(block)
+        after = os.fstat(descriptor)
+        final_path = os.lstat(target)
+        if (_is_link_stat(final_path)
+                or (final_path.st_dev, final_path.st_ino) != (after.st_dev, after.st_ino)
+                or (opened.st_dev, opened.st_ino) != (after.st_dev, after.st_ino)
+                or after.st_nlink != opened.st_nlink
+                or (after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+                != (opened.st_size, opened.st_mtime_ns, opened.st_ctime_ns)):
+            raise OSError(errno.ELOOP, "file changed or became a link while hashing",
+                          str(target))
+        if single_link and after.st_nlink != 1:
+            if after.st_nlink > 1:
+                raise OSError(errno.EMLINK, f"hard-linked output ({after.st_nlink} links)",
+                              str(target))
+            raise OSError(errno.EIO, "cannot confirm output has exactly one link", str(target))
+        return digest.hexdigest()
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
 
 
 def _fold(name: str) -> str:
@@ -570,6 +621,8 @@ def _identity(vault: Path, relative: str) -> list:
         if name != ".":
             current = current / name
         info = os.lstat(current)
+        if _is_link_stat(info):
+            raise TaskError(f"output directory component is not a real directory: {name}")
         if not stat.S_ISDIR(info.st_mode):
             raise TaskError(f"output directory component is not a real directory: {name}")
         chain.append([name, info.st_dev, info.st_ino])
@@ -599,7 +652,7 @@ def _identity_problems(vault: Path, relative: str, recorded) -> list:
             return [f"output directory replaced: {label} no longer exists"]
         except OSError as exc:
             return [f"output directory cannot be checked: {label} ({_reason(exc)})"]
-        if stat.S_ISLNK(info.st_mode):
+        if _is_link_stat(info):
             return [f"output directory replaced: {label} is now a symlink"]
         if not stat.S_ISDIR(info.st_mode):
             return [f"output directory replaced: {label} is no longer a directory"]
@@ -623,7 +676,7 @@ def _walk_output(vault: Path, relative: str) -> tuple:
         info = os.lstat(top)
     except FileNotFoundError:
         return files, [f"output directory is missing: {relative}"]
-    if stat.S_ISLNK(info.st_mode):
+    if _is_link_stat(info):
         return files, [f"output directory replaced: {relative} is now a symlink"]
     if not stat.S_ISDIR(info.st_mode):
         return files, [f"output directory replaced: {relative} is no longer a directory"]
@@ -639,11 +692,15 @@ def _walk_output(vault: Path, relative: str) -> tuple:
         for entry in entries:
             name = Path(entry.path).relative_to(vault).as_posix()
             try:
-                info = entry.stat(follow_symlinks=False)
+                # DirEntry may cache metadata obtained during enumeration. In
+                # particular, Windows reports st_nlink=0 from that cached
+                # stat result. Ask the filesystem for the
+                # current no-follow metadata before accepting an output.
+                info = os.stat(entry.path, follow_symlinks=False)
             except OSError as exc:
                 problems.append(f"unreadable output: {name} ({_reason(exc)})")
                 continue
-            if stat.S_ISLNK(info.st_mode):
+            if _is_link_stat(info):
                 problems.append(f"symlink in output: {name}")
             elif stat.S_ISDIR(info.st_mode):
                 pending.append(Path(entry.path))
@@ -654,9 +711,19 @@ def _walk_output(vault: Path, relative: str) -> tuple:
                                 "are shared with another file)")
             else:
                 try:
-                    files[name] = _sha256_nofollow(entry.path)
+                    files[name] = _sha256_nofollow(entry.path, single_link=True)
                 except OSError as exc:
-                    problems.append(f"unreadable output: {name} ({_reason(exc)})")
+                    if exc.errno == errno.EMLINK:
+                        problems.append(f"hard-linked output: {name} ({exc.strerror})")
+                    else:
+                        try:
+                            current = os.lstat(entry.path)
+                        except OSError:
+                            current = None
+                        if current is not None and _is_link_stat(current):
+                            problems.append(f"symlink in output: {name}")
+                        else:
+                            problems.append(f"unreadable output: {name} ({_reason(exc)})")
     return dict(sorted(files.items())), problems
 
 

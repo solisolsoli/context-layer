@@ -17,7 +17,7 @@ import time
 import unittest
 from unittest import mock
 
-from _portable_helpers import assert_private_path, isolated_home_env
+from _portable_helpers import assert_private_path, isolated_home_env, readable_hook_command
 
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 if str(REPO) not in sys.path:
@@ -972,10 +972,11 @@ class Settings(RulesBase):
         post = data["hooks"]["PostToolUse"][0]
         stop = data["hooks"]["Stop"][0]["hooks"][0]
         self.assertEqual(start["type"], "command")
-        self.assertIn("rules hook session-start --vault", start["command"])
-        self.assertIn("rules hook stop --vault", stop["command"])
+        self.assertIn("rules hook session-start --vault", readable_hook_command(start["command"]))
+        self.assertIn("rules hook stop --vault", readable_hook_command(stop["command"]))
         self.assertEqual(post["matcher"], "Write|Edit|MultiEdit|NotebookEdit")
-        self.assertIn("rules hook post-tool-use --vault", post["hooks"][0]["command"])
+        self.assertIn("rules hook post-tool-use --vault",
+                      readable_hook_command(post["hooks"][0]["command"]))
         self.assertEqual({start["timeout"], stop["timeout"]}, {30})
         self.assertEqual(data["permissions"], {"defaultMode": "plan"})
         self.assertFalse((self.vault / ".claude").exists())       # writes nothing
@@ -985,9 +986,9 @@ class Settings(RulesBase):
         self.assertEqual(result.returncode, 0, result.stderr)
         data = json.loads(result.stdout)
         self.assertIn("rules hook session-start --brief --vault",
-                      data["hooks"]["SessionStart"][0]["hooks"][0]["command"])
+                      readable_hook_command(data["hooks"]["SessionStart"][0]["hooks"][0]["command"]))
         self.assertIn("rules hook stop --check-citations --vault",
-                      data["hooks"]["Stop"][0]["hooks"][0]["command"])
+                      readable_hook_command(data["hooks"]["Stop"][0]["hooks"][0]["command"]))
         self.assertNotIn("permissions", data)
 
     def test_hook_groups_match_settings(self):

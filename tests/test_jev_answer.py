@@ -72,10 +72,11 @@ CLEAN_ENV = {k: v for k, v in os.environ.items()
 SECRET = "token = abcdefghijklmnopqrstuvwxyz"
 
 FAKE_SCRIPT = """#!{python}
-import json, os, sys
+import json, os, sys, uuid
 question = json.load(sys.stdin)
-with open(os.environ["FAKE_CALLS"], "a", encoding="utf-8") as log:
-    log.write("call\\n")
+marker = os.environ["FAKE_CALLS"] + "." + uuid.uuid4().hex
+with open(marker, "x", encoding="ascii") as log:
+    log.write("call")
 label = os.environ.get("FAKE_LABEL", "supports")
 probabilities = {{"supports": 0.02, "contradicts": 0.02, "silent": 0.02}}
 probabilities[label] = 0.96
@@ -212,7 +213,9 @@ class Case(unittest.TestCase):
                       if p.name.startswith("jev"))
 
     def fake_calls(self):
-        return len(self.calls_log.read_text().splitlines()) if self.calls_log.exists() else 0
+        # Each fake invocation owns one exclusive marker; concurrent Windows
+        # subprocesses cannot overwrite or lose a shared append-log line.
+        return len(list(self.root.glob("fake-calls.log.*")))
 
 
 # ---------------------------------------------------------------------------

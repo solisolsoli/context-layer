@@ -435,7 +435,23 @@ def atomic_write(path, data: bytes | str, *, mode: int = 0o666,
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(staging, target)
+        # Windows can briefly retain a rename/delete handle while another
+        # writer replaces the same name. Retry only those sharing/access errors;
+        # persistent permission failures still fail and retain the old file.
+        deadline = time.monotonic() + 1.0
+        delay = 0.002
+        while True:
+            try:
+                os.replace(staging, target)
+                break
+            except PermissionError as exc:
+                if not IS_WINDOWS or getattr(exc, "winerror", None) not in (5, 32, 33):
+                    raise
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise
+                time.sleep(min(delay, remaining))
+                delay = min(delay * 2, 0.05)
     except BaseException:
         try:
             staging.unlink()

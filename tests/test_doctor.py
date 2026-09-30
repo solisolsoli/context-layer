@@ -21,6 +21,16 @@ REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 
+def append_hook_args(command, *arguments):
+    """Append argv using the installed hook's shell grammar on this platform."""
+    if os.name == "nt":
+        rendered = " ".join("'" + argument.replace("'", "''") + "'"
+                            for argument in arguments)
+    else:
+        rendered = " ".join(arguments)
+    return command + " " + rendered
+
+
 class Doctor(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -119,11 +129,12 @@ class Doctor(unittest.TestCase):
     def test_hook_lines_are_parsed_with_this_builds_flags(self):
         self.install("--hook", "--rules")
         for edit, expect, fragment in (
-                (lambda c: c + " --top-k 99", "fail", "above the cap"),
-                (lambda c: c + " --extra-tokens lots", "fail", "invalid int"),
-                (lambda c: c + " --future-flag 1", "fail", "unrecognised"),
-                (lambda c: c + " --max-context-chars 50", "fail", "max-context-chars"),
-                (lambda c: c + " --method jev", "warn", "would run fts")):
+                (lambda c: append_hook_args(c, "--top-k", "99"), "fail", "above the cap"),
+                (lambda c: append_hook_args(c, "--extra-tokens", "lots"), "fail", "invalid int"),
+                (lambda c: append_hook_args(c, "--future-flag", "1"), "fail", "unrecognised"),
+                (lambda c: append_hook_args(c, "--max-context-chars", "50"),
+                 "fail", "max-context-chars"),
+                (lambda c: append_hook_args(c, "--method", "jev"), "warn", "would run fts")):
             with self.subTest(fragment=fragment):
                 self.install("--hook", "--rules")
                 self.edit_hook("UserPromptSubmit", edit)
@@ -152,8 +163,9 @@ class Doctor(unittest.TestCase):
 
     def test_machine_specific_paths_must_exist(self):
         self.install("--hook")
+        missing_launcher = self.root / "gone" / ("python.exe" if os.name == "nt" else "python3")
         self.edit_hook("UserPromptSubmit",
-                       lambda c: c.replace(sys.executable, str(self.root / "gone" / "python3")))
+                       lambda c: c.replace(sys.executable, str(missing_launcher)))
         code, checks, _ = self.doctor()
         self.assertEqual(code, 1)
         self.assertIn("does not exist", checks["settings.json UserPromptSubmit"]["detail"])
@@ -161,7 +173,7 @@ class Doctor(unittest.TestCase):
         if os.name == "nt":
             self.edit_hook("UserPromptSubmit", lambda c: re.sub(
                 r"\$env:PYTHONPATH='[^']*'",
-                f"$env:PYTHONPATH='{self.root / 'nowhere'}'", c, count=1))
+                lambda _match: f"$env:PYTHONPATH='{self.root / 'nowhere'}'", c, count=1))
         else:
             self.edit_hook("UserPromptSubmit", lambda c: re.sub(
                 r"PYTHONPATH=\S+", lambda _match: f"PYTHONPATH={self.root / 'nowhere'}", c, count=1))

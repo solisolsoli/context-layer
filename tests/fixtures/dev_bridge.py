@@ -199,7 +199,8 @@ def build(root: Path, seed: int = 11) -> list[dict]:
     for relative, text in notes.items():
         target = root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text, encoding="utf-8")
+        # This controlled fixture must have identical source hashes on every OS.
+        target.write_bytes(text.encode("utf-8"))
     _check(root, cases)
     return cases
 

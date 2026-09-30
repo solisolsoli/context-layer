@@ -1137,20 +1137,19 @@ class TracePrivacyAndSafety(VaultCase):
         self.assertIsNone(first["query"])
 
     def test_concurrent_writers_leave_valid_json(self):
-        import threading
+        from concurrent.futures import ThreadPoolExecutor
         payloads = [{"version": 1, "writer": n, "pad": "x" * 5000} for n in range(8)]
 
         def write(payload):
             for _ in range(15):
                 synapse.write_trace(self.vault, payload)
-        threads = [threading.Thread(target=write, args=(p,)) for p in payloads]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
+            return 15
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            # Await every result so a background exception fails the test.
+            self.assertEqual(list(pool.map(write, payloads)), [15] * 8)
         self.assertIn(self.trace()["writer"], range(8))
         leftovers = [p.name for p in (self.vault / ".context").iterdir()
-                     if p.name.startswith(".activation-")]
+                     if p.name.startswith((".activation-", ".activation.json."))]
         self.assertEqual(leftovers, [])
 
     def test_planted_trace_is_never_read_back(self):

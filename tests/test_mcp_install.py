@@ -1198,7 +1198,7 @@ class InstallCodex(HostFixture):
     def test_markers_add_and_remove(self):
         before = 'model = "example"\n'
         self.config().parent.mkdir(parents=True)
-        self.config().write_text(before)
+        self.config().write_bytes(before.encode())
         dry = self.cli("install", "codex", "--vault", str(self.vault))
         self.assertEqual(dry.returncode, 0, dry.stderr)
         self.assertIn(str(self.home), dry.stdout)          # the temporary HOME, never the real one

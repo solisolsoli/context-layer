@@ -343,12 +343,12 @@ class SkippedFiles(VaultFixture):
 
     def test_the_builder_manifest_names_what_the_scan_cannot_judge(self):
         odd = "notes/odd\\name.md"
+        hidden = "private/hidden\\name.md"
         if os.name == "nt":
-            # Windows cannot create either a backslash-containing filename or a
-            # colon-containing component. Inject names at the walk boundary so
-            # the health scan exercises the same unsupported-name policy.
+            # Windows cannot create a backslash-containing filename. Inject the
+            # same names at the walk boundary; the policy refuses them before
+            # any file read, and the manifest must name exactly what was seen.
             (self.vault / "private").mkdir()
-            self.write("private/placeholder.txt", b"not an indexed note\n")
             real_walk = health.os.walk
 
             def walk_with_unsupported(root, *args, **kwargs):
@@ -357,10 +357,10 @@ class SkippedFiles(VaultFixture):
                     # the temp directory's 8.3 alias while walking it.
                     parent_name = Path(parent).name.casefold()
                     names = list(names)
-                    if parent_name == self.vault.name.casefold():
-                        names.append("Meeting: 10.30.md")
+                    if parent_name == "notes":
+                        names.append(odd.rsplit("/", 1)[-1])
                     elif parent_name == "private":
-                        names.append("hidden: name.md")
+                        names.append(hidden.rsplit("/", 1)[-1])
                     yield parent, directories, names
 
             walk_patch = patch.object(health.os, "walk", side_effect=walk_with_unsupported)
@@ -369,7 +369,7 @@ class SkippedFiles(VaultFixture):
                 self.write(odd, b"# Odd\nname the router refuses\n")
             except OSError:  # pragma: no cover - a file system without backslashes in names
                 self.skipTest("backslash not allowed in file names here")
-            self.write("private/hidden\\name.md", b"# Hidden\n")
+            self.write(hidden, b"# Hidden\n")
             walk_patch = contextlib.nullcontext()
         self.config["exclude_prefixes"] = ["private"]
         self.save_config()
@@ -381,7 +381,7 @@ class SkippedFiles(VaultFixture):
             manifest = self.ctx / "index-manifest.json"
             payload = json.loads(manifest.read_text())
             payload["skipped"] = [{"path": odd, "reason": "unsupported_name"},
-                                  {"path": "private/hidden\\name.md", "reason": "unsupported_name"},
+                                  {"path": hidden, "reason": "unsupported_name"},
                                   {"path": "notes/gone.md", "reason": "oversize"}, "junk"]
             manifest.write_text(json.dumps(payload))
             summary = health.status_summary(self.vault)

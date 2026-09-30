@@ -12,6 +12,8 @@
   Verbatim CRLF evidence is preserved in console and saved packets. Encoded
   hook commands can be inspected and uninstalled without executing them.
   Advisor expiration waits for private temporary-directory cleanup to finish.
+  Atomic replacements tolerate bounded Windows sharing conflicts, and task
+  output validation checks current file identity and hard-link counts.
 
 - Optional GitHub evidence for knowledge gaps: `github-context`,
   `search --github` and an MCP tool. Owner-enabled allowlists, commit-pinned

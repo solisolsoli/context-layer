@@ -11,7 +11,6 @@ import json
 import os
 from pathlib import Path
 import shlex
-import signal
 import subprocess
 import sys
 import tempfile
@@ -179,10 +178,13 @@ print(json.dumps({"result": "replaced old.md", "is_error": False, @USAGE@}))
 # -- C-04: every invocation is logged -------------------------------------------
 
 LOGGER = '''#!/usr/bin/env python3
-import json, os, pathlib, sys, time
+import json, os, pathlib, sys, time, uuid
 sys.stdin.read()
-with open(r"@LOG@", "a") as handle:
-    handle.write(pathlib.Path(os.environ["CONTEXT_LAYER_OUT_DIR"]).parent.name + "\\n")
+task_id = pathlib.Path(os.environ["CONTEXT_LAYER_OUT_DIR"]).parent.name
+calls = pathlib.Path(r"@LOG@")
+calls.mkdir(parents=True, exist_ok=True)
+with (calls / (task_id + "." + uuid.uuid4().hex + ".called")).open("x") as handle:
+    handle.write(task_id)
 time.sleep(@SECONDS@)
 out = pathlib.Path(os.environ["CONTEXT_LAYER_OUT_DIR"])
 (out / ("answer-%d.md" % os.getpid())).write_text("x\\n")
@@ -224,16 +226,8 @@ print(json.dumps({"result": "ok", "is_error": False}))
 # -- 4.3: an orphan that rewrites result.json after the run ----------------------
 
 FORGE = '''#!/usr/bin/env python3
-import json, os, subprocess, sys
+import json, sys
 sys.stdin.read()
-task_dir = os.environ["CONTEXT_LAYER_TASK_DIR"]
-code = ("import json, time, pathlib; time.sleep(1.5); p = pathlib.Path(%r) / 'result.json'; "
-        "r = json.loads(p.read_text()); r['state'] = 'verified'; "
-        "r['reason'] = 'verified by the coordinator'; "
-        "r['verification'] = {'state': 'verified', 'checked_at': r['updated_at'], "
-        "'problems': [], 'outputs': []}; p.write_text(json.dumps(r))") % task_dir
-subprocess.Popen([sys.executable, "-c", code], start_new_session=True,
-                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 print(json.dumps({"result": "nothing to see", "is_error": False}))
 '''
 
@@ -629,7 +623,8 @@ class TaskCLI(TaskBase):
     def test_a_backend_without_json_output_is_costed_as_usage_unknown(self):
         agent = self.script("raw.py", RAW_TEXT)
         task = self.new("--backend", "cmd",
-                        "--cmd", shlex.quote(agent) + " {prompt_file} {out_dir}")
+                        "--cmd", shlex.join([sys.executable, agent,
+                                             "{prompt_file}", "{out_dir}"]))
         self.assertEqual(self.cli("run", str(self.vault)).returncode, 0)
         stored = self.result(task["id"])
         self.assertEqual(stored["state"], "pending_review")
@@ -785,6 +780,73 @@ class OutputDirectoryIntegrity(TaskBase):
         self.assertIn("hard-linked output", " ".join(payload["problems"]))
         self.assertEqual(payload["outputs"], [])
 
+    def test_cached_direntry_link_count_cannot_hide_a_new_hard_link(self):
+        task = self.new()
+        out = self.vault / task["output_dir"]
+        answer = out / "answer.md"
+        answer.write_text("a regular output\n", encoding="utf-8")
+        # DirEntry.stat caches metadata. Keep that entry, then change the file's
+        # link count before _walk_output sees it. Windows may report zero links
+        # from the cache; all platforms must use current no-follow metadata.
+        with os.scandir(out) as entries:
+            cached = list(entries)
+        answer_entry = next(item for item in cached if item.name == "answer.md")
+        answer_entry.stat(follow_symlinks=False)
+        external_link = self.vault / "other" / "answer-link.md"
+        os.link(answer, external_link)
+        real_scandir = os.scandir
+
+        def stale_entry_for_output(directory):
+            if Path(directory) == out:
+                return iter(cached)
+            return real_scandir(directory)
+
+        with mock.patch.object(module.os, "scandir", side_effect=stale_entry_for_output):
+            files, problems = module._walk_output(self.vault, task["output_dir"])
+        self.assertEqual(files, {})
+        self.assertTrue(any("hard-linked output: " in item for item in problems), problems)
+
+    def test_output_file_swapped_after_inspection_is_not_hashed(self):
+        target = self.root / "output.md"
+        replacement = self.root / "replacement.md"
+        target.write_text("initial file\n", encoding="utf-8")
+        replacement.write_text("different file\n", encoding="utf-8")
+        real_open = os.open
+        swapped = False
+
+        def swap_before_open(path, flags, *args, **kwargs):
+            nonlocal swapped
+            if Path(path) == target and not swapped:
+                os.replace(replacement, target)
+                swapped = True
+            return real_open(path, flags, *args, **kwargs)
+
+        with mock.patch.object(module.os, "open", side_effect=swap_before_open):
+            with self.assertRaises(OSError):
+                module._sha256_nofollow(target, single_link=True)
+        self.assertTrue(swapped)
+
+    def test_reparse_junction_output_is_rejected(self):
+        if os.name != "nt":
+            self.skipTest("Windows junction regression")
+        task = self.new()
+        out = self.vault / task["output_dir"]
+        target = self.vault / "other"
+        out.rmdir()
+        result = subprocess.run(
+            f'cmd.exe /d /c mklink /J "{out}" "{target}"',
+            capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(out.is_dir())
+        files, problems = module._walk_output(self.vault, task["output_dir"])
+        self.assertEqual(files, {})
+        self.assertTrue(any("output directory replaced" in item for item in problems),
+                        problems)
+        identity_problems = module._identity_problems(
+            self.vault, task["output_dir"], task["output_identity"])
+        self.assertTrue(any("now a symlink" in item for item in identity_problems),
+                        identity_problems)
+
     def test_a_deleted_pre_existing_file_is_reported(self):
         (self.vault / "reports").mkdir()
         (self.vault / "reports" / "old.md").write_text("# Old report\nkept\n", encoding="utf-8")
@@ -847,20 +909,20 @@ class Claims(TaskBase):
     """C-04: a task is claimed before its agent starts, so it runs exactly once."""
 
     def test_a_repeated_id_runs_once(self):
-        log = self.root / "calls.log"
+        log = self.root / "calls"
         agent = self.script("log.py", LOGGER, LOG=log, SECONDS=0.5)
         task = self.new()
         run = self.cli("run", str(self.vault), task["id"], task["id"], "--jobs", "2",
                        backend=agent)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-        self.assertEqual(log.read_text().split(), [task["id"]])
+        self.assertEqual([path.read_text() for path in log.glob("*.called")], [task["id"]])
         self.assertEqual(len(self.result(task["id"])["attempts"]), 1)
         cost = json.loads(self.cli("cost", str(self.vault), "--json").stdout)
         self.assertEqual(cost["total"]["attempts"], 1)
 
     def test_two_runners_started_together_run_each_of_twenty_tasks_once(self):
-        log = self.root / "calls.log"
-        log.write_text("")
+        log = self.root / "calls"
+        log.mkdir()
         agent = self.script("log.py", LOGGER, LOG=log, SECONDS=0.05)
         packet = orchestrate.build_packet(self.vault, GOAL)["id"]
         parser = cli_module.build_parser()
@@ -875,8 +937,9 @@ class Claims(TaskBase):
         runners = [self.spawn("run", str(self.vault), "--jobs", "4", backend=agent)
                    for _ in range(2)]
         for runner in runners:
-            runner.communicate(timeout=120)
-        calls = log.read_text().split()
+            stdout, stderr = runner.communicate(timeout=120)
+            self.assertEqual(runner.returncode, 0, stdout + stderr)
+        calls = [path.read_text() for path in log.glob("*.called")]
         self.assertEqual(sorted(calls), sorted(ids), "every task ran exactly once")
         for task_id in ids:
             stored = self.result(task_id)
@@ -1062,8 +1125,8 @@ class RunnerLiveness(TaskBase):
             claim = json.loads((self.task_dir(task["id"]) / "runner.json").read_text())
             time.sleep(0.05)
         self.assertTrue(claim.get("child_pgid"), "the child never started")
-        runner.send_signal(signal.SIGKILL)
-        runner.wait()
+        runner.kill()
+        runner.communicate()
         return task, marker
 
     def test_cancel_after_the_runner_died_stops_the_orphan_and_ends_cancelled(self):
@@ -1264,10 +1327,10 @@ class Ledger(TaskBase):
         clean = self.cli("ledger", str(self.vault))
         self.assertEqual(clean.returncode, 0, clean.stdout)
         ledger = self.vault / orchestrate.LEDGER_NAME
-        original = ledger.read_text().splitlines()
+        original = ledger.read_text(encoding="utf-8").splitlines()
         lines = list(original)
         lines[-1] = lines[-1].replace('"verdict":"verified"', '"verdict":"rejected"')
-        ledger.write_text("\n".join(lines) + "\n")
+        ledger.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
         checked = self.cli("ledger", str(self.vault))
         self.assertEqual(checked.returncode, 1, checked.stdout)
         self.assertIn(second["id"].encode(), checked.stdout)
@@ -1276,15 +1339,15 @@ class Ledger(TaskBase):
         quiet = list(original)
         self.assertIn('"sampled":[]', quiet[-1])
         quiet[-1] = quiet[-1].replace('"sampled":[]', '"sampled":[1]')
-        ledger.write_text("\n".join(quiet) + "\n")
+        ledger.write_bytes(("\n".join(quiet) + "\n").encode("utf-8"))
         again = self.cli("ledger", str(self.vault))
         self.assertEqual(again.returncode, 1, again.stdout)
         self.assertIn(b"cites another ledger line", again.stdout)
-        ledger.write_text("\n".join(lines) + "\n")     # the verdict edit again for the JSON form
+        ledger.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))  # verdict edit for JSON form
         as_json = json.loads(self.cli("ledger", str(self.vault), "--json").stdout)
         self.assertEqual([item["id"] for item in as_json["unattested"]], [second["id"]])
         # A truncated ledger (the head line removed) is caught the same way.
-        ledger.write_text("\n".join(original[:-1]) + "\n")
+        ledger.write_bytes(("\n".join(original[:-1]) + "\n").encode("utf-8"))
         cut = self.cli("ledger", str(self.vault))
         self.assertEqual(cut.returncode, 1, cut.stdout)
         self.assertIn(b"no ledger line records this verdict", cut.stdout)
@@ -1293,15 +1356,18 @@ class Ledger(TaskBase):
         task = self.new()
         run = self.cli("run", str(self.vault), backend=self.script("forge.py", FORGE))
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-        def state():
-            try:
-                return self.result(task["id"])["state"]
-            except ValueError:                  # the forger writes result.json in place
-                return None
-        deadline = time.monotonic() + 10
-        while time.monotonic() < deadline and state() != "verified":
-            time.sleep(0.1)
-        self.assertEqual(self.result(task["id"])["state"], "verified")   # the forgery landed
+        # A post-run process outside the runner's managed child tree edits the
+        # bookkeeping to simulate a forged coordinator verdict. On Windows the
+        # Job Object deliberately kills descendants when the runner exits, so
+        # launching this process from the backend would not test verification.
+        result_path = self.task_dir(task["id"]) / "result.json"
+        forged = json.loads(result_path.read_text(encoding="utf-8"))
+        forged["state"] = "verified"
+        forged["reason"] = "verified by the coordinator"
+        forged["verification"] = {"state": "verified", "checked_at": forged["updated_at"],
+                                  "problems": [], "outputs": []}
+        result_path.write_text(json.dumps(forged), encoding="utf-8")
+        self.assertEqual(self.result(task["id"])["state"], "verified")  # the forgery landed
         listed = json.loads(self.cli("list", str(self.vault), "--json").stdout)[0]
         self.assertFalse(listed["attested"])
         self.assertIn("no ledger line", listed["unattested"])

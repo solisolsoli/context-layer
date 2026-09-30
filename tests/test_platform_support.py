@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -24,7 +25,7 @@ from context_layer.platform_support import (
     set_private_path,
     verify_private_path,
 )
-from context_layer import backends, install
+from context_layer import backends, install, platform_support
 
 
 def _python_env():
@@ -163,6 +164,47 @@ class PlatformSupport(unittest.TestCase):
         atomic_write(target, "one\ntwo\n", private=True)
         self.assertEqual(target.read_bytes(), b"one\ntwo\n")
         verify_private_path(target)
+
+    def test_atomic_write_retries_only_transient_windows_replace_errors(self):
+        target = self.root / "state.json"
+        target.write_bytes(b"old")
+        replace = os.replace
+        errors = []
+        for code in (5, 32, 33):
+            error = PermissionError("simulated Windows sharing conflict")
+            error.winerror = code
+            errors.append(error)
+
+        def busy_then_replace(source, destination):
+            self.assertEqual(target.read_bytes(), b"old")
+            if errors:
+                raise errors.pop(0)
+            replace(source, destination)
+
+        with patch.object(platform_support, "IS_WINDOWS", True), \
+                patch.object(platform_support.os, "replace", side_effect=busy_then_replace) as call:
+            atomic_write(target, b"new")
+        self.assertGreaterEqual(call.call_count, 4)  # the native rename may also be briefly busy
+        self.assertEqual(target.read_bytes(), b"new")
+        self.assertEqual(sorted(p.name for p in self.root.iterdir()), ["state.json"])
+
+    def test_atomic_write_replace_failure_is_bounded_and_keeps_original(self):
+        target = self.root / "state.json"
+        for windows, winerror in ((True, 5), (True, 87), (False, 5)):
+            with self.subTest(windows=windows, winerror=winerror):
+                target.write_bytes(b"old")
+                error = PermissionError("simulated permanent failure")
+                error.winerror = winerror
+                with patch.object(platform_support, "IS_WINDOWS", windows), \
+                        patch.object(platform_support.os, "replace", side_effect=error) as call, \
+                        patch.object(platform_support.time, "monotonic", side_effect=[0.0, 2.0]), \
+                        patch.object(platform_support.time, "sleep") as sleep, \
+                        self.assertRaises(PermissionError):
+                    atomic_write(target, b"new")
+                self.assertEqual(call.call_count, 1)
+                sleep.assert_not_called()
+                self.assertEqual(target.read_bytes(), b"old")
+                self.assertEqual(sorted(p.name for p in self.root.iterdir()), ["state.json"])
 
     def test_private_directory_child_has_only_private_access(self):
         directory = private_tempdir(self.root, prefix="secure-")
