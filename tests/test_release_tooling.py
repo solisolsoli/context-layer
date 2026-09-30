@@ -108,6 +108,20 @@ class ConsoleScriptIdentity(TempDir):
             self.assertTrue(check_distribution.is_same_file(case_variant, console))
 
 
+class HookSettingsShape(unittest.TestCase):
+    def test_prompt_handlers_are_read_from_host_structure(self):
+        settings = {"hooks": {"UserPromptSubmit": [
+            {"hooks": [{"type": "command", "command": "powershell.exe ..."}]},
+            {"hooks": ["malformed", {"type": "command", "command": "another"}]},
+        ]}}
+        self.assertEqual(check_distribution.hook_handlers(settings, "UserPromptSubmit"), [
+            {"type": "command", "command": "powershell.exe ..."},
+            {"type": "command", "command": "another"},
+        ])
+        self.assertEqual(check_distribution.hook_handlers(settings, "Stop"), [])
+        self.assertEqual(check_distribution.hook_handlers({"hooks": []}, "UserPromptSubmit"), [])
+
+
 class NormalizeSdist(TempDir):
     """E-18: two builds of the same files give one sha256, with no account names."""
 

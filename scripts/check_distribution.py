@@ -69,6 +69,22 @@ def is_same_file(left, right):
         return False
 
 
+def hook_handlers(settings, event):
+    """Return structurally valid handlers for one host hook event."""
+    hooks = settings.get("hooks") if isinstance(settings, dict) else None
+    groups = hooks.get(event) if isinstance(hooks, dict) else None
+    if not isinstance(groups, list):
+        return []
+    handlers = []
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        nested = group.get("hooks")
+        if isinstance(nested, list):
+            handlers.extend(item for item in nested if isinstance(item, dict))
+    return handlers
+
+
 def check_sdist(wheel, version, required=True):
     """The notices the licences require must be in the source distribution.
 
@@ -239,14 +255,37 @@ def release_walk(cli, py, root, vault):
          "--project", str(project), "--hook", "--apply"], cwd=root)
     mcp = project / ".mcp.json"; settings = project / ".claude" / "settings.json"
     check(mcp.is_file() and settings.is_file(), "install --apply wrote no config")
-    check("context-layer" in json.loads(mcp.read_text(encoding="utf-8"))["mcpServers"], "no MCP entry was written")
-    check("context-layer" in settings.read_text(encoding="utf-8"), "no prompt hook was written")
+    mcp_data = json.loads(mcp.read_text(encoding="utf-8"))
+    check("context-layer" in mcp_data.get("mcpServers", {}), "no MCP entry was written")
+    settings_data = json.loads(settings.read_text(encoding="utf-8"))
+    prompt_handlers = hook_handlers(settings_data, "UserPromptSubmit")
+    check(len(prompt_handlers) == 1 and prompt_handlers[0].get("type") == "command"
+          and isinstance(prompt_handlers[0].get("command"), str),
+          "no UserPromptSubmit command hook was written")
+    installed_doctor = json.loads(run([str(cli), "doctor", str(vault), "--host", "claude-code",
+                                       "--project", str(project), "--json"], cwd=root))
+    prompt_checks = [item for item in installed_doctor.get("checks", [])
+                     if item.get("name") == "settings.json UserPromptSubmit"]
+    check(installed_doctor.get("failed") == 0 and len(prompt_checks) == 1
+          and prompt_checks[0].get("status") == "ok",
+          f"the installed doctor did not validate the prompt hook: {prompt_checks}")
     run([str(cli), "uninstall", "claude-code", "--vault", str(vault),
          "--project", str(project), "--apply"], cwd=root)           # removes both, unasked
-    leftovers = [path for path in (mcp, settings)
-                 if path.is_file() and "context-layer" in path.read_text(encoding="utf-8")]
-    check(not leftovers, f"uninstall left our keys in {leftovers}")
-    facts["host"] = "generic printed without env; claude-code applied, then removed"
+    if mcp.is_file():
+        remaining_mcp = json.loads(mcp.read_text(encoding="utf-8"))
+        check("context-layer" not in remaining_mcp.get("mcpServers", {}),
+              "uninstall left the context-layer MCP entry")
+    if settings.is_file():
+        remaining_settings = json.loads(settings.read_text(encoding="utf-8"))
+        # This project was empty before install, so no hook event may remain.
+        check(not remaining_settings.get("hooks"), "uninstall left hook settings")
+    removed_doctor = json.loads(run([str(cli), "doctor", str(vault), "--host", "claude-code",
+                                     "--project", str(project), "--json"], cwd=root))
+    check(removed_doctor.get("failed") == 0 and not any(
+        item.get("name") == "settings.json UserPromptSubmit"
+        for item in removed_doctor.get("checks", [])),
+          "the installed doctor still found a context-layer prompt hook after uninstall")
+    facts["host"] = "installed console; claude-code hook validated by doctor, then removed"
 
     # -- rollback, then back to a current index --
     live = vault / ".context" / "index.sqlite"
