@@ -343,24 +343,48 @@ class SkippedFiles(VaultFixture):
 
     def test_the_builder_manifest_names_what_the_scan_cannot_judge(self):
         odd = "notes/odd\\name.md"
-        try:
-            self.write(odd, b"# Odd\nname the router refuses\n")
-        except OSError:  # pragma: no cover - a file system without backslashes in names
-            self.skipTest("backslash not allowed in file names here")
-        self.write("private/hidden\\name.md", b"# Hidden\n")
+        if os.name == "nt":
+            # Windows cannot create either a backslash-containing filename or a
+            # colon-containing component. Inject names at the walk boundary so
+            # the health scan exercises the same unsupported-name policy.
+            (self.vault / "private").mkdir()
+            self.write("private/placeholder.txt", b"not an indexed note\n")
+            real_walk = health.os.walk
+
+            def walk_with_unsupported(root, *args, **kwargs):
+                for parent, directories, names in real_walk(root, *args, **kwargs):
+                    # Compare the terminal component because Windows may expand
+                    # the temp directory's 8.3 alias while walking it.
+                    parent_name = Path(parent).name.casefold()
+                    names = list(names)
+                    if parent_name == self.vault.name.casefold():
+                        names.append("Meeting: 10.30.md")
+                    elif parent_name == "private":
+                        names.append("hidden: name.md")
+                    yield parent, directories, names
+
+            walk_patch = patch.object(health.os, "walk", side_effect=walk_with_unsupported)
+        else:
+            try:
+                self.write(odd, b"# Odd\nname the router refuses\n")
+            except OSError:  # pragma: no cover - a file system without backslashes in names
+                self.skipTest("backslash not allowed in file names here")
+            self.write("private/hidden\\name.md", b"# Hidden\n")
+            walk_patch = contextlib.nullcontext()
         self.config["exclude_prefixes"] = ["private"]
         self.save_config()
-        summary = health.status_summary(self.vault)
-        self.assertEqual(summary["now_skipped"], [])
-        self.assertEqual(summary["excluded_count"], 2)
-        self.assertEqual(summary["overall"], "ok")
-        manifest = self.ctx / "index-manifest.json"
-        payload = json.loads(manifest.read_text())
-        payload["skipped"] = [{"path": odd, "reason": "unsupported_name"},
-                              {"path": "private/hidden\\name.md", "reason": "unsupported_name"},
-                              {"path": "notes/gone.md", "reason": "oversize"}, "junk"]
-        manifest.write_text(json.dumps(payload))
-        summary = health.status_summary(self.vault)
+        with walk_patch:
+            summary = health.status_summary(self.vault)
+            self.assertEqual(summary["now_skipped"], [])
+            self.assertEqual(summary["excluded_count"], 2)
+            self.assertEqual(summary["overall"], "ok")
+            manifest = self.ctx / "index-manifest.json"
+            payload = json.loads(manifest.read_text())
+            payload["skipped"] = [{"path": odd, "reason": "unsupported_name"},
+                                  {"path": "private/hidden\\name.md", "reason": "unsupported_name"},
+                                  {"path": "notes/gone.md", "reason": "oversize"}, "junk"]
+            manifest.write_text(json.dumps(payload))
+            summary = health.status_summary(self.vault)
         self.assertEqual(self.skipped(summary), {(odd, "unsupported name", False)})
         self.assertEqual(summary["excluded_count"], 1)
         self.assertEqual(summary["overall"], "stale")
@@ -620,7 +644,8 @@ class HookVisibleError(unittest.TestCase):
     def test_valid_helper_response_reaches_stdout(self):
         result = self.run_case("valid")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, b"VALID-CONTEXT\n\n")
+        # Bash on Windows emits native CRLF when writing text to a pipe.
+        self.assertEqual(result.stdout.replace(b"\r\n", b"\n"), b"VALID-CONTEXT\n\n")
 
     def test_every_failure_is_visible_and_never_empty_success(self):
         expected = {

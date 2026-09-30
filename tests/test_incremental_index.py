@@ -44,6 +44,7 @@ sys.path.insert(0, str(REPO / "tests"))
 import build_index  # noqa: E402
 import retrieve  # noqa: E402
 from fixtures import dev_bridge  # noqa: E402
+from _portable_helpers import sqlite_connection  # noqa: E402
 
 # Sequences and steps per sequence; raise for a longer soak (for example
 # INCREMENTAL_SEEDS=200 python3 tests/test_incremental_index.py).
@@ -395,8 +396,9 @@ class IncrementalEqualsFull(unittest.TestCase):
         os.utime(note, (BASE_TIME, BASE_TIME))
         code, out, _ = run_build(self.vault_dir, "--incremental")
         self.assertIn("0 changed, 0 added, 0 removed, 2 unchanged (0 records rewritten)", out)
-        stamp = sqlite3.connect(self.index()).execute(
-            "SELECT timestamp FROM records WHERE source_path='a.md'").fetchone()[0]
+        with sqlite_connection(self.index()) as connection:
+            stamp = connection.execute(
+                "SELECT timestamp FROM records WHERE source_path='a.md'").fetchone()[0]
         self.assertTrue(stamp.startswith("2023-11-1"), stamp)
         self.assert_equal_to_full("touch")
 
@@ -409,9 +411,10 @@ class IncrementalEqualsFull(unittest.TestCase):
         with patch.object(build_index, "MAX_REWRITE_SHARE", 1.0):
             code, out, _ = run_build(self.vault_dir, "--incremental")
         self.assertIn("1 added", out)
-        self.assertEqual(sqlite3.connect(self.index()).execute(
-            "SELECT id, source_path FROM records ORDER BY id").fetchall(),
-            [(1, "a.md"), (2, "b.md"), (3, "c.md"), (4, "d.md")])
+        with sqlite_connection(self.index()) as connection:
+            records = connection.execute(
+                "SELECT id, source_path FROM records ORDER BY id").fetchall()
+        self.assertEqual(records, [(1, "a.md"), (2, "b.md"), (3, "c.md"), (4, "d.md")])
         self.assert_equal_to_full("early insert")
 
     def test_search_packets_do_not_depend_on_how_the_index_was_built(self):

@@ -25,6 +25,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.error
 from unittest import mock
 
 from _portable_helpers import isolated_home_env
@@ -119,12 +120,14 @@ class Judge:
 
 
 JUDGE_SCRIPT = '''#!{python}
-import json, os, sys
+import json, os, sys, time
 q = json.loads(sys.stdin.read())
 template = q["template"].split("@")[0]
 if os.environ.get("JUDGE_LOG"):
-    with open(os.environ["JUDGE_LOG"], "a") as handle:
-        handle.write(template + "\\n")
+    marker = (os.environ["JUDGE_LOG"] + "." + template + "." +
+              str(os.getpid()) + "." + str(time.time_ns()))
+    with open(marker, "x", encoding="ascii") as handle:
+        handle.write(template)
 default = {defaults}
 options = list(q["question"]["criteria"])
 pick = json.loads(os.environ.get("JUDGE_PICKS", "{{}}")).get(template, default[template])
@@ -245,9 +248,7 @@ class Case(unittest.TestCase):
         return {"CONTEXT_LAYER_JEV_FAKE": str(script), "JUDGE_LOG": str(self.judge_log)}
 
     def judge_calls(self):
-        if not self.judge_log.exists():
-            return []
-        return self.judge_log.read_text().splitlines()
+        return sorted(path.read_text(encoding="ascii") for path in self.root.glob("judge.log.*"))
 
     def review_cli(self, obj, *extra, env=None):
         return self.cli("jev", "review-memory", str(self.vault), "--proposal",
@@ -332,10 +333,22 @@ class Modes(Case):
         self.prior()
         env = self.judge_script()
         self.configure("shadow")
-        self.review_cli(self.proposal(), env=env)
-        self.assertEqual(len(self.judge_calls()), 4)
-        self.review_cli(self.proposal(), env=env)
-        self.assertEqual(len(self.judge_calls()), 4)
+        first = self.review_cli(self.proposal(), env=env)
+        calls = self.judge_calls()
+        rows = self.memory_rows()
+        diagnostic = (f"returncode={first.returncode}; rows="
+                      f"{[(row.get('judged'), row.get('degraded'), row.get('code')) for row in rows]}; "
+                      f"call_markers={calls}")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(len(calls), 4, diagnostic)
+        second = self.review_cli(self.proposal(), env=env)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        calls_after_second = self.judge_calls()
+        rows_after_second = self.memory_rows()
+        second_diagnostic = (f"returncode={second.returncode}; rows="
+                             f"{[(row.get('judged'), row.get('degraded'), row.get('code')) for row in rows_after_second]}; "
+                             f"call_markers={calls_after_second}")
+        self.assertEqual(len(calls_after_second), 4, second_diagnostic)
         self.assertTrue(self.memory_rows()[-1]["cache_hit"])
 
     def test_on_adds_the_advisors_block_and_the_route(self):
@@ -1031,7 +1044,22 @@ class Probe(unittest.TestCase):
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
         probe.close()
+        started = time.monotonic()
         result = jev_client.probe(openai(f"http://127.0.0.1:{port}"))
+        # Some Windows TCP stacks do not report the unused loopback port as
+        # refused until the bounded connect timeout expires.
+        self.assertEqual((result["checked"], result["ok"], result["requests"]),
+                         (True, False, 1))
+        self.assertIn(result["code"], ("provider_unreachable", "deadline_exceeded"))
+        self.assertLess(time.monotonic() - started, 1.8)
+
+    def test_connection_refusal_keeps_its_deterministic_transport_code(self):
+        class RefusingOpener:
+            def open(self, *_args, **_kwargs):
+                raise urllib.error.URLError(ConnectionRefusedError("synthetic refusal"))
+
+        with mock.patch.object(jev_client, "_opener", return_value=RefusingOpener()):
+            result = jev_client.probe(openai("http://127.0.0.1:8765"))
         self.assertEqual((result["checked"], result["ok"], result["code"], result["requests"]),
                          (True, False, "provider_unreachable", 1))
 
@@ -1101,8 +1129,14 @@ class Probe(unittest.TestCase):
         marker = self.root / "started"
         script = self.root / "judge-cmd"
         script.write_text(f"#!{sys.executable}\nopen({str(marker)!r}, 'w').close()\n")
-        if os.name != "nt": script.chmod(0o755)
-        found = jev_client.probe({"kind": "cmd", "argv": [str(script), "{questionnaire_file}"]})
+        if os.name != "nt":
+            script.chmod(0o755)
+            argv = [str(script), "{questionnaire_file}"]
+        else:
+            # Windows probe only resolves argv[0]; Python is the executable and
+            # the script remains an unstarted argument.
+            argv = [sys.executable, str(script), "{questionnaire_file}"]
+        found = jev_client.probe({"kind": "cmd", "argv": argv})
         self.assertEqual((found["checked"], found["ok"], found["code"]), (False, True, "ok"))
         missing = jev_client.probe({"kind": "cmd",
                                     "argv": [str(self.root / "absent"), "{questionnaire_file}"]})
@@ -1210,7 +1244,7 @@ class StatusCheck(Case):
         self.configure_loopback(f"http://127.0.0.1:{port}")
         done = self.cli("jev", "status", str(self.vault), "--check")
         self.assertEqual(done.returncode, 0, done.stderr)        # a check never fails status
-        self.assertIn("probe failed (provider_unreachable:", done.stdout)
+        self.assertRegex(done.stdout, r"probe failed \((provider_unreachable|deadline_exceeded):")
 
     def test_check_sends_nothing_when_the_advisor_is_off_or_killed(self):
         fake = self.server({"/health": (200, {})})

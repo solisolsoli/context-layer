@@ -435,7 +435,8 @@ class HarnessExamples(unittest.TestCase):
         self.assertEqual(documented, printed)
 
     def test_benchmark_fixture_numbers(self):
-        with tempfile.TemporaryDirectory(prefix="cl-fixture-out-") as out:
+        with tempfile.TemporaryDirectory(prefix="cl-fixture-out-") as parent:
+            out = str(Path(parent) / "output with spaces")
             printed = run_sh("bench_fixture.sh", cwd=REPO / "eval", OUT=out)
         hits_table = section(printed, "| System | hit rate", "| System | rubric total")
         rubric_table = printed[printed.index("| System | rubric total"):]

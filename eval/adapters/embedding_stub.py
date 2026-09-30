@@ -46,7 +46,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _common import (  # noqa: E402
-    add_common_args, clip, read_text, rel, render_packet, resolve_vault, walk_vault,
+    configure_stdout, add_common_args, clip, read_text, rel, render_packet, resolve_vault, walk_vault,
 )
 
 # ---------------------------------------------------------------------------
@@ -174,6 +174,7 @@ def save_cache(path: str | None, cache: dict) -> None:
 
 
 def main() -> int:
+    configure_stdout()
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     add_common_args(ap)

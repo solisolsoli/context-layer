@@ -71,7 +71,10 @@ class Base(unittest.TestCase):
         for name, text in NOTES.items():
             path = self.vault / name
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(text, encoding="utf-8")
+            # Hashes passed to record_delivery are over this exact UTF-8 LF
+            # fixture; write bytes so Windows text-mode newline translation
+            # cannot make the disk bytes disagree with those hashes.
+            path.write_bytes(text.encode("utf-8"))
         (self.vault / ".context").mkdir(exist_ok=True)
         (self.vault / ".context" / "routes.json").write_text(
             json.dumps({"routes": {}, "exclude_prefixes": []}), encoding="utf-8")

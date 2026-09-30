@@ -128,7 +128,8 @@ def plan(backend: str, *, prompt_file: Path, prompt_text: str = "", out_dir: Pat
                 "on stdin and prints one claude-style JSON object")
         argv = (sys.executable, script) if os.name == "nt" and script.lower().endswith(".py") \
             else (script,)
-        return Plan("fake", argv, script, "prompt",
+        binary = argv[0]
+        return Plan("fake", argv, binary, "prompt",
                     ("test backend: the script is the agent",))
 
     if backend == "claude":
@@ -137,7 +138,8 @@ def plan(backend: str, *, prompt_file: Path, prompt_text: str = "", out_dir: Pat
         # --max-budget-usd, --add-dir, --permission-mode, --no-session-persistence,
         # --disallowedTools, --bare, and `--settings <json>`; --strict-mcp-config is
         # documented on the MCP page. Checked against a test shim, never a real run.
-        argv = ["claude", "-p", CLAUDE_INSTRUCTION, "--output-format", "json"]
+        command = shutil.which("claude", path=environment.get("PATH")) or "claude"
+        argv = [command, "-p", CLAUDE_INSTRUCTION, "--output-format", "json"]
         notes = ["unverified: this command line is checked against a test shim; no test "
                  "runs a real claude binary",
                  "prompt.txt is piped on stdin; the argument is a fixed one-line instruction",
@@ -174,14 +176,15 @@ def plan(backend: str, *, prompt_file: Path, prompt_text: str = "", out_dir: Pat
             if host_context == "bare":
                 notes.append("--bare needs ANTHROPIC_API_KEY (or an apiKeyHelper in "
                              "--settings); OAuth login is not read")
-        return Plan("claude", tuple(argv), "claude", "prompt", tuple(notes), isolated=True)
+        return Plan("claude", tuple(argv), command, "prompt", tuple(notes), isolated=True)
 
     if backend == "codex":
         # From the public Codex docs (non-interactive mode and the CLI reference, read
         # 2026-09-28): exec runs in a read-only sandbox by default, needs a Git
         # repository unless --skip-git-repo-check, reads the prompt from stdin with
         # `-`, and prints JSON Lines with --json. Never run here.
-        argv = ["codex", "exec", "--sandbox", "workspace-write", "--skip-git-repo-check",
+        command = shutil.which("codex", path=environment.get("PATH")) or "codex"
+        argv = [command, "exec", "--sandbox", "workspace-write", "--skip-git-repo-check",
                 "--json", "--ephemeral", "--add-dir", str(out_dir)]
         if model:
             argv += ["--model", model]
@@ -194,7 +197,7 @@ def plan(backend: str, *, prompt_file: Path, prompt_text: str = "", out_dir: Pat
         if max_cost_usd is not None:
             notes.append("codex has no documented spend cap: the task's cap is checked "
                          "between attempts only")
-        return Plan("codex", tuple(argv), "codex", "prompt", tuple(notes), isolated=True)
+        return Plan("codex", tuple(argv), command, "prompt", tuple(notes), isolated=True)
 
     if backend == "cmd":
         if not cmd:

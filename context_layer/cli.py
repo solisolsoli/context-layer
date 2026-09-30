@@ -22,6 +22,10 @@ import sys
 from . import (__version__, brain, brief, doctor, graph, health, install, jev, mcp_server, memory,
                orchestrate, rules, session_show, tasks)
 from .vault_scan import print_report, render_config, scan_vault
+try:
+    from .router.textio import configure_stdout
+except ImportError:
+    from router.textio import configure_stdout
 
 
 def repo_home() -> Path:
@@ -422,6 +426,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_stdout()
     # Anything this wrapper does not define is forwarded verbatim to the script
     # underneath, so every flag documented in router/README.md and eval/README.md
     # keeps working through the CLI. A bare `--` separator is accepted and

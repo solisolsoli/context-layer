@@ -175,7 +175,7 @@ jobs:
 
   windows:
     name: python 3.12 on windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     runs-on: windows-latest
     defaults:
       run:

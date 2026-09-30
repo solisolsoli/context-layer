@@ -90,7 +90,10 @@ class RulesBase(unittest.TestCase):
         """Write a note; with future_days its mtime is pushed that many days ahead."""
         path = self.vault / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        if isinstance(text, bytes):
+            path.write_bytes(text)
+        else:
+            path.write_text(text, encoding="utf-8")
         if future_days:
             stamp = time.time_ns() + future_days * DAY_NS
             os.utime(path, ns=(stamp, stamp))
@@ -729,7 +732,7 @@ class Hooks(HookBase):
         self.start()
         path = self.vault / "notes" / "garden.md"
         data = path.read_bytes()
-        self.agent_wrote("notes/garden.md", text=data.decode("utf-8"))
+        self.agent_wrote("notes/garden.md", text=data)
         later = time.time_ns() + 5_000_000_000
         os.utime(path, ns=(later, later))
         self.assertIsNone(self.stop())

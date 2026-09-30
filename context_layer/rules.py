@@ -1197,14 +1197,13 @@ def _read_payload(raw: str) -> dict:
 def hook_groups(vault: Path, brief: bool = False, check_citations: bool = False) -> dict:
     """{event: hook group} for `.claude/settings.json`: SessionStart, PostToolUse (with a
     Write|Edit|MultiEdit|NotebookEdit matcher) and Stop, each one command hook."""
-    from . import install          # reuse the launcher resolution; install.py is not edited
-    prefix = "".join(f"{key}={shlex.quote(value)} " for key, value in install.launch_env().items())
+    from . import install          # reuse the launcher and platform-safe command serializer
     flags = {"SessionStart": ["--brief"] if brief else [], "PostToolUse": [],
              "Stop": ["--check-citations"] if check_citations else []}
     groups = {}
     for event, name in HOOK_EVENTS.items():
         argv = install.cli_argv(vault, "rules", "hook", name, *flags[event])
-        group: dict = {"hooks": [{"type": "command", "command": prefix + shlex.join(argv),
+        group: dict = {"hooks": [{"type": "command", "command": install.hook_command(argv),
                                   "timeout": HOOK_TIMEOUTS[event]}]}
         if event == "PostToolUse":
             group = {"matcher": POST_TOOL_MATCHER, **group}

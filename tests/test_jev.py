@@ -665,7 +665,9 @@ class HarborLights(Case):
         self.assertEqual(out["evidence"][:len(off["evidence"])], off["evidence"])
         extras = out["evidence"][len(off["evidence"]):]
         self.assertEqual([e["source_path"] for e in extras], ["people/Mira Holt.md"])
-        text = (self.vault / "people" / "Mira Holt.md").read_text(encoding="utf-8")
+        # Preserve the fixture's actual platform line endings for the byte-exact
+        # delivery comparison; Path.read_text normalizes CRLF on Windows.
+        text = (self.vault / "people" / "Mira Holt.md").read_bytes().decode("utf-8")
         sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
         reserved = synapse.reserved_passages("people/Mira Holt.md", text, sha, 0.25, [], [], [],
                                              set(), synapse.RESERVE_TOKENS)
@@ -1687,6 +1689,7 @@ class ConfigurationAndCommands(Case):
 
     def test_provider_blocks_follow_the_keys_each_kind_takes(self):
         base = {"schema_version": 1, "mode": "shadow"}
+        recording = str(self.vault / "rec.jsonl")
         good = [{"kind": "fake"}, {"kind": "fake", "label_only": True, "rounding": "2dp"},
                 {"kind": "systemone", "base_url": "https://judge.example", "model": "jev-1.13.0",
                  "key_env": "TYPESAFE_API_KEY", "rounding": "2dp"},
@@ -1696,16 +1699,16 @@ class ConfigurationAndCommands(Case):
                  "api_key_env": "LOCAL_KEY"},
                 {"kind": "host_cli", "model": "haiku", "max_budget_usd": 0.05},
                 {"kind": "cmd", "argv": ["/opt/judge", "{questionnaire_file}"]},
-                {"kind": "recorded", "recording": "/opt/rec.jsonl", "replays": {"kind": "fake"}}]
+                {"kind": "recorded", "recording": recording, "replays": {"kind": "fake"}}]
         bad = [{"kind": "fake", "key_env": "X_KEY"}, {"kind": "host_cli"},
                {"kind": "host_cli", "model": "haiku", "host_context": "bare"},
                {"kind": "host_cli", "model": "haiku", "max_budget_usd": 5},
                {"kind": "systemone", "base_url": "https://judge.example", "model": "m",
                 "key_env": "K_KEY", "profile": "2dp"},
                {"kind": "cmd", "argv": ["/opt/judge"]},
-               {"kind": "recorded", "recording": "/opt/rec.jsonl"},
-               {"kind": "recorded", "recording": "/opt/rec.jsonl",
-                "replays": {"kind": "recorded", "recording": "/opt/other.jsonl"}},
+               {"kind": "recorded", "recording": recording},
+               {"kind": "recorded", "recording": recording,
+                "replays": {"kind": "recorded", "recording": recording}},
                {"kind": "openai_compat", "base_url": "https://judge.example", "model": "m"}]
         for provider in good:
             self.assertIsNone(jev.validate({**base, "provider": provider}, self.vault)[1],

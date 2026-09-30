@@ -16,9 +16,7 @@ import tempfile
 import time
 import unittest
 
-from _portable_helpers import process_is_gone
-
-from _portable_helpers import isolated_home_env
+from _portable_helpers import isolated_home_env, process_is_gone, readable_hook_command
 
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
 RUNNER = REPO / "eval" / "live_compare.py"
@@ -61,9 +59,17 @@ case = prompt.split(" ")[0] if prompt else "?"
 settings = None
 if os.path.isfile(".claude/settings.json"):
     settings = json.loads(open(".claude/settings.json", encoding="utf-8").read())
+def readable(command):
+    if "-EncodedCommand " in command:
+        import base64
+        return base64.b64decode(command.rsplit(None, 1)[-1]).decode("utf-16le").replace("'", "")
+    return command
+hook_commands = [entry.get("command", "")
+                 for group in (settings or {}).get("hooks", {}).get("UserPromptSubmit", [])
+                 for entry in group.get("hooks", [])]
 if "--mcp-config" in argv:
     arm = "candidate"
-elif settings and "hook claude-code" in json.dumps(settings):
+elif any("hook claude-code" in readable(command) for command in hook_commands):
     arm = "hook"
 else:
     arm = "baseline"
@@ -378,9 +384,28 @@ class LiveCompare(unittest.TestCase):
         self.assertEqual(len(group), 1)
         command = group[0]["hooks"][0]
         self.assertEqual(command["type"], "command")
-        self.assertIn("hook claude-code", command["command"])
-        self.assertIn(str(self.vault), command["command"])
+        decoded = readable_hook_command(command["command"])
+        self.assertIn("hook claude-code", decoded)
+        self.assertIn(str(self.vault), decoded)
         self.assertFalse((self.vault / ".claude").exists())         # and gone afterwards
+
+    def test_fake_host_detects_an_encoded_windows_hook(self):
+        import base64
+
+        script = "& 'python.exe' 'context_layer.cli' 'hook' 'claude-code'"
+        encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+        command = ("powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand "
+                   + encoded)
+        settings = self.vault / ".claude" / "settings.json"
+        settings.parent.mkdir()
+        settings.write_text(json.dumps({"hooks": {"UserPromptSubmit": [{"hooks": [
+            {"type": "command", "command": command}]}]}}), encoding="utf-8")
+        environment = isolated_home_env(os.environ, self.home)
+        environment["FAKE_HOST_LOG"] = str(self.log)
+        done = subprocess.run([sys.executable, str(self.fake), "-p", "H01 probe"],
+                              cwd=self.vault, env=environment, capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(json.loads(self.log.read_text(encoding="utf-8"))["arm"], "hook")
 
     def test_hook_arm_merges_and_restores_existing_project_settings(self):
         settings = self.vault / ".claude" / "settings.json"

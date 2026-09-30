@@ -210,6 +210,12 @@ def assert_private_path(testcase, path, *, directory=False):
                                 ctypes.byref(descriptor))
     testcase.assertEqual(status, 0, f"GetNamedSecurityInfoW failed: {status}")
     try:
+        owner_text = wintypes.LPWSTR()
+        testcase.assertTrue(sid_to_string(owner, ctypes.byref(owner_text)))
+        try:
+            owner_sid = owner_text.value
+        finally:
+            local_free(ctypes.cast(owner_text, ctypes.c_void_p))
         control = wintypes.WORD()
         revision = wintypes.DWORD()
         testcase.assertTrue(get_control(descriptor, ctypes.byref(control), ctypes.byref(revision)))
@@ -233,6 +239,9 @@ def assert_private_path(testcase, path, *, directory=False):
             principals.add(principal)
             testcase.assertEqual(ace.Mask & 0x001F01FF, 0x001F01FF,
                                 f"principal {principal} lacks full private access")
-        testcase.assertEqual(principals, {"S-1-3-4", "S-1-5-18"})
+        # A protected DACL naming the actual owner and SYSTEM is the Windows
+        # equivalent of a private file; GetNamedSecurityInfo reports the owner
+        # SID here, not the Owner Rights well-known SID.
+        testcase.assertEqual(principals, {owner_sid, "S-1-5-18"})
     finally:
         local_free(descriptor)

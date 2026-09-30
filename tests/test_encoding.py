@@ -8,8 +8,13 @@ this test and is named, with its file and line. The scan is syntactic (`ast`), s
 needs no locale, no vault and no network.
 """
 import ast
+import io
 from pathlib import Path
+import sys
 import unittest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from router.textio import configure_stdout
 
 REPO = Path(__file__).resolve().parent.parent
 ROOTS = ("context_layer", "router", "eval", "scripts")
@@ -50,6 +55,21 @@ def text_calls_without_encoding(source: str) -> list[int]:
 
 
 class RuntimeTextIoNamesItsEncoding(unittest.TestCase):
+    def test_stdout_preserves_verbatim_crlf_under_windows_translation(self):
+        raw = io.BytesIO()
+        stream = io.TextIOWrapper(raw, encoding="ascii", newline="\r\n")
+        configure_stdout(stream)
+        print("# Generated\n# Source\r\nna\u00efve caf\u00e9\r\n", file=stream)
+        stream.flush()
+        self.assertEqual(raw.getvalue(),
+                         "# Generated\n# Source\r\nna\u00efve caf\u00e9\r\n\n".encode("utf-8"))
+
+    def test_in_memory_stdout_does_not_require_a_binary_stream(self):
+        stream = io.StringIO()
+        configure_stdout(stream)
+        print("source\r\n", file=stream)
+        self.assertEqual(stream.getvalue(), "source\r\n\n")
+
     def test_no_runtime_call_relies_on_the_locale_encoding(self):
         offenders = []
         for root in ROOTS:

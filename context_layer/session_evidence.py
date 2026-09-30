@@ -45,14 +45,16 @@ Python 3.10+; standard library only; no network access.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import errno
 import hashlib
 import importlib
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import stat
 import sys
-from .platform_support import file_lock, set_private_permissions
+from .platform_support import file_lock, is_link_or_reparse, set_private_permissions
 
 SCHEMA = "session-evidence/v1"
 LEDGER_PARTS = (".context", "session-evidence")
@@ -211,7 +213,7 @@ def record_delivery(vault, session_id: str | None, items, packet_id: str | None 
         return {"written": 0, "skipped": len(items), "ledger": None,
                 "reason": "no session id (hook input or CLAUDE_CODE_SESSION_ID)"}
     folder = root.joinpath(*LEDGER_PARTS)
-    if require_folder and (folder.is_symlink() or not folder.is_dir()):
+    if require_folder and (is_link_or_reparse(folder) or not folder.is_dir()):
         return {"written": 0, "skipped": len(items), "ledger": None,
                 "reason": "no .context/session-evidence/ directory (the ledger is opt-in)"}
     if packet_id is not None and (not isinstance(packet_id, str)
@@ -252,6 +254,14 @@ def record_delivery(vault, session_id: str | None, items, packet_id: str | None 
             fd = os.open(target, os.O_WRONLY | os.O_APPEND | os.O_CREAT
                          | getattr(os, "O_NOFOLLOW", 0), 0o600)
             try:
+                opened = os.fstat(fd)
+                on_path = os.stat(target, follow_symlinks=False)
+                if (not stat.S_ISREG(opened.st_mode) or not stat.S_ISREG(on_path.st_mode)
+                        or not os.path.samestat(opened, on_path)
+                        or (os.name == "nt"
+                            and getattr(on_path, "st_file_attributes", 0) & 0x400)):
+                    raise OSError(errno.ELOOP, "ledger path is not a stable regular file",
+                                  str(target))
                 set_private_permissions(fd, target)
                 size = os.fstat(fd).st_size
                 if size + len(data) > MAX_LEDGER_BYTES:

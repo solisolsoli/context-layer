@@ -9,6 +9,9 @@
 
 - Portable file locks, private file handling and process-tree cleanup for Windows;
   portable test fixtures and installed-wheel checks. Windows CI is required.
+  Verbatim CRLF evidence is preserved in console and saved packets. Encoded
+  hook commands can be inspected and uninstalled without executing them.
+  Advisor expiration waits for private temporary-directory cleanup to finish.
 
 - Optional GitHub evidence for knowledge gaps: `github-context`,
   `search --github` and an MCP tool. Owner-enabled allowlists, commit-pinned

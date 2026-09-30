@@ -205,14 +205,113 @@ def hook_entry(vault: Path, method: str = "fts", budget_tokens: "int | None" = N
 
 def is_ours(command: str) -> bool:
     """Recognise a prompt hook this tool installed, whatever vault or launcher it names."""
-    return ("hook claude-code" in command or "hook codex" in command) and (
-        "context-layer" in command or "context_layer" in command)
+    parsed = parse_powershell_hook(command)
+    if parsed is not None:
+        _env, argv = parsed
+        tail = _context_layer_tail(argv)
+        return tail is not None and tail[:2] in (["hook", "claude-code"],
+                                                 ["hook", "codex"])
+    text = command
+    return ("hook claude-code" in text or "hook codex" in text) and (
+        "context-layer" in text or "context_layer" in text)
 
 
 def is_ours_rules(command: str) -> bool:
     """Recognise a `rules hook <event>` entry this tool installed."""
-    return "rules hook " in command and ("context-layer" in command
-                                         or "context_layer" in command)
+    parsed = parse_powershell_hook(command)
+    if parsed is not None:
+        _env, argv = parsed
+        tail = _context_layer_tail(argv)
+        return tail is not None and tail[:2] == ["rules", "hook"]
+    text = command
+    return "rules hook " in text and ("context-layer" in text
+                                      or "context_layer" in text)
+
+
+def _context_layer_tail(argv: list[str]) -> list[str] | None:
+    """Return hook arguments only for this package's console or Python launcher."""
+    if not argv:
+        return None
+    executable = argv[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if executable in ("context-layer", "context-layer.exe"):
+        return argv[1:]
+    if (executable.startswith("python") and executable.endswith(".exe")
+            and argv[1:3] == ["-m", "context_layer.cli"]):
+        return argv[3:]
+    return None
+
+
+def parse_powershell_hook(command: str):
+    """Parse only hook_command's literal-only EncodedCommand form; never execute it."""
+    try:
+        tokens = shlex.split(command, posix=False)
+        if (len(tokens) != 6 or Path(tokens[0].strip('"')).name.lower() != "powershell.exe"
+                or tokens[1:4] != ["-NoLogo", "-NoProfile", "-NonInteractive"]
+                or tokens[4] != "-EncodedCommand"):
+            return None
+        script = base64.b64decode(tokens[5], validate=True).decode("utf-16le")
+    except (UnicodeDecodeError, ValueError, OSError):
+        return None
+    env = {}
+    index = 0
+
+    def space():
+        nonlocal index
+        while index < len(script) and script[index].isspace():
+            index += 1
+
+    def literal():
+        nonlocal index
+        space()
+        if index >= len(script) or script[index] != "'":
+            raise ValueError("expected a PowerShell single-quoted literal")
+        index += 1
+        value = []
+        while index < len(script):
+            char = script[index]
+            index += 1
+            if char == "'":
+                if index < len(script) and script[index] == "'":
+                    value.append("'")
+                    index += 1
+                    continue
+                return "".join(value)
+            value.append(char)
+        raise ValueError("unterminated PowerShell literal")
+
+    try:
+        while script.startswith("$env:", index):
+            end = script.find("=", index + 5)
+            if end < 0:
+                return None
+            name = script[index + 5:end]
+            if not name or any(not (char.isalnum() or char == "_") for char in name):
+                return None
+            index = end + 1
+            env[name] = literal()
+            space()
+            if not script.startswith(";", index):
+                return None
+            index += 1
+            space()
+        if not script.startswith("&", index):
+            return None
+        index += 1
+        argv = []
+        while True:
+            space()
+            if script.startswith("; exit $LASTEXITCODE", index):
+                index += len("; exit $LASTEXITCODE")
+                space()
+                if index != len(script):
+                    return None
+                break
+            argv.append(literal())
+        if not argv:
+            return None
+        return env, argv
+    except ValueError:
+        return None
 
 
 def mine(command: str) -> bool:

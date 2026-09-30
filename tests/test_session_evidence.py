@@ -202,7 +202,7 @@ class Ledger(EvidenceBase):
                 stamp = time.time() - 100 + index
                 os.utime(path, (stamp, stamp))
         names = sorted(p.name for p in (self.vault / ".context" / "session-evidence").iterdir())
-        self.assertEqual(names, ["s2.jsonl", "s3.jsonl", "s4.jsonl"])
+        self.assertEqual(names, [".session-evidence.lock", "s2.jsonl", "s3.jsonl", "s4.jsonl"])
 
     def test_concurrent_writers_never_interleave(self):
         script = ("import sys\nfrom context_layer import session_evidence as se\n"

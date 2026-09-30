@@ -1,6 +1,8 @@
 """Native, adversarial checks for shared Windows/POSIX runtime primitives."""
 from __future__ import annotations
 
+import base64
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -22,6 +24,7 @@ from context_layer.platform_support import (
     set_private_path,
     verify_private_path,
 )
+from context_layer import backends, install
 
 
 def _python_env():
@@ -56,8 +59,11 @@ class PlatformSupport(unittest.TestCase):
                 self.fail("second process acquired a held lock")
         self.assertEqual(process.wait(timeout=5), 0)
         with file_lock(lock, timeout=1):
-            self.assertIn(lock.read_bytes(), (b"", b"\0"))
-            verify_private_path(lock)
+            self.assertTrue(lock.exists())
+        # Windows byte-range locking can deny an independent read handle while
+        # the lock is held; inspect the initialized byte after releasing it.
+        self.assertIn(lock.read_bytes(), (b"", b"\0"))
+        verify_private_path(lock)
 
     def test_file_lock_recovers_when_process_dies_while_holding_lock(self):
         lock = self.root / "crash.lock"
@@ -96,14 +102,54 @@ class PlatformSupport(unittest.TestCase):
         target = self.root / "target-dir"
         junction = self.root / "junction-dir"
         target.mkdir()
-        command = f'mklink /J "{junction}" "{target}"'
-        result = subprocess.run(["cmd.exe", "/d", "/c", command],
+        command = f'cmd.exe /d /c mklink /J "{junction}" "{target}"'
+        result = subprocess.run(command,
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue(junction.is_dir())
         self.assertTrue(is_link_or_reparse(junction))
         with self.assertRaises(OSError):
             set_private_path(junction, directory=True)
+
+    def test_encoded_hook_ownership_requires_the_context_layer_launcher(self):
+        def command(script):
+            encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+            return ("powershell.exe -NoLogo -NoProfile -NonInteractive "
+                    f"-EncodedCommand {encoded}")
+
+        ours = command("& 'C:\\Python\\python.exe' '-m' 'context_layer.cli' "
+                       "'hook' 'claude-code' '--vault' 'C:\\vault'; exit $LASTEXITCODE")
+        embedded_text_only = command("& 'echo' 'context_layer' 'hook' 'claude-code'; "
+                                     "exit $LASTEXITCODE")
+        nested_hook_words = command("& 'C:\\Program Files\\context-layer.exe' "
+                                   "'github-sources' 'hook' 'claude-code'; "
+                                   "exit $LASTEXITCODE")
+        self.assertTrue(install.is_ours(ours))
+        self.assertFalse(install.is_ours(embedded_text_only))
+        self.assertFalse(install.is_ours(nested_hook_words))
+
+    def test_windows_host_plan_resolves_cmd_shim_and_preserves_json_arguments(self):
+        if os.name != "nt":
+            self.skipTest("Windows host command-script regression")
+        program = self.root / "claude shim.py"
+        command = self.root / "claude.cmd"
+        program.write_text(
+            "import json,sys; print(json.dumps(sys.argv[1:], ensure_ascii=True))\n",
+            encoding="utf-8", newline="\n")
+        command.write_text(f'@"{sys.executable}" "{program}" %*\r\n',
+                           encoding="utf-8", newline="")
+        plan = backends.plan("claude", prompt_file=self.root / "prompt.txt",
+                             out_dir=self.root / "out", env={"PATH": str(self.root)})
+        self.assertEqual(Path(plan.argv[0]), command)
+        with managed_process_tree(plan.argv, env=_python_env(),
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True) as child:
+            stdout, stderr = child.communicate(timeout=10)
+        self.assertEqual(child.returncode, 0, stderr)
+        argv = json.loads(stdout)
+        self.assertEqual(argv[argv.index("-p") + 1], backends.CLAUDE_INSTRUCTION)
+        self.assertEqual(json.loads(argv[argv.index("--settings") + 1]),
+                         json.loads(backends.CLAUDE_SETTINGS))
 
     def test_private_staging_is_secured_before_content_and_atomic_write_keeps_lf(self):
         fd, path = private_tempfile(self.root, prefix="private-")

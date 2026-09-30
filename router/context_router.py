@@ -30,10 +30,12 @@ from typing import Any, Iterable
 try:
     from . import index_format, textfold
     from .source_policy import excluded, load_config, source_path
+    from .textio import configure_stdout
 except ImportError:
     import index_format
     import textfold
     from source_policy import excluded, load_config, source_path
+    from textio import configure_stdout
 
 
 # ---------------------------------------------------------------------------
@@ -934,7 +936,7 @@ def materialize_candidate(
                 scope = section_scope
             else:
                 overflow = overflow_dir / f"{sha256_bytes(candidate.source_path.encode())[:12]}__section.txt"
-                overflow.write_text(section, encoding="utf-8")
+                overflow.write_text(section, encoding="utf-8", newline="")
                 content = candidate.content
                 scope = "exact_index_chunk; complete_section_in_overflow"
                 notes.append(f"Complete selected section exceeds the inline limit and is stored at {overflow}.")
@@ -1647,7 +1649,7 @@ def run(args: argparse.Namespace, resources: ExitStack) -> int:
         overflow_sha = ""
         if not inlined:
             overflow = overflow_dir / f"{evidence_id}__{sha256_bytes(candidate.source_path.encode())[:12]}.txt"
-            overflow.write_text(content, encoding="utf-8")
+            overflow.write_text(content, encoding="utf-8", newline="")
             overflow_path = str(overflow)
             overflow_sha = sha256_file(overflow)
             omitted.append({
@@ -1775,22 +1777,22 @@ def run(args: argparse.Namespace, resources: ExitStack) -> int:
             "prompt": prompt,
             "prompt_sha256": sha256_bytes(prompt.encode("utf-8")),
             "created_at": now.isoformat(),
-        }, ensure_ascii=False, indent=2), encoding="utf-8")
+        }, ensure_ascii=False, indent=2), encoding="utf-8", newline="")
         (run_dir / "routing.json").write_text(json.dumps({
             "parsed": parsed,
             "query_log": query_log,
             "query_errors": query_errors,
             "canonical_issues": canonical_issues,
-        }, ensure_ascii=False, indent=2), encoding="utf-8")
-        with (run_dir / "evidence.jsonl").open("w", encoding="utf-8") as handle:
+        }, ensure_ascii=False, indent=2), encoding="utf-8", newline="")
+        with (run_dir / "evidence.jsonl").open("w", encoding="utf-8", newline="") as handle:
             for item in evidence:
                 record = asdict(item)
                 record.pop("content")
                 handle.write(json.dumps(record, ensure_ascii=False) + "\n")
-        (run_dir / "omitted.json").write_text(json.dumps(omitted, ensure_ascii=False, indent=2), encoding="utf-8")
-        (run_dir / "context.md").write_text(packet, encoding="utf-8")
-        (run_dir / "run.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-        (run_dir / "SUBAGENT_BRIEF.md").write_text(SUBAGENT_BRIEF, encoding="utf-8")
+        (run_dir / "omitted.json").write_text(json.dumps(omitted, ensure_ascii=False, indent=2), encoding="utf-8", newline="")
+        (run_dir / "context.md").write_text(packet, encoding="utf-8", newline="")
+        (run_dir / "run.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8", newline="")
+        (run_dir / "SUBAGENT_BRIEF.md").write_text(SUBAGENT_BRIEF, encoding="utf-8", newline="")
 
     if args.evidence_json:
         # This is the actual delivered evidence, not a metadata-only ledger.
@@ -1828,6 +1830,7 @@ def run(args: argparse.Namespace, resources: ExitStack) -> int:
 
 
 def main(argv: "list[str] | None" = None) -> int:
+    configure_stdout()
     args = build_parser().parse_args(argv)
     try:
         with ExitStack() as resources:

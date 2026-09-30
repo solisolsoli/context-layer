@@ -40,7 +40,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _common import (  # noqa: E402
-    add_common_args, clip, query_terms, read_text, rel, render_packet,
+    configure_stdout, add_common_args, clip, query_terms, read_text, rel, render_packet,
     resolve_vault, walk_vault,
 )
 
@@ -86,6 +86,7 @@ def count_in_python(term: str, files: list[str], cache: dict[str, str]) -> dict[
 
 
 def main() -> int:
+    configure_stdout()
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     add_common_args(ap)

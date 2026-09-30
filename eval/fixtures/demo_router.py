@@ -26,6 +26,10 @@ import argparse
 import hashlib
 import re
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "router"))
+from textio import configure_stdout  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 DOCS = HERE / "docs"
@@ -136,6 +140,7 @@ def render_packet(prompt: str, chosen: list[Path]) -> str:
 
 
 def main() -> int:
+    configure_stdout()
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--docs", default=str(DOCS), help="document directory")

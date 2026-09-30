@@ -11,8 +11,16 @@ Stdlib only. Adapters never write to the vault.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import re
 import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "router"))
+from textio import configure_stdout as _configure_stdout  # noqa: E402
+
+
+def configure_stdout() -> None:
+    _configure_stdout()
 
 # A deliberately short stop list. It is not linguistics; it is the handful of
 # words that otherwise match every document in any vault and make a lexical

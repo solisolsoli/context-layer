@@ -17,31 +17,33 @@ rm -f "$OUT"/.eval-fts-index.sqlite3
 
 run() {  # run <label> <command...>
   label="$1"; shift
-  python3 evaluate.py --command "$*" --stimuli "$STIM" \
+  command=$(python3 -c 'import shlex, sys; print(shlex.join(sys.argv[1:]))' "$@")
+  python3 evaluate.py --command "$command" --stimuli "$STIM" \
     --out "$OUT/$label.json" --quiet > "$OUT/$label.txt" 2>&1
   printf '  measured %s\n' "$label" >&2
 }
 
 echo "Measuring on $STIM ..." >&2
-run grep-k3      "python3 adapters/grep_baseline.py --vault fixtures/docs --top-k 3"
-run grep-k6      "python3 adapters/grep_baseline.py --vault fixtures/docs --top-k 6"
-run fts-k3       "python3 adapters/fts_sqlite.py --vault fixtures/docs --top-k 3 --index $OUT/.eval-fts-index.sqlite3"
-run fts-k6       "python3 adapters/fts_sqlite.py --vault fixtures/docs --top-k 6 --index $OUT/.eval-fts-index.sqlite3"
-run router       "python3 fixtures/demo_router.py"
-run router-full  "python3 fixtures/demo_router.py --full"
+run grep-k3      python3 adapters/grep_baseline.py --vault fixtures/docs --top-k 3
+run grep-k6      python3 adapters/grep_baseline.py --vault fixtures/docs --top-k 6
+run fts-k3       python3 adapters/fts_sqlite.py --vault fixtures/docs --top-k 3 --index "$OUT/.eval-fts-index.sqlite3"
+run fts-k6       python3 adapters/fts_sqlite.py --vault fixtures/docs --top-k 6 --index "$OUT/.eval-fts-index.sqlite3"
+run router      python3 fixtures/demo_router.py
+run router-full python3 fixtures/demo_router.py --full
 
 echo "Scoring the 7-axis rubric on the 6 example cases ..." >&2
 rubric() {  # rubric <label> <command...>
   label="$1"; shift
-  python3 fixtures/gen_packets.py --cases cases.example.json --command "$*" \
+  command=$(python3 -c 'import shlex, sys; print(shlex.join(sys.argv[1:]))' "$@")
+  python3 fixtures/gen_packets.py --cases cases.example.json --command "$command" \
     --out-dir "$OUT/packets-$label" > /dev/null
   python3 score_packet.py --cases cases.example.json \
     --batch-dir "$OUT/packets-$label" --out "$OUT/rubric-$label.json" > /dev/null
   printf '  scored %s\n' "$label" >&2
 }
-rubric grep   "python3 adapters/grep_baseline.py --vault fixtures/docs --top-k 3"
-rubric fts    "python3 adapters/fts_sqlite.py --vault fixtures/docs --top-k 3 --index $OUT/.eval-fts-index.sqlite3"
-rubric router "python3 fixtures/demo_router.py"
+rubric grep   python3 adapters/grep_baseline.py --vault fixtures/docs --top-k 3
+rubric fts    python3 adapters/fts_sqlite.py --vault fixtures/docs --top-k 3 --index "$OUT/.eval-fts-index.sqlite3"
+rubric router python3 fixtures/demo_router.py
 
 python3 - "$OUT" <<'PY'
 import json, sys, pathlib

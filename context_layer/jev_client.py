@@ -136,7 +136,7 @@ import urllib.request
 
 from . import __version__, backends
 from . import jev_contracts as contracts
-from .platform_support import managed_process_tree, private_tempdir
+from .platform_support import is_link_or_reparse, managed_process_tree, private_tempdir
 
 PROVIDER_KINDS = ("systemone", "openai_compat", "host_cli", "cmd", "recorded", "fake")
 RECORDING_CONTRACT = "jev-recording/v1"
@@ -362,7 +362,7 @@ def _read_env_file(env_file, vault) -> str:
     if not isinstance(raw, str) or not raw or not os.path.isabs(raw):
         raise KeyConfigError("env_file_not_absolute")
     try:
-        if stat.S_ISLNK(os.lstat(raw).st_mode):
+        if is_link_or_reparse(raw):
             raise KeyConfigError("env_file_symlink")
         resolved = Path(raw).resolve(strict=True)
     except OSError:
@@ -376,7 +376,17 @@ def _read_env_file(env_file, vault) -> str:
             raise KeyConfigError("env_file_inside_vault")
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
+        # Windows may reject opening a directory before fstat can classify it.
+        # Check the leaf without following it, then keep the descriptor check
+        # below to catch a replacement between this check and open().
+        leaf = os.stat(raw, follow_symlinks=False)
+        if not stat.S_ISREG(leaf.st_mode):
+            raise KeyConfigError("env_file_not_regular")
+        if leaf.st_size > MAX_ENV_FILE_BYTES:
+            raise KeyConfigError("env_file_too_large")
         descriptor = os.open(raw, flags)
+    except KeyConfigError:
+        raise
     except OSError:
         raise KeyConfigError("env_file_unreadable") from None
     try:
@@ -727,18 +737,22 @@ class _Run:
 
     def workdir(self) -> str:
         """A fresh private (0700) directory outside the vault, removed by discard/expire."""
-        path = str(private_tempdir(prefix="context-layer-jev-"))
         with self._lock:
-            if not self._expired:
-                self._workdirs.add(path)
-                return path
-        shutil.rmtree(path, ignore_errors=True)
-        raise _Failure("deadline_exceeded", 0)
+            if self._expired:
+                raise _Failure("deadline_exceeded", 0)
+            # Allocate while holding the tracking lock, so expire() cannot finish
+            # between creation and registration of this private directory.
+            path = str(private_tempdir(prefix="context-layer-jev-"))
+            self._workdirs.add(path)
+            return path
 
     def discard(self, path: str) -> None:
         with self._lock:
             self._workdirs.discard(path)
-        shutil.rmtree(path, ignore_errors=True)
+            # Keep removal in the same critical section as untracking. Otherwise
+            # expire() can see no tracked directory, return, and let an abandoned
+            # call leave this path behind until the worker reaches rmtree.
+            shutil.rmtree(path, ignore_errors=True)
 
     def expire(self) -> None:
         """Kill late children and remove their directories before evaluate returns, so an
@@ -1072,7 +1086,14 @@ def _load_recording(path: str) -> dict:
     """Index a recording by key; any malformed line refuses the whole file."""
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
+        if is_link_or_reparse(path):
+            raise _Failure("recording_invalid", 0)
+        leaf = os.stat(path, follow_symlinks=False)
+        if not stat.S_ISREG(leaf.st_mode) or leaf.st_size > MAX_RECORDING_BYTES:
+            raise _Failure("recording_invalid", 0)
         descriptor = os.open(path, flags)
+    except _Failure:
+        raise
     except OSError:
         raise _Failure("recording_invalid", 0) from None
     try:

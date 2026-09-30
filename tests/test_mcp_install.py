@@ -843,8 +843,6 @@ class InstallClaudeCode(HostFixture):
     @unittest.skipUnless(os.name == "nt", "requires the native Windows PowerShell and cmd shells")
     def test_windows_hook_round_trips_utf8_and_preserves_exit_two(self):
         """Exercise the installed EncodedCommand through cmd.exe with Windows-special paths."""
-        import base64
-
         special_vault = self.root / "vault space ' apostrophe & percent % dollar $"
         shutil.copytree(self.vault, special_vault)
         (special_vault / "notes" / "utf8.md").write_text(
@@ -875,15 +873,13 @@ class InstallClaudeCode(HostFixture):
         self.assertIn("\u6771\u4eac", response["hookSpecificOutput"]["additionalContext"])
         self.assertIn("caf\u00e9", response["hookSpecificOutput"]["additionalContext"])
 
-        # Unknown CLI arguments return argparse's 2. Preserve that status through the
-        # PowerShell EncodedCommand wrapper rather than turning it into a success.
-        tokens = command.split()
-        script = base64.b64decode(tokens[-1]).decode("utf-16le")
-        ending = "; exit $LASTEXITCODE"
-        self.assertTrue(script.endswith(ending), script)
-        script = script[:-len(ending)] + " '--future-flag'; exit $LASTEXITCODE"
-        tokens[-1] = base64.b64encode(script.encode("utf-16le")).decode("ascii")
-        bad = subprocess.run(" ".join(tokens), shell=True, cwd=REPO,
+        # Exercise exact exit-code transport separately from hook's own error
+        # conventions, using the same production PowerShell command serializer.
+        from context_layer import install
+        exit_two = install.hook_command(
+            [sys.executable, "-c", "import sys; sys.exit(2)"])
+        self.assertIn("-EncodedCommand", exit_two)
+        bad = subprocess.run(exit_two, shell=True, cwd=REPO,
                              env=isolated_home_env(os.environ, self.home),
                              input="{}", capture_output=True, text=True,
                              encoding="utf-8", timeout=30)
@@ -1214,7 +1210,11 @@ class InstallCodex(HostFixture):
         self.assertIn("# >>> context-layer >>>", written)
         self.assertIn("# <<< context-layer <<<", written)
         self.assertIn("[mcp_servers.context_layer]", written)
-        self.assertIn(str(self.vault), written)
+        if tomllib is not None:
+            args = tomllib.loads(written)["mcp_servers"]["context_layer"]["args"]
+            self.assertIn(str(self.vault), args)
+        else:  # Python 3.10 has no tomllib; TOML basic strings escape like JSON here.
+            self.assertIn(json.dumps(str(self.vault))[1:-1], written)
         self.assertIn("expected but unverified", done.stderr)
         removed = self.cli("uninstall", "codex", "--vault", str(self.vault), "--apply")
         self.assertEqual(removed.returncode, 0, removed.stderr)

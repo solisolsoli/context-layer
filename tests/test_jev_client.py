@@ -789,7 +789,9 @@ class HostCli(ProgramCase):
         self.assertTrue(result["ok"], result)
         record = json.loads(self.log.read_text(encoding="utf-8"))
         argv = record["argv"]
-        self.assertEqual(os.path.basename(argv[0]), "claude")
+        # The Windows .cmd shim launches the .py fixture through Python; the
+        # recorded child's sys.argv[0] is the script path rather than the shim.
+        self.assertEqual(os.path.basename(argv[0]), "claude.py" if os.name == "nt" else "claude")
         self.assertEqual(argv, [argv[0], "-p", jev_client.HOST_CLI_INSTRUCTION,
                                 "--model", "haiku", "--output-format", "json",
                                 "--json-schema", argv[8], "--tools", "",
@@ -883,6 +885,81 @@ class CmdAndFake(ProgramCase):
         self.assertEqual(result["code"], "deadline_exceeded")
         # Checked at once: the questionnaire file (vault text) must not outlive the call.
         self.assertEqual(jev_temp_dirs(), before)
+
+    def test_expire_waits_for_inflight_private_directory_cleanup(self):
+        run_state = jev_client._Run(time.monotonic() + 30)
+        workdir = Path(run_state.workdir())
+        private_file = workdir / "questionnaire.json"
+        private_file.write_text("synthetic private fixture", encoding="utf-8")
+        entered_rmtree = threading.Event()
+        release_rmtree = threading.Event()
+        expire_lock_checked = threading.Event()
+        expire_returned = threading.Event()
+        expire_lock_result = []
+        errors = []
+        native_lock = run_state._lock
+
+        class ObservableLock:
+            def __enter__(self):
+                if threading.current_thread().name == "expire-under-test":
+                    acquired = native_lock.acquire(blocking=False)
+                    expire_lock_result.append(acquired)
+                    expire_lock_checked.set()
+                    if not acquired:
+                        native_lock.acquire()
+                else:
+                    native_lock.acquire()
+                return self
+
+            def __exit__(self, *_exc):
+                native_lock.release()
+
+        run_state._lock = ObservableLock()
+        real_rmtree = shutil.rmtree
+
+        def controlled_rmtree(path, *args, **kwargs):
+            if Path(path) == workdir and not entered_rmtree.is_set():
+                entered_rmtree.set()
+                if not release_rmtree.wait(10):
+                    raise TimeoutError("test cleanup barrier was not released")
+            return real_rmtree(path, *args, **kwargs)
+
+        def discard():
+            try:
+                run_state.discard(str(workdir))
+            except BaseException as exc:
+                errors.append(exc)
+
+        def expire():
+            try:
+                run_state.expire()
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                expire_returned.set()
+
+        discard_thread = threading.Thread(target=discard, name="discard-under-test")
+        expire_thread = threading.Thread(target=expire, name="expire-under-test")
+        with mock.patch.object(jev_client.shutil, "rmtree", controlled_rmtree):
+            discard_thread.start()
+            try:
+                self.assertTrue(entered_rmtree.wait(5), "discard never began private cleanup")
+                expire_thread.start()
+                self.assertTrue(expire_lock_checked.wait(5), "expire never attempted its lock")
+                self.assertEqual(expire_lock_result, [False],
+                                 "expire passed the cleanup still in progress")
+                self.assertFalse(expire_returned.is_set(),
+                                 "expire returned before private cleanup completed")
+            finally:
+                release_rmtree.set()
+                discard_thread.join(10)
+                if expire_thread.ident is not None:
+                    expire_thread.join(10)
+        self.assertFalse(discard_thread.is_alive(), "discard did not finish")
+        self.assertFalse(expire_thread.is_alive(), "expire did not finish")
+        self.assertEqual(errors, [])
+        self.assertTrue(expire_returned.is_set())
+        self.assertFalse(workdir.exists(), "private workdir survived cleanup")
 
     def test_cmd_template_and_failures(self):
         no_placeholder = {"kind": "cmd", "argv": [sys.executable, "-c", "print(1)"]}

@@ -22,6 +22,7 @@ from source_policy import (SymlinkSource, config_exclusions, exclusion_matcher, 
 import context_router
 import index_format
 import textfold
+from textio import configure_stdout
 
 METHODS = ['grep', 'fts', 'fts-canonical', 'router', 'synaptic']
 
@@ -590,6 +591,7 @@ def fts_tail_items(connection, vault, prefixes, name, size, args):
 
 
 def main(argv=None):
+    configure_stdout()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--method', required=True, choices=METHODS)
     parser.add_argument('--vault', required=True, type=Path)

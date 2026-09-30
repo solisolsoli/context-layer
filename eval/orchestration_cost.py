@@ -139,7 +139,7 @@ def generate(vault: Path) -> None:
     for name, text in files.items():
         path = vault / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        path.write_text(text, encoding="utf-8", newline="")
     (vault / ".context").mkdir(exist_ok=True)
     (vault / ".context" / "routes.json").write_text(json.dumps(ROUTES), encoding="utf-8")
 

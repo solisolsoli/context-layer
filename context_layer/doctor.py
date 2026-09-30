@@ -14,7 +14,6 @@ Python 3.10+; standard library only (tomllib, when present, on 3.11+).
 from __future__ import annotations
 
 import argparse
-import base64
 import contextlib
 import io
 import json
@@ -93,74 +92,7 @@ def split_command(command: str) -> tuple[dict, list[str]]:
 
 def _split_powershell_hook(command: str):
     """Parse only install.py's deterministic EncodedCommand grammar; run no shell."""
-    try:
-        tokens = shlex.split(command, posix=False)
-        if (len(tokens) != 6 or Path(tokens[0].strip('"')).name.lower() != "powershell.exe"
-                or tokens[1:4] != ["-NoLogo", "-NoProfile", "-NonInteractive"]
-                or tokens[4] != "-EncodedCommand"):
-            return None
-        script = base64.b64decode(tokens[5], validate=True).decode("utf-16le")
-    except (ValueError, IndexError):
-        return None
-    env = {}
-    index = 0
-
-    def space():
-        nonlocal index
-        while index < len(script) and script[index].isspace():
-            index += 1
-
-    def literal():
-        nonlocal index
-        space()
-        if index >= len(script) or script[index] != "'":
-            raise ValueError("expected a PowerShell single-quoted literal")
-        index += 1
-        result = []
-        while index < len(script):
-            char = script[index]
-            index += 1
-            if char == "'":
-                if index < len(script) and script[index] == "'":
-                    result.append("'")
-                    index += 1
-                    continue
-                return "".join(result)
-            result.append(char)
-        raise ValueError("unterminated PowerShell literal")
-
-    try:
-        while script.startswith("$env:", index):
-            end = script.find("=", index + 5)
-            if end < 0:
-                return None
-            name = script[index + 5:end]
-            if not name or any(not (ch.isalnum() or ch == "_") for ch in name):
-                return None
-            index = end + 1
-            value = literal()
-            env[name] = value
-            space()
-            if not script.startswith(";", index):
-                return None
-            index += 1
-            space()
-        if not script.startswith("&", index):
-            return None
-        index += 1
-        argv = []
-        while True:
-            space()
-            if script.startswith("; exit $LASTEXITCODE", index):
-                index += len("; exit $LASTEXITCODE")
-                space()
-                if index != len(script):
-                    return None
-                break
-            argv.append(literal())
-        return env, argv
-    except ValueError:
-        return None
+    return install.parse_powershell_hook(command)
 
 
 def launcher(argv: list[str]) -> tuple[list[str], list[str]]:

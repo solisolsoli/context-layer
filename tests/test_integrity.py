@@ -634,7 +634,10 @@ class DeliveredEvidence(unittest.TestCase):
             with patch.object(build_index.os, "walk", return_value=walk), \
                     patch.object(Path, "is_file", is_file):
                 files = build_index.iter_files(self.vault, {".md"}, set(), (), unsupported)
-            self.assertEqual(files, [self.vault / "notes" / "ferry.md"])
+            self.assertEqual(len(files), 1)
+            self.assertTrue(os.path.samefile(files[0], self.vault / "notes" / "ferry.md"))
+            self.assertEqual(files[0].name, "ferry.md")
+            self.assertEqual(files[0].parent.name, "notes")
             self.assertEqual(unsupported, ["Meeting: 10.30.md"])
             self.assertEqual(source_policy.walked_name_state("notes/a\\b.md"), "unsupported")
             return

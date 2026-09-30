@@ -53,7 +53,8 @@ import time
 from urllib.parse import urlsplit
 
 from . import graph as graphs
-from .platform_support import private_tempfile, set_private_path, set_private_permissions
+from .platform_support import (is_link_or_reparse, private_tempfile, set_private_path,
+                               set_private_permissions)
 
 # ---------------------------------------------------------------------------
 # Names, limits, defaults
@@ -3473,8 +3474,8 @@ def record_plan(vault, questions_path, environ=None) -> RecordPlan:
 
 def _open_new(path: Path, append: bool):
     """A 0600 file for recording rows: new (refused when it exists) or appended to."""
-    if path.is_symlink():
-        raise Refused(f"{path.name} is a symlink")
+    if is_link_or_reparse(path):
+        raise Refused(f"{path.name} is a link or reparse point")
     if not append and os.path.lexists(path):
         raise Refused(f"{path.name} exists; add --append to add rows to it")
     if append and os.path.lexists(path) and not path.is_file():
@@ -3483,7 +3484,26 @@ def _open_new(path: Path, append: bool):
     flags = os.O_WRONLY | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
     flags |= os.O_APPEND if append else os.O_EXCL
     handle = os.open(path, flags, 0o600)
-    return os.fdopen(handle, "a", encoding="utf-8")
+    try:
+        if not stat.S_ISREG(os.fstat(handle).st_mode):
+            raise Refused(f"{path.name} is not a regular file")
+        # Windows ignores mode=0o600. Set the protected current-user/SYSTEM
+        # ACL on the opened descriptor before any recording rows are written.
+        set_private_permissions(handle, path)
+        if is_link_or_reparse(path):
+            raise Refused(f"{path.name} is a link or reparse point")
+        return os.fdopen(handle, "a", encoding="utf-8")
+    except BaseException:
+        try:
+            os.close(handle)
+        except OSError:
+            pass
+        if not append:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        raise
 
 
 def record(plan: RecordPlan, out: Path, *, append: bool, max_requests: int, max_parallel: int,
