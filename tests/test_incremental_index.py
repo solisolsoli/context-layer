@@ -456,6 +456,112 @@ class IncrementalEqualsFull(unittest.TestCase):
         self.assertIn('"source_path":"a.md"', packets[0])
 
 
+def graph_logical(path: Path) -> dict:
+    """Everything a reader can observe of graph.sqlite: every table except the parse
+    cache, and graph_meta except the clock reading and the cache keys."""
+    connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        meta = dict(connection.execute("SELECT key, value FROM graph_meta"))
+        for key in ("built_at", "builder", "inputs_sha256", "files_sha256"):
+            meta.pop(key, None)
+        tables = {"meta": meta}
+        for table, order in (("notes", "path"), ("edges", "id"), ("unresolved", "rowid"),
+                             ("skipped", "path"), ("frontmatter", "path")):
+            tables[table] = connection.execute(
+                f"SELECT * FROM {table} ORDER BY {order}").fetchall()
+        return tables
+    finally:
+        connection.close()
+
+
+class LinkVault(Vault):
+    """The property-test vault plus links of every kind and attachments to point at."""
+
+    def link(self) -> str:
+        existing = self.pick({".md", ".png"}) if self.rng.random() < 0.7 else None
+        if existing is not None:              # mostly links that resolve (or collide)
+            relative = existing.relative_to(self.root).as_posix()
+            name, folder = existing.stem, relative.rsplit("/", 1)[0] if "/" in relative else ""
+            if existing.suffix == ".png":
+                return self.rng.choice([f"![[{existing.name}]]", f"![pic]({relative})"])
+        else:
+            name = self.rng.choice(NAMES) + str(self.rng.randint(0, 40))
+            folder = self.rng.choice(FOLDERS)
+        return self.rng.choice([
+            f"[[{name}]]", f"[[{folder}/{name}|alias]]", f"![[{name}.png]]",
+            f"[text]({name}.md)", f"[up](../{name}.md#part)", f"![pic]({name}.png)",
+            f"[[{name}#Heading]]", f"`[[{name}]]`", f"[[missing {name}]]"])
+
+    def op_link(self):
+        path = self.pick({".md"})
+        if path:
+            data = path.read_bytes()
+            path.write_bytes(data + ("\nLinks " + " ".join(
+                self.link() for _ in range(self.rng.randint(1, 4))) + "\n").encode("utf-8"))
+            self.stamp(path)
+
+    def op_related(self):
+        name = self.rng.choice(NAMES) + str(self.rng.randint(0, 40))
+        self.put(self.random_relative().rsplit(".", 1)[0] + ".md",
+                 f"---\nrelated: [[{name}]]\naliases: [{name} alias]\n---\nalpha\n")
+
+    def op_attachment(self):
+        name = self.rng.choice(NAMES) + str(self.rng.randint(0, 40))
+        folder = self.rng.choice(FOLDERS)
+        path = self.root / (f"{folder}/{name}.png" if folder else f"{name}.png")
+        if path.exists() and self.rng.random() < 0.5:
+            path.unlink()
+        else:
+            self.put(path.relative_to(self.root).as_posix(), b"\x89PNG fake")
+
+    def step(self):
+        super().step()
+        for _ in range(self.rng.randint(0, 3)):
+            self.rng.choice([self.op_link, self.op_link, self.op_related,
+                             self.op_attachment])()
+
+
+class GraphFromCacheEqualsFresh(unittest.TestCase):
+    """`context-layer index` builds the link graph from what the index builder hashed in
+    the same run, reuses unchanged notes' parses and leaves an unchanged graph alone.
+    After every randomized step that graph must equal one built from scratch."""
+
+    def test_random_edit_sequences(self):
+        from context_layer import graph
+        unchanged = steps = 0
+        for seed in range(300, 300 + max(SEEDS // 2, 3)):
+            with tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                vault_dir = root / "vault"
+                vault_dir.mkdir()
+                vault = LinkVault(vault_dir, random.Random(seed))
+                for step in range(STEPS):
+                    vault.step()
+                    if step % 7 == 6:
+                        vault.stamp(vault.pick() or vault.put("a.md", "alpha\n"))
+                    result: dict = {}
+                    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                        self.assertEqual(build_index.main(["--vault", str(vault_dir)], result), 0)
+                        live = graph.build(vault_dir, verified={
+                            source.path: source for source in result["sources"]})
+                        if step % 5 == 4:          # and again: nothing changed in between
+                            again = graph.build(vault_dir, verified={
+                                source.path: source for source in result["sources"]})
+                            self.assertTrue(again.get("unchanged"), f"seed {seed} step {step}")
+                        reference = root / f"fresh-{step}.sqlite"
+                        fresh = graph.build(vault_dir, out=reference)
+                    unchanged += bool(live.get("unchanged"))
+                    steps += 1
+                    self.assertFalse(fresh.get("unchanged"))
+                    left = graph_logical(graph.graph_path(vault_dir))
+                    right = graph_logical(reference)
+                    self.assertEqual(left, right, f"seed {seed} step {step}: "
+                                     + first_difference(left, right))
+                    for key in ("notes", "edges", "unresolved", "skipped", "excluded_notes"):
+                        self.assertEqual(live[key], fresh[key], f"{key} seed {seed} step {step}")
+        self.assertGreater(steps, 0)
+
+
 class NothingToWrite(unittest.TestCase):
     """A run that finds nothing to change leaves the index and manifest bytes (and
     files) as they were; `.prev` is refreshed as after any build, so running `index`

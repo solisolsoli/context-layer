@@ -157,9 +157,15 @@ An update is not attempted, and a full build runs instead (printing `full rebuil
 and the reason), when there is no previous index; its format version, layout,
 tokenizer or chunk size differ from this builder's; its rows or full-text table
 are inconsistent; or the update would rewrite more than 40% of the records, where
-a full build is faster. The link graph (`graph.sqlite`) is always derived again
-after `index`: a link resolves against every note name, so a new note can change
-another note's links, and the graph is not updated note by note.
+a full build is faster. The link graph (`graph.sqlite`) is derived again after
+`index`, from the notes the builder read and hashed in that same run (they are not
+read a second time). A note whose bytes did not change reuses the parse the previous
+graph stored for it (table `parse_cache`, keyed by its SHA-256 and invalidated by
+any change to the graph builder). Every link is resolved again on every build, since
+a new note can change how another note's links resolve. When nothing the graph
+depends on changed (the notes, their SHA-256, size and mtime, the exclusions, and the
+vault's file list when a link needed it), `graph.sqlite` is left as it is and the
+summary line ends in `(unchanged)`; `graph.sqlite.prev` is refreshed as after any build.
 
 What it does not save: the walk, the boundary checks, and reading and hashing every
 file still run on every `index` (the reads overlap on a few threads); only decoding,

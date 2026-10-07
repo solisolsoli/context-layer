@@ -98,6 +98,7 @@ CREATE INDEX unresolved_source ON unresolved(source_path);
 CREATE TABLE skipped (path TEXT PRIMARY KEY, reason TEXT NOT NULL);
 CREATE TABLE frontmatter (path TEXT PRIMARY KEY, status TEXT NOT NULL, ignored INTEGER NOT NULL);
 CREATE TABLE graph_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE parse_cache (path TEXT PRIMARY KEY, sha256 TEXT NOT NULL, parsed TEXT NOT NULL);
 """
 
 
@@ -677,13 +678,17 @@ class Resolver:
         self._known = set(notes)
         self._files = files
         self._others: _Lookup | None = None
+        self._files_seen: list[str] | None = None   # the file list, once it was needed
+        self._memo: dict[tuple, Resolution] = {}
         self.excluded = excluded or (lambda name: False)
 
     @property
     def others(self) -> _Lookup:
         if self._others is None:
             files = self._files() if callable(self._files) else self._files
-            self._others = _Lookup(path for path in files if path not in self._known)
+            self._files_seen = list(files)
+            self._others = _Lookup(path for path in self._files_seen
+                                   if path not in self._known)
         return self._others
 
     @staticmethod
@@ -712,12 +717,22 @@ class Resolver:
                      markdown: bool | None = None) -> Resolution:
         """Classify one link: a note (an edge), or the reason it makes none."""
         markdown = kind == "mdlink" if markdown is None else markdown
+        if source.startswith("/") or "//" in source or "/./" in source:
+            folder = PurePosixPath(source).parent.as_posix()
+        else:                                   # the same, without pathlib's cost
+            folder = source.rpartition("/")[0] or "."
+        key = (target, folder, markdown)
+        found = self._memo.get(key)
+        if found is None:
+            found = self._memo[key] = self._resolve(folder, target, markdown)
+        return Resolution(found.path, found.reason, list(found.candidates))
+
+    def _resolve(self, folder: str, target: str, markdown: bool) -> Resolution:
         target = _nfc(target.strip().replace("\\", "/"))
         rooted = target.startswith("/")
         target = target.lstrip("/")
         if not target:
             return Resolution(None, "missing")
-        folder = PurePosixPath(source).parent.as_posix()
         folder = "" if folder == "." else folder
         found = self._rules(self.notes, target, folder, rooted, markdown, NOTE_SUFFIX)
         if len(found) == 1:
@@ -843,13 +858,92 @@ def _skipped_line(skipped: dict[str, str], excluded_notes: int) -> str | None:
     return "context-layer index: link graph " + "; ".join(parts)
 
 
-def build(vault: Path, index: Path | None = None, out: Path | None = None) -> dict:
+# The parse of a note depends only on its bytes and on this module's code, so the
+# previous graph keeps each note's parse (table `parse_cache`, keyed by sha256) and the
+# next build reuses it for a note whose bytes did not change. The key below changes
+# with any edit of this file, which invalidates every cached parse.
+_BUILDER_KEY: str | None = None
+
+
+def _builder_key() -> str:
+    global _BUILDER_KEY
+    if _BUILDER_KEY is None:
+        _BUILDER_KEY = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    return _BUILDER_KEY
+
+
+def _dump_parsed(note: ParsedNote) -> str:
+    return json.dumps([[[l.kind, l.target, l.line, l.heading, l.block, l.field, l.markdown]
+                        for l in note.links], note.aliases, note.body_start, note.frontmatter,
+                       note.frontmatter_ignored], ensure_ascii=False, separators=(",", ":"))
+
+
+def _load_parsed(data: str) -> ParsedNote:
+    links, aliases, body_start, frontmatter, ignored = json.loads(data)
+    return ParsedNote([RawLink(*link) for link in links], aliases, body_start, frontmatter,
+                      ignored)
+
+
+def _previous_graph(out: Path) -> tuple[dict[str, str], dict[str, tuple[str, str]]]:
+    """(graph_meta, {path: (sha256, parsed)}) of the graph this build replaces, when it
+    was written by this exact builder; ({}, {}) otherwise. Never raises."""
+    if not out.is_file():
+        return {}, {}
+    try:
+        connection = sqlite3.connect(out.resolve().as_uri() + "?mode=ro", uri=True)
+        try:
+            meta = dict(connection.execute("SELECT key, value FROM graph_meta"))
+            if meta.get("builder") != _builder_key():
+                return {}, {}
+            cache = {path: (sha, parsed) for path, sha, parsed in
+                     connection.execute("SELECT path, sha256, parsed FROM parse_cache")}
+        finally:
+            connection.close()
+    except (sqlite3.Error, OSError, ValueError):
+        return {}, {}
+    return meta, cache
+
+
+def _digest(value) -> str:
+    return hashlib.sha256(json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+                          .encode("utf-8")).hexdigest()
+
+
+def _meta_summary(out: Path, meta: dict[str, str], started: float) -> dict:
+    """The summary build() returns, for a graph that was left as it is."""
+    def number(key: str) -> int:
+        return int(meta.get(key, "0"))
+    return {"graph": str(out), "notes": number("notes"), "edges": number("edges"),
+            "unresolved": number("unresolved"),
+            "unresolved_missing": number("unresolved_missing"),
+            "unresolved_ambiguous": number("unresolved_ambiguous"),
+            "unresolved_not_indexed": number("unresolved_not_indexed"),
+            "attachment_links": number("attachment_links"),
+            "excluded_links": number("excluded_links"),
+            "skipped": number("skipped_notes"), "excluded_notes": number("excluded_notes"),
+            "frontmatter_blocks": number("frontmatter_blocks"),
+            "frontmatter_ignored_values": number("frontmatter_ignored_values"),
+            "built_at": meta.get("built_at", ""), "unchanged": True,
+            "seconds": round(time.perf_counter() - started, 4), "bytes": out.stat().st_size}
+
+
+def build(vault: Path, index: Path | None = None, out: Path | None = None,
+          verified=None) -> dict:
     """Extract every note's links and replace graph.sqlite atomically. Returns a summary.
 
     A note the builder cannot use (changed, deleted or unreadable since the index
     was built, a symlink, not UTF-8) is counted, printed (stderr) and recorded in
     table `skipped`; it stays a link target, and its sha256 is empty so it is never
     fresh: its own links are left out until the next index.
+
+    `verified` (optional) maps a note path to what the index builder read and hashed
+    in this same run (sha, size, mtime_ns, text-or-None, as router/build_index.py's
+    Source): such a note is not read again. A note whose bytes equal the previous
+    graph's reuses its stored parse. When nothing the graph depends on changed (the
+    notes and their sha256/size/mtime_ns, the exclusions, and the vault's file list
+    when the previous build needed it), graph.sqlite is left as it is and the summary
+    says `unchanged`. Resolution itself always covers every link: a new note can
+    change how another note's links resolve.
     """
     from .mcp_server import exclude_prefixes
     started = time.perf_counter()
@@ -865,11 +959,36 @@ def build(vault: Path, index: Path | None = None, out: Path | None = None) -> di
         except ValueError:
             return False
 
+    previous_meta, cache = _previous_graph(out)
+    verified = verified or {}
+
+    dumped: dict[str, str] = {}          # cached parses, reused verbatim when written again
+
+    def parse(name: str, sha: str, text: str | None) -> ParsedNote | None:
+        cached = cache.get(name)
+        if cached is not None and cached[0] == sha:
+            dumped[name] = cached[1]
+            return _load_parsed(cached[1])
+        return parse_note(text) if text is not None else None
+
     notes: dict[str, dict] = {}
     parsed: dict[str, ParsedNote] = {}
     skipped: dict[str, str] = {}
     excluded_notes = 0
     for name, indexed_sha in indexed_notes(index).items():
+        seen = verified.get(name)
+        if seen is not None and seen.sha == indexed_sha and seen.mtime_ns >= 0:
+            # Hashed by the index builder in this run, after its own boundary checks
+            # (no symlink, inside the vault); the graph's exclusions still apply.
+            if excluded(name):
+                excluded_notes += 1
+                continue
+            note = parse(name, indexed_sha, seen.text)
+            if note is not None:
+                parsed[name] = note
+                notes[name] = {"sha256": indexed_sha, "size": seen.size,
+                               "mtime_ns": seen.mtime_ns, "aliases": note.aliases}
+                continue
         text, raw, stat = _read_note(vault, name, prefixes, policy, indexed_sha)
         if raw == "excluded":
             excluded_notes += 1          # counted, never named
@@ -878,9 +997,19 @@ def build(vault: Path, index: Path | None = None, out: Path | None = None) -> di
             skipped[name] = raw
             notes[name] = {"sha256": "", "size": -1, "mtime_ns": -1, "aliases": []}
             continue
-        parsed[name] = parse_note(text)
+        parsed[name] = parse(name, indexed_sha, text)
         notes[name] = {"sha256": hashlib.sha256(raw).hexdigest(), "size": stat.st_size,
                        "mtime_ns": stat.st_mtime_ns, "aliases": parsed[name].aliases}
+    inputs = _digest([_builder_key(), sorted(prefixes), excluded_notes,
+                      [[name, value["sha256"], value["size"], value["mtime_ns"],
+                        skipped.get(name)] for name, value in sorted(notes.items())]])
+    if previous_meta.get("inputs_sha256") == inputs:
+        files_digest = previous_meta.get("files_sha256", "")
+        if not files_digest or files_digest == _digest(vault_files(vault, prefixes, policy)):
+            line = _skipped_line(skipped, excluded_notes)
+            if line:
+                print(line, file=sys.stderr)
+            return _meta_summary(out, previous_meta, started)
     resolver = Resolver(list(notes), lambda: vault_files(vault, prefixes, policy), excluded)
     edges = []
     unresolved = []
@@ -947,7 +1076,15 @@ def build(vault: Path, index: Path | None = None, out: Path | None = None) -> di
                     "excluded_links": str(reasons["excluded"]),
                     "skipped_notes": str(len(skipped)), "excluded_notes": str(excluded_notes),
                     "frontmatter_blocks": str(len(frontmatter)),
-                    "frontmatter_ignored_values": str(sum(row[2] for row in frontmatter))}
+                    "frontmatter_ignored_values": str(sum(row[2] for row in frontmatter)),
+                    "builder": _builder_key(), "inputs_sha256": inputs,
+                    # The file list matters only when some link missed every note.
+                    "files_sha256": _digest(resolver._files_seen)
+                    if resolver._files_seen is not None else ""}
+            connection.executemany(
+                "INSERT INTO parse_cache (path, sha256, parsed) VALUES (?,?,?)",
+                [(name, notes[name]["sha256"], dumped.get(name) or _dump_parsed(note))
+                 for name, note in sorted(parsed.items())])
             connection.executemany("INSERT INTO graph_meta (key, value) VALUES (?,?)",
                                    sorted(meta.items()))
             connection.commit()

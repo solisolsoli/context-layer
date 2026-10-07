@@ -220,6 +220,10 @@ class Source(NamedTuple):
 READ_THREADS = min(8, os.cpu_count() or 1)
 READ_AHEAD = 64
 READ_AHEAD_BYTES = 64 << 20
+# A full build called with a result dict (context-layer index) hands the text of the
+# Markdown notes it decoded to the link graph, up to this many characters in total,
+# so the graph need not read those files again.
+KEEP_TEXT_CHARS = 64 << 20
 
 
 def _read_source(path: Path, known_sha: "str | None"):
@@ -685,9 +689,11 @@ def stored_text(out: Path, base: "dict[str, BaseNote]",
 
 def stage_full(staging: Path, sources: "Iterator[Source]", skipped: "list[dict[str, object]]",
                vault: Path, max_bytes: int, built_at: str,
-               name_fields: bool = False) -> "tuple[list[Source], int]":
+               name_fields: bool = False, keep_text: int = 0) -> "tuple[list[Source], int]":
     """Write a complete new index into `staging`, one source at a time. Returns the
-    sources (without their text) and the record count; `skipped` is complete after this."""
+    sources and the record count; `skipped` is complete after this. Text is dropped
+    except for Markdown notes within the first `keep_text` characters (for the link
+    graph built in the same run)."""
     connection = sqlite3.connect(staging)
     kept: "list[Source]" = []
     try:
@@ -702,7 +708,11 @@ def stage_full(staging: Path, sources: "Iterator[Source]", skipped: "list[dict[s
             connection.executemany(
                 f"INSERT INTO records ({RECORD_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?)", batch)
             rows += len(batch)
-            kept.append(source._replace(text=None))
+            if keep_text > 0 and source.suffix == ".md":
+                keep_text -= len(source.text)
+                kept.append(source)
+            else:
+                kept.append(source._replace(text=None))
         connection.execute("INSERT INTO records_fts(records_fts) VALUES('rebuild')")
         write_meta(connection, built_at, vault, len(kept), rows, max_bytes,
                    skip_counts(skipped), name_fields)
@@ -812,20 +822,21 @@ def main(argv: "list[str] | None" = None, result: "dict | None" = None) -> int:
             except (NeedsFullRebuild, index_format.IndexFormatError, sqlite3.Error) as exc:
                 update, fallback = None, str(exc)
         if update is None:
+            keep = KEEP_TEXT_CHARS if result is not None else 0
             if stream is None:
                 skipped = []
                 stream = iter_sources(vault, extensions, skip_prefixes, max_bytes, skipped)
             staging.write_bytes(b"")
             try:
                 sources, rows = stage_full(staging, stream, skipped, vault, max_bytes, built_at,
-                                           args.name_fields)
+                                           args.name_fields, keep)
             except NeedsFullRebuild as exc:
                 fallback = str(exc)
                 skipped = []
                 staging.write_bytes(b"")
                 sources, rows = stage_full(
                     staging, iter_sources(vault, extensions, skip_prefixes, max_bytes, skipped),
-                    skipped, vault, max_bytes, built_at, args.name_fields)
+                    skipped, vault, max_bytes, built_at, args.name_fields, keep)
             try:
                 check_staged(staging)
             except index_format.IndexFormatError as exc:

@@ -132,7 +132,16 @@ def cmd_index(args: argparse.Namespace) -> int:
             and not (vault / ".context" / "routes.json").is_file():
         print("context-layer index: no .context/routes.json, so this index has no exclusions; "
               "run `context-layer init <vault>` first to write one", file=sys.stderr)
-    code = run_script("router/build_index.py", ["--vault", str(vault)] + args.rest)
+    # The builder runs in this process (no second interpreter start); router/build_index.py
+    # stays runnable on its own. What it read and hashed in this run is handed to the graph.
+    _, builder = health._router_modules()
+    argv = ["--vault", str(vault)] + args.rest
+    trace(["build_index.py", *argv])
+    result: dict = {}
+    try:
+        code = builder.main(argv, result)
+    except SystemExit as exc:              # argparse: --help (0) or a usage error (2)
+        code = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)
     if code != 0:
         return code
     # The build kept the replaced index as index.sqlite.prev; keep the link graph that
@@ -140,14 +149,14 @@ def cmd_index(args: argparse.Namespace) -> int:
     # left as it is, and its .prev is a copy of the same bytes.
     graph_file = graph.graph_path(vault)
     if graph_file.is_file():
-        _, builder = health._router_modules()
         builder.keep_previous(graph_file)
-    if args.no_graph:
+    if args.no_graph or not result:
         return code
     # The link graph is derived from exactly the notes the index just covered.
     index = index_out_path(args.rest)
     try:
-        summary = graph.build(vault, index=index)
+        summary = graph.build(vault, index=index,
+                              verified={source.path: source for source in result["sources"]})
     except (OSError, ValueError, sqlite3.Error) as exc:
         print(f"context-layer index: link graph not built: {exc}", file=sys.stderr)
         return 1
@@ -157,7 +166,8 @@ def cmd_index(args: argparse.Namespace) -> int:
         shown = Path(summary["graph"]).name
     print(f"graph: {summary['notes']} notes, {summary['edges']} edges, "
           f"{summary['unresolved']} unresolved links ({summary['unresolved_ambiguous']} "
-          f"ambiguous) -> {shown} in {summary['seconds']:.3f}s")
+          f"ambiguous) -> {shown} in {summary['seconds']:.3f}s"
+          + (" (unchanged)" if summary.get("unchanged") else ""))
     return 0
 
 
