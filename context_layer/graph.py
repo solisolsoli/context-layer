@@ -985,7 +985,7 @@ def build(vault: Path, index: Path | None = None, out: Path | None = None,
         return parse_note(text) if text is not None else None
 
     notes: dict[str, dict] = {}
-    parsed: dict[str, ParsedNote] = {}
+    parsed: dict[str, ParsedNote | None] = {}
     skipped: dict[str, str] = {}
     excluded_notes = 0
     for name, indexed_sha in indexed_notes(index).items():
@@ -995,6 +995,12 @@ def build(vault: Path, index: Path | None = None, out: Path | None = None,
             # (no symlink, inside the vault); the graph's exclusions still apply.
             if excluded(name):
                 excluded_notes += 1
+                continue
+            cached = cache.get(name)
+            if cached is not None and cached[0] == indexed_sha:
+                parsed[name] = None         # decoded below, only if the graph is rewritten
+                notes[name] = {"sha256": indexed_sha, "size": seen.size,
+                               "mtime_ns": seen.mtime_ns, "aliases": None}
                 continue
             note = parse(name, indexed_sha, seen.text)
             if note is not None:
@@ -1023,6 +1029,10 @@ def build(vault: Path, index: Path | None = None, out: Path | None = None,
             if line:
                 print(line, file=sys.stderr)
             return _meta_summary(out, previous_meta, started)
+    for name, note in parsed.items():
+        if note is None:
+            parsed[name] = parse(name, notes[name]["sha256"], None)
+            notes[name]["aliases"] = parsed[name].aliases
     resolver = Resolver(list(notes), lambda: vault_files(vault, prefixes, policy), excluded)
     edges = []
     unresolved = []

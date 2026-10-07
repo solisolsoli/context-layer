@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 from contextlib import ExitStack
 import shutil
+import stat as stat_module
 import tempfile
 import os
 import re
@@ -113,10 +114,12 @@ def chunks(text: str) -> "list[str]":
 
 def iter_files(vault: Path, extensions: "set[str]", skip_parts: "set[str]",
                skip_prefixes: "tuple[str, ...]",
-               unsupported: "list[str] | None" = None) -> "list[Path]":
+               unsupported: "list[str] | None" = None,
+               stats: "dict[Path, os.stat_result] | None" = None) -> "list[Path]":
     """In-scope files, sorted. A file whose name the source policy cannot accept
     (a backslash, or ':' in the first path component; both legal on POSIX) is
-    appended to `unsupported` instead: it could never be read back as a source."""
+    appended to `unsupported` instead: it could never be read back as a source.
+    `stats`, when given, receives the lstat result of every file returned."""
     found = []
     # source_path()'s parent checks (no symlinked component, still inside the vault)
     # depend only on the directory, so they run once per directory, not once per file;
@@ -132,9 +135,15 @@ def iter_files(vault: Path, extensions: "set[str]", skip_parts: "set[str]",
             and not (base / d).is_symlink()
             and walked_name_state(prefix + d, skip_prefixes) != "excluded"]
         for name in sorted(names):
+            if os.path.splitext(name)[1].lower() not in extensions:
+                continue
             path = base / name
             relative = prefix + name
-            if path.suffix.lower() not in extensions or path.is_symlink():
+            try:
+                info = os.lstat(path)
+            except OSError:
+                info = None
+            if info is not None and stat_module.S_ISLNK(info.st_mode):
                 continue
             state = walked_name_state(relative, skip_prefixes)
             if state == "excluded":
@@ -152,8 +161,10 @@ def iter_files(vault: Path, extensions: "set[str]", skip_parts: "set[str]",
                 except ValueError:
                     ok = False      # a parent became a symlink during the walk: never followed
                 parent_ok[prefix] = ok
-            if ok and path.is_file():
+            if ok and info is not None and stat_module.S_ISREG(info.st_mode):
                 found.append(path)
+                if stats is not None:
+                    stats[path] = info
     return sorted(found)
 
 
@@ -256,7 +267,9 @@ def iter_sources(vault: Path, extensions: "set[str]", skip_prefixes: "tuple[str,
     Every file is read and hashed on every run: size and mtime are never trusted.
     """
     unsupported: "list[str]" = []
-    files = iter_files(vault, extensions, set(DEFAULT_SKIP_PARTS), skip_prefixes, unsupported)
+    walked: "dict[Path, os.stat_result]" = {}
+    files = iter_files(vault, extensions, set(DEFAULT_SKIP_PARTS), skip_prefixes, unsupported,
+                       walked)
     root = str(vault)
     cut = len(root) + (0 if root.endswith(("/", "\\")) else 1)
 
@@ -271,7 +284,7 @@ def iter_sources(vault: Path, extensions: "set[str]", skip_prefixes: "tuple[str,
         for path in files:
             rel = relative(path)
             try:
-                stat = path.stat()
+                stat = walked.pop(path, None) or path.stat()   # the walk's lstat: not a link
             except OSError:
                 skipped.append({"path": rel, "reason": "unreadable"})
                 continue
