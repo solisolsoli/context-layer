@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Faster setup. `index` checks each folder's boundaries once instead of once per
+  file, overlaps reading and hashing on a few threads (every file is still read and
+  hashed), runs the builder in the same process, and hands the link graph what it
+  hashed, so the graph does not read the notes again. The graph reuses the stored
+  parse of every note whose bytes did not change (new table `parse_cache` in
+  `graph.sqlite`) and still resolves every link. The CLI imports a component only
+  when its command runs; `--version` builds no parser. `init` walks the vault once
+  and skips tooling, dot and excluded folders.
+- Changed (may affect callers): an `index` run that finds nothing to change leaves
+  `index.sqlite`, `index-manifest.json` and an unchanged `graph.sqlite` as they are,
+  so their `built_at` is the time of the last build that changed them; it prints
+  `; index unchanged` and the graph line ends in `(unchanged)`. The `.prev` copies are
+  still refreshed. `index --full` now also rebuilds the graph without stored parses.
+  `context-layer index` runs the package's own `router/build_index.py` in process
+  instead of `$CONTEXT_LAYER_HOME/router/build_index.py` in a child process.
+
 - Put a runnable first example at the center of the README and move detailed
   measurements to [the validation guide](docs/validation.md), retaining their
   automated checks. Simplify the package description and documentation navigation.
