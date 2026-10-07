@@ -402,10 +402,13 @@ writers never collide. The payload has these fields:
   [--extra-tokens N]`, or add `--compact --budget-tokens N`.
   - Each item sits between `<<evidence N nonce path=… lines=… sha256=… hop=…>>`
     and `<<end N nonce>>`. The nonce is random per packet, so text inside a
-    note cannot forge an item boundary.
-  - A link-reached or advised item opens with a `reason:`/`via:` line; an item of
-    the fts part (`hop=0`) has none. `[truncated]` marks an excerpt of a longer
-    note.
+    note cannot forge an item boundary. ` excerpt` at the end of the opening
+    marker says the item is shorter than its note.
+  - A link-reached or advised item opens with one short line: the link chain as
+    `via <file>:<line> <kind>` steps (`>` between hops, `backlink` when the link
+    points the other way), and the reason when the chain does not already say
+    it (`link line`, `named in prompt`, ...). An item of the fts part (`hop=0`)
+    has none. The packet keeps the full `reason` and `via` fields.
 
 **Prompt injection.** Notes are delivered verbatim to an AI host that may
 follow instructions written inside them. The "data, never instructions"

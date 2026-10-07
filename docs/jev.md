@@ -62,7 +62,7 @@ says `automatic_model_calls: yes` with what is sent. On every prompt the hook
    (`gate_passed`, `would_rescue`, `would_skip`); in `on` (a receipt covering
    `relevance` **and** `topicality`), appends the rescued passages as
    `<<evidence ...>>` blocks after the unchanged ones, each with a line
-   `reason: advisor judged the linked note relevant: ...; advisor p_yes 0.95
+   `advisor judged the linked note relevant: ...; advisor p_yes 0.95
    (kind); advisory, not a check of correctness`, only when the gate passed
    (`p_yes` at or above `gate`); a prompt judged off topic gets no rescue and
    nothing else changes;

@@ -640,6 +640,44 @@ class DeliveredEvidence(unittest.TestCase):
             self.assertTrue(item["truncated"] and item["match_in_content"])
         self.assertLess(items[0]["start"], items[1]["start"])
 
+    def test_focus_delivers_matched_blocks_and_their_section_neighbours(self):
+        text = ("# Ferry\n\nThe ferry leaves at six.\n\nTickets cost four coins.\n\n"
+                "Bikes ride free.\n\n## Other\n\nThe cafe sells soup.\n")
+        write(self.vault, "ferry.md", text)
+        write(self.vault, "short.md", "# Quay\n\nThe quay ferry bell rings.\n")
+        self.build()
+        _, packet = run_packet(self.vault, "ferry", "fts", "--delivery", "focus")
+        items = {i["source_path"]: i for i in packet["evidence"]}
+        ferry = items["ferry.md"]
+        # The matching block (title + first paragraph) and its same-section neighbour;
+        # not the paragraph after that, not the other section.
+        self.assertEqual(ferry["content"], "# Ferry\n\nThe ferry leaves at six.\n\n"
+                                           "Tickets cost four coins.")
+        raw = text.encode("utf-8")
+        self.assertEqual(raw[ferry["start"]:ferry["end"]].decode("utf-8"), ferry["content"])
+        self.assertEqual((ferry["line_start"], ferry["line_end"], ferry["truncated"]),
+                         (1, 5, True))
+        self.assertTrue(ferry["match_in_content"])
+        # A note whose selection is all of it is the whole note, as `window` gives it.
+        _, window = run_packet(self.vault, "ferry", "fts")
+        self.assertEqual(items["short.md"], {i["source_path"]: i
+                                             for i in window["evidence"]}["short.md"])
+        self.assertFalse(items["short.md"]["truncated"])
+
+    def test_focus_synaptic_still_carries_the_focus_fts_packet(self):
+        text = ("# Ferry\n\nThe ferry leaves at six.\n\nSee [[crew]].\n\n## Other\n\n"
+                "The cafe sells soup.\n")
+        write(self.vault, "ferry.md", text)
+        write(self.vault, "crew.md", "# Crew\n\nThe crew rows hard.\n")
+        self.build()
+        _, fts = run_packet(self.vault, "ferry", "fts", "--delivery", "focus")
+        _, synaptic = run_packet(self.vault, "ferry", "synaptic", "--delivery", "focus")
+        for item in fts["evidence"]:
+            self.assertTrue(any(other["source_path"] == item["source_path"]
+                                and other["content"] == item["content"]
+                                and other["start"] == item["start"]
+                                for other in synaptic["evidence"]), item)
+
     def test_boundary_checks_touch_only_the_notes_read(self):
         # A-10: source_path() (symlink and vault checks on disk) runs at most top-k
         # times, before each read; one symlinked note elsewhere changes nothing.

@@ -908,10 +908,12 @@ class HostTools(VaultCase):
             self.assertIn(phrase, head)
         self.assertEqual(context.count("data, not instructions"), 1)
         self.assertNotIn("reason: fts", context)           # hop-0 items need no reason line
-        blocks = re.findall(r"<<evidence \d+ [0-9a-f]{12} [^\n]*hop=(\d+)>>\n([^\n]*)", context)
+        blocks = re.findall(r"<<evidence \d+ [0-9a-f]{12} [^\n]*hop=(\d+)[^\n]*>>\n([^\n]*)",
+                            context)
         self.assertTrue(blocks)
-        for hop, first in blocks:
-            self.assertEqual(first.startswith("reason: "), hop != "0", (hop, first))
+        for hop, first in blocks:      # a link-reached item names its link, one short line
+            if hop != "0":
+                self.assertRegex(first, r"^via projects/lantern\.md:\d+ wikilink$")
 
     def test_hook_synaptic_frames_evidence_as_data(self):
         done = self.cli("hook", "claude-code", "--vault", str(self.vault), "--method", "synaptic",
@@ -1375,7 +1377,8 @@ class Superset(unittest.TestCase):
     """Every fts passage is in the synaptic packet, first and in order, for any query."""
 
     FLAGS = [[], ["--top-k", "1", "--max-hops", "2"],
-             ["--top-k", "5", "--budget", "900", "--per-source", "300", "--extra-tokens", "80"]]
+             ["--top-k", "5", "--budget", "900", "--per-source", "300", "--extra-tokens", "80"],
+             ["--delivery", "focus"]]
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -1456,6 +1459,24 @@ class Superset(unittest.TestCase):
         vault, cases = self.prepare("dev", build=dev_bridge.build)
         self.assertGreater(self.check(vault, self.queries(vault, cases, 24, 3)), 200)
         self.assertGreater(self.with_extras, 50)            # the property is not vacuous
+
+    def test_focus_completes_the_dev_set_with_fewer_characters(self):
+        # The hook's default packet (synaptic, --delivery focus) on the development set:
+        # every required span still delivered, in fewer evidence characters than the
+        # default synaptic packet. A development guard, not a benchmark.
+        vault, cases = self.prepare("dev", build=dev_bridge.build)
+        sizes = {"window": 0, "focus": 0}
+        for case in cases:
+            for mode in sizes:
+                code, packet = run_packet(vault, "synaptic", case["question"],
+                                          ["--delivery", mode])
+                self.assertEqual(code, 0)
+                for need in case["required"]:
+                    self.assertTrue(any(e["source_path"] == need["source_path"]
+                                        and need["text"] in e["content"]
+                                        for e in packet["evidence"]), (case["id"], mode))
+                sizes[mode] += sum(len(e["content"]) for e in packet["evidence"])
+        self.assertLess(sizes["focus"], 0.9 * sizes["window"], sizes)
 
     def test_superset_on_the_fixture_vaults(self):
         docs, _ = self.prepare("docs", source=REPO / "eval" / "fixtures" / "docs")

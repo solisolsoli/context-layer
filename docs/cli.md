@@ -177,6 +177,11 @@ sits in the frontmatter) the note's beginning is delivered, as `--delivery
 prefix` always does (the 0.3 behaviour, kept for comparison). `grep`, the
 baseline, always delivers prefixes and refuses `--delivery` (exit 2), as do
 `--compact` synaptic packets and the router.
+`--delivery focus` (the prompt hook's default) delivers only the blocks that
+hold query terms, each with its neighbour before and after in the same section,
+even for a note that would fit whole; each item keeps its byte and line spans
+and says `truncated: true`. A note with no matching block, or whose selection is
+all of it, is delivered as `window` does.
 
 Every `grep`, `fts`, `fts-canonical` and `synaptic` packet carries `coverage`,
 which says what was searched. It never names a path and stays small:

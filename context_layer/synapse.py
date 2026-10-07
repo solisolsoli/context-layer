@@ -302,6 +302,8 @@ class Options:
     extra_tokens: int = EXTRA_TOKENS
     compact: bool = False          # set by retrieve() (compact) and extend() (superset)
     jev_candidates: int = 0   # side channel for the optional advisor; see "Jev candidates"
+    focus: bool = False       # --delivery focus: reserve only linked notes activated at
+                              # least RESERVE_REL_RATIO x the strongest one
 
 
 class Sources:
@@ -1211,6 +1213,10 @@ def _extend(vault, prompt, query, rows, base, allowed, sources, graph, options) 
                             and graph.degree(n) <= options.adjacency_cap),
                            key=lambda n: (-state.via[n][-1].get("_link_rel", 0.0),
                                           -state.activation[n], n))[:RESERVE_NOTES]
+            if options.focus and order:
+                strongest = max(state.activation[n] for n in order)
+                order = [n for n in order
+                         if state.activation[n] >= RESERVE_REL_RATIO * strongest]
             decision = "relevant_links" if order else (
                 "named_notes" if named else "no_relevant_link")
     elif named:

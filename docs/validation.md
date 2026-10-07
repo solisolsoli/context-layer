@@ -40,11 +40,30 @@ tokens. Every run of the sealed set is listed in [bench/INSPECTIONS.md](../bench
   unanswerable questions it used more. One run, N = 24, correctness at ceiling.
   [eval/LIVE_PILOT_0.3.md](../eval/LIVE_PILOT_0.3.md)
 
-**Sub-agent payloads** (`python3 eval/orchestration_cost.py --standin`,
-synthetic setup, estimates): four workers' initial payloads 16,827 → 9,441
-est. tokens with per-worker compact packets; the coordinator's verification reading
-12,452 → 2,580; the one planted fabricated quote was caught (re-measured after the compact-packet change). Not billed tokens
-and not quality evidence. [docs/subagents.md](subagents.md)
+### Focused hook delivery
+
+`--delivery focus` (the prompt hook's default since this version) delivers the
+blocks that hold query terms with their same-section neighbours, and in synaptic
+reserves only strongly activated linked notes. Development measurements only:
+`python3 tests/dev_bridge_eval.py --methods fts synaptic --hook --delivery D
+[--extra-paragraph]`, on the synaptic development set (56 labelled questions,
+written alongside the code); not measured on the sealed benchmark. "Complete" =
+every required span verbatim in the hook's `additionalContext`; characters = its
+mean length.
+
+| packet in the hook | dev set | dev set, `--extra-paragraph` |
+| --- | ---: | ---: |
+| fts, `window` (the 0.4 hook default) | 12/56, 1,188 chars | 12/56, 1,990 chars |
+| synaptic, `window` | 56/56, 2,073 chars | 56/56, 3,331 chars |
+| fts, `focus` | 12/56, 1,033 chars | 12/56, 1,041 chars |
+| synaptic, `focus` (the hook default now) | 56/56, 1,634 chars | 56/56, 1,930 chars |
+
+`--extra-paragraph` appends one paragraph of invented filler words under a new
+heading to every note, so notes are about twice as long. Where notes are as short
+as in the plain set, the focused synaptic hook costs more than the 0.4 fts hook
+(1,634 vs 1,188 characters) and answers 56 questions instead of 12. Focus can
+miss an answer that shares no word with the question and is not next to a block
+that does, in the same section.
 
 ### Opt-in relevance floor
 
@@ -56,6 +75,12 @@ written alongside the code, not a benchmark) the default synaptic packet stays
 (R = 0.3) and ~169 (R = 0.5) est. tokens. It can drop a note that held the
 answer when a stronger-scoring note outranks it; it is not measured on the
 sealed benchmark, so it is not a default.
+
+**Sub-agent payloads** (`python3 eval/orchestration_cost.py --standin`,
+synthetic setup, estimates): four workers' initial payloads 16,827 → 9,441
+est. tokens with per-worker compact packets; the coordinator's verification reading
+12,452 → 2,580; the one planted fabricated quote was caught (re-measured after the compact-packet change). Not billed tokens
+and not quality evidence. [docs/subagents.md](subagents.md)
 
 ## What it does not claim
 

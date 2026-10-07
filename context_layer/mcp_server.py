@@ -1583,46 +1583,67 @@ def estimated_tokens(items: list) -> int:
     return total
 
 
+# Hook-only short forms of the synaptic `reason` values; the packet keeps the long ones.
+SHORT_REASONS = {"fts": "", "linked note (whole)": "", "link target": "",
+                 "the link line that connects a linked note": "link line",
+                 "note named in the prompt": "named in prompt",
+                 "holds a traversed link": "holds the link"}
+
+
+def via_text(steps) -> str:
+    """The link chain as `<file>:<line> <kind>` steps, `>` between hops; a backlink says so.
+    The item's own path is in its marker, so the target of the last step is not repeated."""
+    out = []
+    for step in steps or []:
+        if not isinstance(step, dict):
+            continue
+        anchor = step.get("anchor") if isinstance(step.get("anchor"), dict) else {}
+        where = (f"{anchor.get('path')}:{anchor.get('line')}" if anchor.get("path")
+                 else f"{step.get('from')} -> {step.get('to')}")
+        kind = step.get("edge") or step.get("kind") or "link"
+        back = " backlink" if step.get("label") == "linked from" else ""
+        out.append(f"{where} {kind}{back}")
+    return " > ".join(out)
+
+
 def evidence_block(number: int, nonce: str, item: dict, method: str) -> str:
     """One item between markers carrying the per-packet nonce, so text inside a note
     cannot forge an item boundary; the path, lines and hash in the opening marker are
-    escaped (marker_value), so a file name cannot forge the header either."""
+    escaped (marker_value), so a file name cannot forge the header either. ` excerpt`
+    in the marker says the item is shorter than its note."""
     path = marker_value(item.get("source_path"))
     sha = marker_value(str(item.get("source_sha256") or "")[:12])
     content = item.get("content") or ""
     advised = item.get("origin") == "jev"
+    excerpt = " excerpt" if item.get("truncated") \
+        and item.get("reason") != "linked note (whole)" else ""
     if method != "synaptic" and not advised:
         lines = ""
         if isinstance(item.get("line_start"), int) and isinstance(item.get("line_end"), int):
             lines = (f" lines={marker_value(item['line_start'])}-"
                      f"{marker_value(item['line_end'])}")
-        opening = f"<<evidence {number} {nonce} path={path}{lines} sha256={sha}>>"
+        opening = f"<<evidence {number} {nonce} path={path}{lines} sha256={sha}{excerpt}>>"
         return f"{opening}\n{content}\n<<end {number} {nonce}>>"
     opening = (f"<<evidence {number} {nonce} path={path} "
                f"lines={marker_value(item.get('line_start'))}-"
                f"{marker_value(item.get('line_end'))} "
-               f"sha256={sha} hop={marker_value(item.get('hop', 0))}>>")
-    chain = "; ".join(str(step.get("text", f"{step.get('from')} -> {step.get('to')}"))
-                      for step in item.get("via") or [] if isinstance(step, dict))
-    # An item of the fts part (hop 0, reason "fts") carries no reason line: the marker
-    # already says hop=0. Link-reached and advised items keep theirs.
+               f"sha256={sha} hop={marker_value(item.get('hop', 0))}{excerpt}>>")
+    # One short line says why a link-reached or advised item is here: the reason (only
+    # when the link chain does not already say it) and the chain. fts items have none.
     reason = item.get("reason", "query terms")
-    details = "" if (item.get("hop", 0) == 0 and reason == "fts" and not chain) \
-        else f"reason: {reason}"
-    if chain:
-        details += f"; via: {chain}"
+    reason = SHORT_REASONS.get(reason, reason) if not advised else reason
+    chain = via_text(item.get("via"))
+    parts = [part for part in (reason, f"via {chain}" if chain else "") if part]
     if advised:
         advice = item.get("jev") if isinstance(item.get("jev"), dict) else {}
         p_yes = advice.get("p_yes")
         judged = (f"p_yes {p_yes:.2f}" if isinstance(p_yes, (int, float))
                   and not isinstance(p_yes, bool) else "label yes")
-        details += (f"; advisor {judged} ({advice.get('provider_kind') or 'advisor'}); "
-                    "advisory, not a check of correctness")
-    if item.get("truncated"):
-        details += "; [truncated]" if details else "[truncated]"
-    if not details:
+        parts.append(f"advisor {judged} ({advice.get('provider_kind') or 'advisor'}); "
+                     "advisory, not a check of correctness")
+    if not parts:
         return f"{opening}\n{content}\n<<end {number} {nonce}>>"
-    return f"{opening}\n{one_line(details)}\n{content}\n<<end {number} {nonce}>>"
+    return f"{opening}\n{one_line('; '.join(parts))}\n{content}\n<<end {number} {nonce}>>"
 
 
 def omission_line(omitted: list, max_chars: int) -> str:

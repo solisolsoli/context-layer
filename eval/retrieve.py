@@ -116,7 +116,7 @@ def bounded(evidence, top_k, budget, per_source):
     return result
 
 
-DELIVERIES = ('window', 'prefix')
+DELIVERIES = ('window', 'prefix', 'focus')
 WINDOWS_PER_SOURCE = 3
 
 
@@ -190,6 +190,35 @@ def windows(text, query_terms, limit, synapse):
     return merged
 
 
+def focus_spans(text, query_terms, limit, synapse):
+    """`--delivery focus`: the blocks in which FTS5 finds a query term, each with the block
+    before and after it in the same section (the answer often sits next to the words that
+    found the note), merged where only blank lines separate them; None when no block holds a term, or when
+    the selection is the whole note's text anyway. Over `limit` characters in all, the
+    plain match-anchored windows are used instead."""
+    blocks = synapse.split_blocks(text)
+    if not blocks or not query_terms:
+        return None
+    found = textfold.term_matches([text[block.lo:block.hi] for block in blocks], query_terms)
+    matched = [index for index, terms in enumerate(found) if terms]
+    if not matched:
+        return None
+    keep = sorted({j for i in matched for j in (i - 1, i, i + 1) if 0 <= j < len(blocks)
+                   and blocks[j].headings == blocks[i].headings})
+    spans = []
+    for index in keep:
+        lo, hi = blocks[index].lo, blocks[index].hi
+        if spans and not text[spans[-1][1]:lo].strip():
+            spans[-1] = (spans[-1][0], hi)
+        else:
+            spans.append((lo, hi))
+    if len(spans) == 1 and not text[:spans[0][0]].strip() and not text[spans[0][1]:].strip():
+        return None                               # all of it: deliver the note whole
+    if sum(hi - lo for lo, hi in spans) > limit:
+        return windows(text, query_terms, limit, synapse)
+    return spans
+
+
 def window_item(name, text, sha, lo, hi):
     """One evidence item for text[lo:hi]: verbatim content with its byte span, lines,
     the note's length and whether the item is shorter than the note."""
@@ -203,12 +232,17 @@ def window_item(name, text, sha, lo, hi):
 
 
 def deliver(name, text, sha, query_terms, limit, mode, synapse):
-    """The items `--delivery MODE` gives for one note within `limit` characters: the whole
-    note when it fits (both modes); otherwise `window` delivers the match-anchored
-    windows and falls back to the prefix when no block holds a query term, and `prefix`
-    delivers the note's first `limit` characters."""
+    """The items `--delivery MODE` gives for one note within `limit` characters. `focus`:
+    the matched blocks and their same-section neighbours (focus_spans) whenever they are
+    less than the note. Otherwise the whole note when it fits; else `window` (and `focus`)
+    delivers the match-anchored windows and falls back to the prefix when no block holds a
+    query term, and `prefix` delivers the note's first `limit` characters."""
     if limit <= 0 or not text:
         return []
+    if mode == 'focus':           # matched blocks and their neighbours, even when it all fits
+        spans = focus_spans(text, query_terms, limit, synapse)
+        if spans:
+            return [window_item(name, text, sha, lo, hi) for lo, hi in spans]
     if len(text) <= limit:
         return [window_item(name, text, sha, 0, len(text))]
     if mode == 'window':
@@ -581,6 +615,7 @@ def retrieve(args):
                                       record_query=args.record_query,
                                       extra_tokens=args.extra_tokens)
             options.jev_candidates = args.jev_candidates  # advisor side channel; 0 = off
+            options.focus = delivery == 'focus'
             reader = lambda name: source_path(vault, name, prefixes).read_bytes()  # noqa: E731
             if compact:
                 return with_coverage(synapse.retrieve(vault, args.prompt, query_terms, rows,
@@ -754,7 +789,10 @@ def build_parser():
                              'packet: `window` (default) delivers a note whole when it fits '
                              'the per-source limit, else match-anchored verbatim windows; '
                              '`prefix` delivers the first per-source characters (the 0.3 '
-                             'behaviour).')
+                             'behaviour); `focus` delivers only the blocks that hold query '
+                             'terms and their same-section neighbours, even for a short note '
+                             '(the prompt hook\'s default), and in synaptic reserves only '
+                             'strongly activated linked notes.')
     parser.add_argument('--name-fields', action='store_true',
                         help='fts, fts-canonical and synaptic only: also search the file names, '
                              'frontmatter aliases and headings of an index built with '
