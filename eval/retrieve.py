@@ -7,7 +7,9 @@ router is the experimental implementation, not a presumed improvement.
 """
 from __future__ import annotations
 import argparse
+import contextlib
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -40,8 +42,14 @@ def record_usage(args, packet):
     """Opt-in usage ledger (`"record_usage": true` in routes.json; docs/synapse.md, section 11).
 
     Runs after the packet is printed and cannot change it; a failure is swallowed. Nothing
-    reads the ledger back into retrieval."""
+    reads the ledger back into retrieval. The setting is read here first, with the loader
+    already imported, so a vault that does not record (the default) imports nothing more."""
     if args.method not in ('fts', 'synaptic'):
+        return
+    try:
+        if load_config(args.vault.resolve() / '.context/routes.json').get('record_usage') is not True:
+            return
+    except Exception:
         return
     try:
         synapse_module()
@@ -243,6 +251,97 @@ class AllowedNames:
         return iter(sorted(self._all))
 
 
+class Kept:
+    """`names` in order without the excluded ones, as the list comprehension gave, but
+    checked lazily: a name is tested only when a position at or after it is read. The
+    default fts packet reads --top-k names; the NOT_FOUND reason reads one; slicing,
+    indexing, iteration and len() see exactly the eager list."""
+
+    def __init__(self, names, is_excluded):
+        self._names = names
+        self._is_excluded = is_excluded
+        self._kept = []
+        self._next = 0
+
+    def _fill(self, count=None):
+        names, kept = self._names, self._kept
+        while (count is None or len(kept) < count) and self._next < len(names):
+            name = names[self._next]
+            self._next += 1
+            if not self._is_excluded(name):
+                kept.append(name)
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            if index.start in (None, 0) and index.step in (None, 1) \
+                    and index.stop is not None and index.stop >= 0:
+                self._fill(index.stop)
+            else:
+                self._fill()
+            return self._kept[index]
+        self._fill(None if index < 0 else index + 1)
+        return self._kept[index]
+
+    def __iter__(self):
+        position = 0
+        while True:
+            self._fill(position + 1)
+            if position >= len(self._kept):
+                return
+            yield self._kept[position]
+            position += 1
+
+    def __len__(self):
+        self._fill()
+        return len(self._kept)
+
+    def __bool__(self):
+        self._fill(1)
+        return bool(self._kept)
+
+
+# Caches that only a long-lived process (`--serve`, the MCP server's worker) benefits from.
+# Both are keyed so a hit is the value a fresh computation would give: the exclusion verdict
+# of a name is a pure function of the name and the configured exclusions; the index digest
+# is keyed by the identity of the open file (device, inode, size, modification and, on
+# POSIX, status-change time in ns), so a rebuilt or rewritten index is hashed again.
+_MATCHERS = {}
+_DIGESTS = {}
+
+
+def cached_matcher(prefixes):
+    key = tuple(prefixes)
+    matcher = _MATCHERS.get(key)
+    if matcher is None:
+        if len(_MATCHERS) >= 8:
+            _MATCHERS.clear()
+        matcher = _MATCHERS[key] = exclusion_matcher(list(key))
+    return matcher
+
+
+def file_identity(handle):
+    info = os.fstat(handle.fileno())
+    ctime = None if os.name == 'nt' else info.st_ctime_ns
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, ctime)
+
+
+def index_digest(handle):
+    """SHA-256 of every byte of the open index file (one pass, 1 MiB reads)."""
+    key = file_identity(handle)
+    digest = _DIGESTS.get(key)
+    if digest is None:
+        hasher = hashlib.sha256()
+        handle.seek(0)
+        for block in iter(lambda: handle.read(1 << 20), b''):
+            hasher.update(block)
+        digest = hasher.hexdigest()
+        if file_identity(handle) == key:       # unchanged while it was read: keep it
+            if len(_DIGESTS) >= 4:
+                _DIGESTS.clear()
+            _DIGESTS[key] = digest
+    return digest
+
+
 def open_index(index):
     """Open the index read-only; return (connection, handle on the same file).
 
@@ -273,10 +372,6 @@ def open_index(index):
 
 def coverage(connection, handle, query_terms, expression):
     """What this query searched: never a path, bounded in size."""
-    digest = hashlib.sha256()
-    handle.seek(0)
-    for block in iter(lambda: handle.read(1 << 20), b''):
-        digest.update(block)
     try:
         meta = dict(connection.execute('SELECT key, value FROM index_meta'))
     except sqlite3.Error:
@@ -288,7 +383,7 @@ def coverage(connection, handle, query_terms, expression):
     receipt = {
         'indexed_notes': connection.execute(
             'SELECT COUNT(DISTINCT source_path) FROM records').fetchone()[0],
-        'index_sha256': digest.hexdigest(),
+        'index_sha256': index_digest(handle),
         'query_terms': query_terms[:COVERAGE_TERMS],
         'match_expression': expression,
         'skipped_by_reason': skipped if isinstance(skipped, dict) else None,
@@ -326,7 +421,7 @@ def retrieve(args):
         # Exclusions are string rules, checked only on the names a method looks at; the
         # symlink and vault-boundary checks touch the file system, so source_path() runs
         # only on the names actually read, always before the read.
-        is_excluded = exclusion_matcher(prefixes)
+        is_excluded = cached_matcher(prefixes)
         compact = args.method == 'synaptic' and args.compact
         delivery = args.delivery or 'window'
         loaded_synapse = []
@@ -360,7 +455,7 @@ def retrieve(args):
                     raise ValueError('this index has no name fields; run '
                                      '`context-layer index <vault> --name-fields`')
                 ranked = index_format.merge_name_hits(connection, expression, ranked)
-            ranked = [name for name in ranked if not is_excluded(name)]
+            ranked = Kept(ranked, is_excluded)
         withheld = []
 
         def in_content(items):
@@ -470,7 +565,7 @@ def retrieve(args):
                     if name not in allowed:
                         raise ValueError(f'Canonical source not indexed: {name}')
                     pinned.append(name)
-            ranked = list(dict.fromkeys(pinned + ranked))
+            ranked = list(dict.fromkeys(pinned + list(ranked)))
         evidence = lexical_evidence(ranked)
         return with_coverage(with_withheld({
             'schema': 'evidence-delivery-v1', 'operation_status': 'ok',
@@ -590,9 +685,8 @@ def fts_tail_items(connection, vault, prefixes, name, size, args):
     return items
 
 
-def main(argv=None):
-    configure_stdout()
-    parser = argparse.ArgumentParser(description=__doc__)
+def build_parser():
+    parser = argparse.ArgumentParser(prog='retrieve.py', description=__doc__)
     parser.add_argument('--method', required=True, choices=METHODS)
     parser.add_argument('--vault', required=True, type=Path)
     parser.add_argument('--top-k', type=int, default=3)
@@ -634,6 +728,15 @@ def main(argv=None):
                              f'(0-{JEV_CANDIDATES_CAP}; default 0 = none). Evidence is '
                              'unchanged.')
     parser.add_argument('prompt', nargs='?')
+    return parser
+
+
+def execute(argv, prompt=None):
+    """One retrieval, as `main` runs it: (exit code, the text main prints, packet or None,
+    parsed arguments or None). Argparse problems raise SystemExit exactly as the command
+    line does. With `prompt` given (an in-process caller), the prompt is that string and
+    neither the positional prompt nor --prompt-file may be given."""
+    parser = build_parser()
     args = parser.parse_args(argv)
     problem = inapplicable_flag(args)
     if problem:
@@ -641,7 +744,12 @@ def main(argv=None):
     for name, default in SYNAPTIC_DEFAULTS.items():
         if getattr(args, name) is None:
             setattr(args, name, default)
-    args.prompt = read_prompt(parser, args)
+    if prompt is None:
+        args.prompt = read_prompt(parser, args)
+    elif args.prompt is not None or args.prompt_file is not None:
+        parser.error('the prompt is passed by the caller; give no prompt argument')
+    else:
+        args.prompt = prompt
     try:
         if min(args.top_k, args.budget, args.per_source, args.budget_tokens) <= 0 \
                 or args.extra_tokens < 0:
@@ -650,12 +758,76 @@ def main(argv=None):
             raise ValueError(f'--jev-candidates must be between 0 and {JEV_CANDIDATES_CAP}')
         packet = retrieve(args)
     except (OSError, ValueError, KeyError, TypeError, AttributeError, sqlite3.Error, subprocess.TimeoutExpired) as exc:
-        print(json.dumps({'schema':'evidence-delivery-v1','operation_status':'error',
-                          'status':'ERROR','evidence':[],'error':str(exc)}))
-        return 1
-    print(json.dumps(packet, ensure_ascii=False, separators=(',', ':')))
-    record_usage(args, packet)
+        return 1, json.dumps({'schema':'evidence-delivery-v1','operation_status':'error',
+                              'status':'ERROR','evidence':[],'error':str(exc)}) + '\n', None, args
+    return 0, json.dumps(packet, ensure_ascii=False, separators=(',', ':')) + '\n', packet, args
+
+
+def run(argv, prompt=None):
+    """In-process `retrieve.py ARGV`: (exit code, stdout text, packet or None).
+
+    The text is what the command prints, byte for byte (help and usage output included);
+    argparse errors give exit code 2 with the message on stderr, as on the command line.
+    The opt-in usage ledger is written after the packet is built, as `main` does."""
+    out = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out):
+            code, text, packet, args = execute(argv, prompt)
+    except SystemExit as exc:
+        code = exc.code
+        if code is None:
+            code = 0
+        elif not isinstance(code, int):
+            print(code, file=sys.stderr)
+            code = 1
+        return code, out.getvalue(), None
+    if packet is not None:
+        record_usage(args, packet)
+    return code, out.getvalue() + text, packet
+
+
+def serve(stdin=None, stdout=None):
+    """`--serve`: a long-lived worker for the MCP server. One JSON request per line,
+    {"argv": [...], "prompt": str or null}; one JSON response per line, {"code": int,
+    "stdout": str, "stderr": str}. Each request is `run(argv, prompt)`: the same packet a
+    fresh `retrieve.py` process gives (sources, config, index and graph are read per
+    request; only the pure caches above persist). Ends at end of input."""
+    reader = stdin if stdin is not None else sys.stdin.buffer
+    writer = stdout if stdout is not None else sys.stdout.buffer
+    sys.stdout = sys.stderr            # nothing but responses may reach the response pipe
+    for raw in iter(reader.readline, b''):
+        try:
+            request = json.loads(raw.decode('utf-8'))
+            argv = [str(part) for part in request['argv']]
+            prompt = request.get('prompt')
+            if prompt is not None and not isinstance(prompt, str):
+                raise TypeError('prompt must be a string')
+        except (ValueError, KeyError, TypeError) as exc:
+            response = {'code': 1, 'stdout': '', 'stderr': f'bad worker request: {exc}'}
+        else:
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                try:
+                    code, text, _ = run(argv, prompt)
+                except Exception as exc:  # one bad request must not end the worker
+                    code, text = 1, ''
+                    print(f'{type(exc).__name__}: {exc}', file=sys.stderr)
+            response = {'code': code, 'stdout': text, 'stderr': err.getvalue()}
+        writer.write(json.dumps(response, ensure_ascii=True).encode('ascii') + b'\n')
+        writer.flush()
     return 0
+
+
+def main(argv=None):
+    configure_stdout()
+    arguments = sys.argv[1:] if argv is None else list(argv)
+    if arguments == ['--serve']:
+        return serve()
+    code, text, packet, args = execute(arguments)
+    sys.stdout.write(text)
+    if packet is not None:
+        record_usage(args, packet)
+    return code
 
 
 if __name__ == '__main__':

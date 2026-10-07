@@ -230,10 +230,11 @@ stderr line as a non-blocking "hook error"), never a traceback. The 20 s limit
 sits below the 30 s the host allows. Exit codes for every command:
 `docs/cli.md`.
 
-The prompt reaches the retrieval subprocess as a single argument after `--`, so a
-prompt such as `--help` or `-x` is searched, not read as an option; NUL becomes a
-space and a lone surrogate becomes U+FFFD, since neither can cross a process
-boundary.
+Retrieval runs inside the hook's own process (no second interpreter) and gets the
+prompt as a string, never as an argument, so a prompt such as `--help` or `-x` is
+searched, not read as an option; NUL becomes a space and a lone surrogate becomes
+U+FFFD. A retrieval slower than 20 s is abandoned on its thread and the hook exits 1
+at once with its own message.
 
 The hook is installed per project even with `--scope user`; `--scope` only moves
 the MCP entry (and, for `local`, the hooks' file).
@@ -396,8 +397,15 @@ thread, in arrival order. So a ping never waits behind a search, but **tool
 calls are still serial**: a second search waits until the first finishes. At
 most 32 calls wait behind the running one; one more is answered at once with a
 "busy" tool error.
-`notifications/cancelled` for a running search kills its retrieval subprocess;
-a cancelled request (running or still queued) gets no response. Other tools run
+Searches run on one warm retrieval worker (`eval/retrieve.py --serve`, started on
+the first search and reused), so a call pays no interpreter start or imports. The
+worker re-reads the configuration, the index, the graph and every source per call;
+it keeps only the index SHA-256 (keyed by the index file's device, inode, size and
+modification time, plus its status-change time on POSIX) and per-name exclusion
+verdicts (keyed by the exclusion list). `notifications/cancelled` for a running
+search kills the worker's whole process tree, and so does a search slower than
+120 s; the next search starts a new worker. A cancelled request (running or still
+queued) gets no response. Other tools run
 in-process and cannot be interrupted: a cancelled one runs to the end and its
 result is discarded. When the client closes stdin, the server finishes the calls
 it already accepted and exits 0.
@@ -596,7 +604,9 @@ macOS (Darwin 25.6.0), CPython 3.12.4, by `tests/test_mcp_install.py`,
   2025-06-18, a client response left unanswered;
 - the reader and the worker in-process over OS pipes: a ping answered while a
   search runs, a running and a queued search cancelled with no response and the
-  retrieval subprocess gone, a full queue answered with a "busy" tool error;
+  retrieval worker's process tree gone, a full queue answered with a "busy" tool
+  error; the warm worker reused across calls with the `search` packet, replaced
+  after a timeout or after it died;
 - installs: dry run writing nothing, `--apply` merging into an existing
   `.mcp.json` with a backup, the hook preserving an existing hook, `uninstall`
   restoring both files byte for byte, an empty project left empty after install

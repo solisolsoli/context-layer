@@ -90,8 +90,9 @@ with their `.prev` copies, which is its own undo.
   the prompt and absolute paths) to stderr; without it, it does not. `route` accepts
   `--prompt-file` for anything sensitive; `search` takes the prompt only as an
   argument today. The MCP server and the hook receive prompts over stdin and
-  put nothing on a command line of their own, but they pass the prompt to the
-  retrieval subprocess as an argument.
+  never put a prompt on a command line: the hook runs retrieval in its own
+  process, and the MCP server hands the prompt to its retrieval worker over a
+  pipe.
 - **Evaluation output**: `eval/evaluate.py`, `eval/compare.py` and
   `eval/live_compare.py` write only to the `--out` / `--packets-dir` you name;
   `live_compare.py` records prompts and answers there, and edits

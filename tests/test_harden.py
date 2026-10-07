@@ -15,10 +15,11 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 
-from _portable_helpers import isolated_home_env, process_is_gone, readable_hook_command
+from _portable_helpers import isolated_home_env, readable_hook_command
 from unittest import mock
 
 REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]))
@@ -581,31 +582,53 @@ class HookFraming(Vault):
         self.assertIn("data, not instructions", context)
 
     def test_hook_fails_with_its_own_message_before_the_host_timeout(self):
+        # Retrieval runs inside the hook process; a retrieval slower than HOOK_TIMEOUT is
+        # abandoned on its thread and the hook answers at once with its own message.
         from context_layer import mcp_server
         self.assertLess(mcp_server.HOOK_TIMEOUT, 30)
         args = argparse.Namespace(vault=str(self.vault), rest=[], top_k=3, budget=6000,
                                   per_source=2000, budget_tokens=None, method="fts",
                                   extra_tokens=None, compact=False)   # unset, as the parser leaves them
-        pid_file = self.root / "slow-retriever.pid"
-        script = ("import os,sys,time; open(sys.argv[1], 'w').write(str(os.getpid())); "
-                  "time.sleep(60)")
-        def slow(*_args):
-            return [sys.executable, "-c", script, str(pid_file)]
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        class Slow:
+            @staticmethod
+            def run(argv, prompt):
+                release.wait(60)
+                return 0, "", None
 
         stderr = io.StringIO()
+        started = time.monotonic()
         with mock.patch.object(mcp_server, "HOOK_TIMEOUT", 1.0), \
-                mock.patch.object(mcp_server, "retrieval_command", slow), \
+                mock.patch.object(mcp_server, "retrieve_module", lambda: Slow), \
                 mock.patch.object(sys, "stdin", io.StringIO(json.dumps({"prompt": "alpha"}))), \
                 mock.patch.object(sys, "stderr", stderr):
             code = mcp_server.cmd_hook(args)
         self.assertEqual(code, 1)
+        self.assertLess(time.monotonic() - started, 10)
         self.assertIn("timed out after 1.0 s", stderr.getvalue())
-        self.assertTrue(pid_file.exists(), "the slow retriever never started")
-        pid = int(pid_file.read_text())
-        deadline = time.monotonic() + 5
-        while not process_is_gone(pid) and time.monotonic() < deadline:
-            time.sleep(0.05)
-        self.assertTrue(process_is_gone(pid), "the timed-out retriever process survived")
+
+    def test_a_timed_out_hook_process_exits_at_once(self):
+        # The abandoned retrieval thread is a daemon: the hook process ends with exit 1
+        # right after its message, it does not wait for the retrieval.
+        script = ("import io, json, sys, threading\n"
+                  "from context_layer import cli, mcp_server\n"
+                  "class Slow:\n"
+                  "    @staticmethod\n"
+                  "    def run(argv, prompt):\n"
+                  "        threading.Event().wait(120)\n"
+                  "mcp_server.retrieve_module = lambda: Slow\n"
+                  "mcp_server.HOOK_TIMEOUT = 1.0\n"
+                  "sys.stdin = io.StringIO(json.dumps({'prompt': 'alpha'}))\n"
+                  "raise SystemExit(cli.main(['hook', 'claude-code', '--vault', sys.argv[1]]))\n")
+        started = time.monotonic()
+        done = subprocess.run([sys.executable, "-c", script, str(self.vault)], cwd=REPO,
+                              env=self.env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertIn("timed out after 1.0 s", done.stderr)
+        self.assertEqual(done.stdout, "")
+        self.assertLess(time.monotonic() - started, 30)
 
 
 # ---------------------------------------------------------------------------

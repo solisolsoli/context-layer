@@ -552,16 +552,15 @@ class McpConcurrency(HostFixture):
         self.mcp_server = mcp_server
         self.pid_files = []
         counter = itertools.count()
-        real = mcp_server.retrieval_command
 
-        def retrieval_command(state, prompt, *rest):
-            if not prompt.startswith("slow"):
-                return real(state, prompt, *rest)
+        # Every retrieval worker this server starts is the slow stand-in: it records its
+        # own and its child's process IDs and never answers.
+        def worker_command(state):
             pid_file = self.root / f"pid-{next(counter)}"
             self.pid_files.append(pid_file)
             return [sys.executable, "-c", self.SLOW, str(pid_file)]
 
-        patcher = patch.object(mcp_server, "retrieval_command", retrieval_command)
+        patcher = patch.object(mcp_server, "worker_command", worker_command)
         patcher.start()
         self.addCleanup(patcher.stop)
         stderr = patch.object(sys, "stderr", io.StringIO())
@@ -708,6 +707,78 @@ class McpConcurrency(HostFixture):
             self.send({"jsonrpc": "2.0", "method": "notifications/cancelled",
                        "params": {"requestId": ident}})
         self.assertTrue(self.gone(running))
+
+
+class McpRetrievalWorker(HostFixture):
+    """The MCP server's warm retrieval worker: reused across calls, killed on timeout and
+    replaced, and giving the packet `context-layer search` gives."""
+
+    def setUp(self):
+        super().setUp()
+        from context_layer import mcp_server
+        self.mcp_server = mcp_server
+        self.state = mcp_server.Server(self.vault)
+        self.state.worker = mcp_server.RetrievalWorker(self.state)
+        self.addCleanup(self.state.worker.close)
+        stderr = patch.object(sys, "stderr", io.StringIO())
+        stderr.start()
+        self.addCleanup(stderr.stop)
+
+    def search(self, prompt, **arguments):
+        result = self.mcp_server.tool_search_vault(self.state, {"prompt": prompt, **arguments})
+        self.assertFalse(result["isError"], result)
+        return json.loads(result["content"][0]["text"])
+
+    def test_one_worker_serves_many_calls_with_the_cli_packet(self):
+        first = self.search("release versioning policy")
+        pid = self.state.worker.pid
+        self.assertIsNotNone(pid)
+        for method in ("fts", "synaptic", "grep"):
+            packet = self.search("release versioning policy", method=method)
+            self.assertEqual(self.state.worker.pid, pid, "the worker was not reused")
+            done = self.cli("search", str(self.vault), "--prompt", "release versioning policy",
+                            "--method", method)
+            expected = json.loads(done.stdout)
+            for item in (packet, expected):
+                if isinstance(item.get("synapse"), dict):
+                    item["synapse"].pop("trace_run_id", None)
+            self.assertEqual(packet, expected, method)
+        self.assertEqual(first["evidence"][0]["source_sha256"], self.sha)
+
+    def test_a_timeout_kills_the_worker_tree_and_the_next_call_starts_a_new_one(self):
+        pid_file = self.root / "slow-worker.pid"
+        commands = [[sys.executable, "-c", McpConcurrency.SLOW, str(pid_file)]]
+        real = self.mcp_server.worker_command
+
+        def worker_command(state):
+            return commands.pop(0) if commands else real(state)
+
+        with patch.object(self.mcp_server, "worker_command", worker_command):
+            started = time.monotonic()
+            text, packet, code = self.mcp_server.search(self.state, "release", "fts", 3, 6000,
+                                                        2000, timeout=2)
+            self.assertLess(time.monotonic() - started, 30)
+            self.assertEqual(code, 1)
+            self.assertEqual(packet["status"], "ERROR")
+            self.assertIn("timed out after 2 s", packet["error"])
+            slow = [int(row) for row in pid_file.read_text().split()]
+            self.assertEqual(len(slow), 2)
+            deadline = time.monotonic() + 20
+            while not all(process_is_gone(pid) for pid in slow) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertTrue(all(process_is_gone(pid) for pid in slow),
+                            "the timed-out worker or its child survived")
+            self.assertEqual(self.search("release versioning policy")["evidence"][0]["source_path"],
+                             "notes/release.md")
+            self.assertNotIn(self.state.worker.pid, slow)
+
+    def test_a_worker_that_dies_is_an_error_then_replaced(self):
+        self.search("release")
+        os_kill = self.state.worker.proc.kill
+        os_kill()
+        self.state.worker.proc.wait(timeout=10)
+        # The next call notices the dead worker before sending and starts a fresh one.
+        self.assertEqual(self.search("release")["status"], "PARTIAL")
 
 
 # ---------------------------------------------------------------------------
@@ -1563,13 +1634,18 @@ class PromptHook(HostFixture):
 
 
 FAKE_RETRIEVER = """import json, os, sys
-# A stand-in for eval/retrieve.py that takes --prompt-file - (the prompt on stdin).
-args = sys.argv[1:]
-prompt = sys.stdin.buffer.read().decode("utf-8") if args[-2:] == ["--prompt-file", "-"] else None
-with open(os.environ["FAKE_REPORT"], "w", encoding="utf-8") as handle:
-    json.dump({"argv": args, "prompt": prompt}, handle)
-print(json.dumps({"schema": "evidence-delivery-v1", "operation_status": "ok",
-                  "status": "NOT_FOUND", "evidence": []}))
+# A stand-in for eval/retrieve.py: run() for in-process callers, --serve for the MCP worker.
+def run(argv, prompt):
+    with open(os.environ["FAKE_REPORT"], "w", encoding="utf-8") as handle:
+        json.dump({"argv": argv, "prompt": prompt}, handle)
+    return 0, json.dumps({"schema": "evidence-delivery-v1", "operation_status": "ok",
+                          "status": "NOT_FOUND", "evidence": []}) + "\\n", None
+if __name__ == "__main__" and sys.argv[1:] == ["--serve"]:
+    for raw in iter(sys.stdin.buffer.readline, b""):
+        request = json.loads(raw)
+        code, out, _ = run(request["argv"], request["prompt"])
+        sys.stdout.write(json.dumps({"code": code, "stdout": out, "stderr": ""}) + "\\n")
+        sys.stdout.flush()
 """
 
 
@@ -1578,33 +1654,27 @@ class RetrievalArgv(HostFixture):
 
     def test_only_applicable_flags_are_passed(self):
         # The retriever may refuse a flag that changes nothing (--budget-tokens without
-        # --compact, --extra-tokens with it), so none is passed.
+        # --compact, --extra-tokens with it), so none is passed. The prompt is never an
+        # argument: it is handed over as a string.
         from context_layer import mcp_server
         state = mcp_server.Server(self.vault)
 
-        def argv(method, compact, prompt="q"):
-            return mcp_server.retrieval_command(state, prompt, method, 3, 6000, 2000, 800, 300,
-                                                compact)
+        def argv(method, compact):
+            return mcp_server.retrieval_args(state, method, 3, 6000, 2000, 800, 300, compact)
 
-        with patch.object(mcp_server, "reads_prompt_file", lambda script: False):
-            fts = argv("fts", None, prompt="-x")
-            self.assertEqual(fts[-2:], ["--", "-x"])
-            for flag in ("--extra-tokens", "--budget-tokens", "--compact"):
-                self.assertNotIn(flag, fts)
-            default = argv("synaptic", False)
-            self.assertEqual(default[default.index("--extra-tokens") + 1], "300")
-            self.assertNotIn("--budget-tokens", default)
-            self.assertNotIn("--compact", default)
-            compact = argv("synaptic", True)
-            self.assertEqual(compact[compact.index("--budget-tokens") + 1], "800")
-            self.assertIn("--compact", compact)
-            self.assertNotIn("--extra-tokens", compact)
-        with patch.object(mcp_server, "reads_prompt_file", lambda script: True):
-            stdin = argv("fts", None, prompt="a private prompt")
-            self.assertEqual(stdin[-2:], ["--prompt-file", "-"])
-            self.assertNotIn("a private prompt", stdin)
+        fts = argv("fts", None)
+        self.assertEqual(fts, ["--method", "fts", "--vault", str(self.vault), "--top-k", "3",
+                               "--budget", "6000", "--per-source", "2000"])
+        default = argv("synaptic", False)
+        self.assertEqual(default[default.index("--extra-tokens") + 1], "300")
+        self.assertNotIn("--budget-tokens", default)
+        self.assertNotIn("--compact", default)
+        compact = argv("synaptic", True)
+        self.assertEqual(compact[compact.index("--budget-tokens") + 1], "800")
+        self.assertIn("--compact", compact)
+        self.assertNotIn("--extra-tokens", compact)
 
-    def test_the_prompt_travels_on_stdin_when_the_retriever_reads_it(self):
+    def test_the_prompt_travels_as_a_string_never_as_an_option(self):
         home = self.root / "fake-home"
         shutil.copytree(REPO / "router", home / "router")
         (home / "eval").mkdir()
@@ -1616,7 +1686,6 @@ class RetrievalArgv(HostFixture):
         self.assertEqual(done.returncode, 0, done.stderr)
         seen = json.loads(report.read_text())
         self.assertEqual(seen["prompt"], "--help release")
-        self.assertEqual(seen["argv"][-2:], ["--prompt-file", "-"])
         self.assertNotIn("--help release", seen["argv"])
         report.unlink()
         client = McpClient(self, env)                          # the cancellable worker path
@@ -1624,7 +1693,9 @@ class RetrievalArgv(HostFixture):
         result = client.request(1, "tools/call", {"name": "search_vault",
                                                   "arguments": {"prompt": "-x release"}})
         self.assertFalse(result["result"]["isError"], result)
-        self.assertEqual(json.loads(report.read_text())["prompt"], "-x release")
+        seen = json.loads(report.read_text())
+        self.assertEqual(seen["prompt"], "-x release")
+        self.assertNotIn("-x release", seen["argv"])
 
 
 class StatusFallback(HostFixture):

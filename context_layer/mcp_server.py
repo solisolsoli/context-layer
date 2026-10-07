@@ -17,8 +17,9 @@ served on its own, statelessly.
 
 Concurrency: the reader answers initialize, ping, tools/list, server/discover and
 notifications/cancelled at once; tools/call runs on one worker thread, in arrival order
-(a second call waits for the first). Cancelling a running search kills its retrieval
-subprocess, and a cancelled request gets no response.
+(a second call waits for the first). Searches run on one warm retrieval worker process
+(eval/retrieve.py --serve); cancelling a running search kills that worker's process tree
+(the next search starts a new one), and a cancelled request gets no response.
 
 Python 3.10+; standard library only. This server opens no network connection and calls no
 model by default. The optional advisor is off unless the vault owner turns it on
@@ -35,7 +36,6 @@ import argparse
 import codecs
 from dataclasses import dataclass
 import datetime as dt
-import functools
 import hashlib
 import importlib
 import io
@@ -155,6 +155,7 @@ class Server:
     session_evidence: bool = False    # CONTEXT_LAYER_SESSION_EVIDENCE=1
     session_id: str | None = None
     ledger_noted: bool = False        # a ledger problem is logged once per server
+    worker: object = None             # the MCP server's RetrievalWorker; None: in process
 
 
 def one_line(text) -> str:
@@ -292,29 +293,14 @@ def bound_prompt(prompt: str, cap: int = PROMPT_CAP) -> tuple[str, int | None]:
     return prompt[:head] + "\n" + prompt[-(cap - head - 1):], len(prompt)
 
 
-@functools.lru_cache(maxsize=8)
-def reads_prompt_file(script: str) -> bool:
-    """Whether this eval/retrieve.py takes `--prompt-file -` (the prompt on stdin)."""
-    try:
-        return "--prompt-file" in Path(script).read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return False
-
-
-STDIN_PROMPT = ["--prompt-file", "-"]
-
-
-def retrieval_command(state: Server, prompt: str, method: str, top_k: int, budget: int,
-                      per_source: int, budget_tokens: int | None, extra_tokens: int | None,
-                      compact: bool | None, extra_args=()) -> list[str]:
-    """The eval/retrieve.py argv. Only flags that apply are passed (the default synaptic
-    packet takes --extra-tokens, the --compact one --budget-tokens). The prompt travels on
-    stdin (`--prompt-file -`) when the retriever offers it, else as one argument after `--`,
-    so a prompt that starts with a dash (`--help`, `-x`) is a prompt, not an option."""
-    from .cli import repo_home
-    script = repo_home() / "eval" / "retrieve.py"
-    command = [sys.executable, str(script),
-               "--method", method, "--vault", str(state.vault), "--top-k", str(top_k),
+def retrieval_args(state: Server, method: str, top_k: int, budget: int, per_source: int,
+                   budget_tokens: int | None, extra_tokens: int | None, compact: bool | None,
+                   extra_args=()) -> list[str]:
+    """The eval/retrieve.py arguments, without the prompt (it is handed over as a string, so
+    a prompt that starts with a dash, `--help` or `-x`, is a prompt, not an option). Only
+    flags that apply are passed: the default synaptic packet takes --extra-tokens, the
+    --compact one --budget-tokens."""
+    command = ["--method", method, "--vault", str(state.vault), "--top-k", str(top_k),
                "--budget", str(budget), "--per-source", str(per_source)]
     if method == "synaptic":
         if state.compact if compact is None else compact:
@@ -323,42 +309,174 @@ def retrieval_command(state: Server, prompt: str, method: str, top_k: int, budge
             command += ["--extra-tokens", str(state.extra_tokens if extra_tokens is None
                                               else extra_tokens)]
     command += [str(part) for part in extra_args]        # e.g. the advisor's side channel
-    if reads_prompt_file(str(script)):
-        return command + STDIN_PROMPT
-    return command + ["--", prompt]
+    return command
+
+
+def retriever_script() -> Path:
+    from .cli import repo_home
+    return repo_home() / "eval" / "retrieve.py"
+
+
+_RETRIEVER = []
+
+
+def retrieve_module():
+    """eval/retrieve.py loaded once into this process (wheel and checkout layouts alike,
+    and CONTEXT_LAYER_HOME), so `search`, the hook and packets need no second interpreter."""
+    if not _RETRIEVER:
+        import importlib.util
+        script = retriever_script()
+        spec = importlib.util.spec_from_file_location("context_layer_retrieve", script)
+        if spec is None or spec.loader is None:
+            raise OSError(f"cannot load {script.name}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        if not callable(getattr(module, "run", None)):
+            raise OSError("eval/retrieve.py is from another context-layer version (no run())")
+        _RETRIEVER.append(module)
+    return _RETRIEVER[0]
+
+
+def run_in_process(argv: list[str], prompt: str | None,
+                   timeout: float | None = None) -> tuple[int, str, str]:
+    """(exit code, stdout text, stderr text) of `retrieve.py ARGV` run in this process.
+
+    With a timeout the retrieval runs on a daemon thread; if it has not finished in time
+    this raises subprocess.TimeoutExpired and leaves the thread behind: the callers with
+    a timeout (the prompt hook, a one-shot `packet build`) exit right after, which ends it."""
+    def call() -> tuple[int, str, str]:
+        code, text, _ = retrieve_module().run(argv, prompt)
+        return code, text, ""
+    if timeout is None:
+        return call()
+    box: dict = {}
+
+    def target() -> None:
+        try:
+            box["value"] = call()
+        except BaseException as exc:                      # re-raised in the caller
+            box["error"] = exc
+    worker = threading.Thread(target=target, name="context-layer-retrieval", daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        raise subprocess.TimeoutExpired("retrieval", timeout)
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
 
 
 # One tool call runs at a time on the worker; this names it so a cancellation can reach
-# the retrieval subprocess it started.
+# the retrieval process it is using.
 CURRENT = threading.local()
 
 
 class Cancelled(Exception):
-    """The request was cancelled before its retrieval started."""
+    """The request was cancelled (before its retrieval started, or while it ran)."""
 
 
-def run_retrieval(command: list[str], timeout: int,
-                  stdin_data: bytes | None = None) -> subprocess.CompletedProcess:
-    """Run the retrieval subprocess; inside a cancellable tool call, register it so a
-    `notifications/cancelled` can kill it. stdin is never inherited (in the MCP server it
-    is the JSON-RPC pipe): it carries the prompt, or nothing."""
-    job = getattr(CURRENT, "job", None)
-    with managed_process_tree(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              stdin=subprocess.DEVNULL if stdin_data is None else subprocess.PIPE) as proc:
-        if job is not None and not job.attach(proc):
-            proc.kill()
-            proc.communicate()
-            raise Cancelled()
+def worker_command(state: Server) -> list[str]:  # noqa: ARG001 - a test seam
+    return [sys.executable, str(retriever_script()), "--serve"]
+
+
+class RetrievalWorker:
+    """One warm `retrieve.py --serve` process for the MCP server: started on the first
+    search, reused while it lives, so a call pays no interpreter start or imports.
+
+    Cancellation and timeouts are what they were with one process per call: the running
+    tool call attaches this process to its Job, so `notifications/cancelled` kills its
+    whole process tree (managed_process_tree); a timeout does the same. The next call
+    starts a new worker. Requests are serial (one tool call runs at a time)."""
+
+    def __init__(self, state: Server):
+        self.state = state
+        self.lock = threading.Lock()
+        self.stack = None
+        self.proc = None
+        self.lines: queue.Queue | None = None
+
+    @property
+    def pid(self) -> int | None:
+        return self.proc.pid if self.proc is not None else None
+
+    def _start(self) -> None:
+        import contextlib
+        stack = contextlib.ExitStack()
+        proc = stack.enter_context(managed_process_tree(
+            worker_command(self.state), stdin=subprocess.PIPE, stdout=subprocess.PIPE))
+        lines: queue.Queue = queue.Queue()
+
+        def pump(stream=proc.stdout) -> None:
+            try:
+                for raw in iter(stream.readline, b""):
+                    lines.put(raw)
+            except (OSError, ValueError):
+                pass
+            lines.put(None)
+        threading.Thread(target=pump, name="context-layer-retrieval-reader", daemon=True).start()
+        self.stack, self.proc, self.lines = stack, proc, lines
+
+    def close(self) -> None:
+        stack, proc = self.stack, self.proc
+        self.stack, self.proc, self.lines = None, None, None
+        if stack is not None:
+            try:
+                stack.close()                     # kills and reaps the tree if still alive
+            except OSError:
+                pass
+        if proc is not None:
+            for stream in (proc.stdin, proc.stdout):
+                try:
+                    stream.close()
+                except (OSError, ValueError):
+                    pass
+
+    def call(self, argv: list[str], prompt: str, timeout: float) -> tuple[int, str, str]:
+        job = getattr(CURRENT, "job", None)
+        with self.lock:
+            if self.proc is None or self.proc.poll() is not None:
+                self.close()
+                self._start()
+            proc, lines = self.proc, self.lines
+            if job is not None and not job.attach(proc):
+                self.close()
+                raise Cancelled()
+            try:
+                request = json.dumps({"argv": argv, "prompt": prompt}, ensure_ascii=True)
+                try:
+                    proc.stdin.write(request.encode("ascii") + b"\n")
+                    proc.stdin.flush()
+                except OSError:
+                    pass                          # it died: the reader reports end of output
+                try:
+                    raw = lines.get(timeout=timeout)
+                except queue.Empty:
+                    self.close()
+                    raise subprocess.TimeoutExpired("retrieval", timeout) from None
+            finally:
+                if job is not None:
+                    job.detach()
+            if raw is None:
+                self.close()
+                if job is not None and job.cancelled:
+                    raise Cancelled()
+                raise OSError("the retrieval worker exited")
         try:
-            out, err = proc.communicate(input=stdin_data, timeout=timeout)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.communicate()
-            raise
-        finally:
-            if job is not None:
-                job.detach()
-        return subprocess.CompletedProcess(command, proc.returncode, out, err)
+            response = json.loads(raw.decode("utf-8"))
+            return int(response["code"]), str(response["stdout"]), str(response["stderr"])
+        except (ValueError, KeyError, TypeError) as exc:
+            self.close()
+            raise OSError(f"the retrieval worker sent no response ({one_line(exc)})") from None
+
+
+def run_retrieval(state: Server, argv: list[str], prompt: str,
+                  timeout: float) -> tuple[int, str, str]:
+    """(exit code, stdout, stderr) of one retrieval: on the MCP server's warm worker when
+    the server has one, otherwise in this process."""
+    worker = getattr(state, "worker", None)
+    if worker is not None:
+        return worker.call(argv, prompt, timeout)
+    return run_in_process(argv, prompt, timeout)
 
 
 def search(state: Server, prompt: str, method: str, top_k: int, budget: int,
@@ -382,29 +500,28 @@ def search(state: Server, prompt: str, method: str, top_k: int, budget: int,
     problem = preflight(state.vault, method)
     if problem:
         return failed(problem)
-    command = retrieval_command(state, prompt, method, top_k, budget, per_source,
-                                budget_tokens, extra_tokens, compact, extra_args)
-    stdin_data = prompt.encode("utf-8") if command[-2:] == STDIN_PROMPT else None
+    argv = retrieval_args(state, method, top_k, budget, per_source, budget_tokens, extra_tokens,
+                          compact, extra_args)
     try:
-        done = run_retrieval(command, timeout, stdin_data)
+        code, out, err = run_retrieval(state, argv, prompt, timeout)
     except Cancelled:
         return failed("cancelled")
     except subprocess.TimeoutExpired:
         return failed(f"retrieval timed out after {timeout} s")
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
-        return failed(f"retrieval subprocess failed: {one_line(exc)}")
-    text = done.stdout.decode("utf-8", "replace").strip()
+        return failed(f"retrieval failed: {one_line(exc)}")
+    text = out.strip()
     try:
         packet = json.loads(text)
     except ValueError:
-        detail = done.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or ["no output"]
+        detail = err.strip().splitlines()[-1:] or ["no output"]
         return failed(f"retrieval produced no packet: {detail[0]}")
     if not isinstance(packet, dict):
         return failed("retrieval produced no packet object")
     if packet.get("operation_status") != "ok":
         packet = as_error(packet)
-        return json.dumps(packet, ensure_ascii=False), packet, done.returncode or 1
-    return text, packet, done.returncode
+        return json.dumps(packet, ensure_ascii=False, separators=(",", ":")), packet, code or 1
+    return text, packet, code
 
 
 def failed_packet(message: str) -> dict:
@@ -415,7 +532,7 @@ def failed_packet(message: str) -> dict:
 
 def failed(message: str) -> tuple[str, dict, int]:
     packet = failed_packet(message)
-    return json.dumps(packet, ensure_ascii=False), packet, 1
+    return json.dumps(packet, ensure_ascii=False, separators=(",", ":")), packet, 1
 
 
 def builtin_status(vault: Path) -> dict:
@@ -1479,7 +1596,15 @@ def serve(state: Server, stdin=None, stdout=None) -> int:
     # The vault's name only: host MCP logs keep stderr, and an absolute home path
     # does not belong there.
     print(f"context-layer mcp: serving vault {state.vault.name!r}", file=sys.stderr, flush=True)
-    return Session(state, reader, writer, QUEUE_LIMIT).run()
+    own_worker = state.worker is None
+    if own_worker:
+        state.worker = RetrievalWorker(state)
+    try:
+        return Session(state, reader, writer, QUEUE_LIMIT).run()
+    finally:
+        if own_worker:
+            state.worker.close()
+            state.worker = None
 
 
 # ---------------------------------------------------------------------------

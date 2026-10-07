@@ -56,10 +56,9 @@ class Integration(unittest.TestCase):
 
     def call_cli(self, packet, *extra, code=0):
         raw = json.dumps(packet, indent=2) + "\n"
-        done = subprocess.CompletedProcess([], code, stdout=raw.encode())
         output = io.StringIO()
         with patch.object(mcp_server, "preflight", return_value=None), \
-                patch.object(cli.subprocess, "run", return_value=done), \
+                patch.object(mcp_server, "run_in_process", return_value=(code, raw, "")), \
                 contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
             result = cli.main(["search", str(self.vault), "--prompt", "gap", *extra])
         return result, output.getvalue(), raw

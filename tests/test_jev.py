@@ -460,7 +460,8 @@ class Optionality(Case):
         self.assertEqual(with_key["search fts --jev"][1], with_key["search fts"][1])
         self.assertEqual(with_key["search synaptic --jev"][1], with_key["search synaptic"][1])
         records = [json.loads(line) for line in log.read_text().splitlines()]
-        self.assertGreaterEqual(len(records), len(expected) + 4)  # CLI + retrieval children
+        # One record per CLI process (retrieval runs inside it), plus the builder children.
+        self.assertGreaterEqual(len(records), len(expected))
         self.assertEqual([r for r in records if r["advisor_modules"] or r["blocked"]], [])
         self.assertEqual(sorted(p.name for p in (vault / ".context").iterdir()
                                 if p.name.startswith("jev")), [])

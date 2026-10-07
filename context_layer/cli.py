@@ -242,12 +242,12 @@ def cmd_search(args: argparse.Namespace) -> int:
     # byte for byte; the provider client is never imported on that path.
     advisor = jev.search_plan(vault.resolve(), args.method, args.rest) \
         if args.jev and not args.no_jev else None
-    command = [sys.executable, str(repo_home() / "eval/retrieve.py"),
-               "--vault", str(vault), "--method", args.method, *args.rest,
-               *(advisor.retrieve_args() if advisor else []), args.prompt]
-    trace(command)
-    done = subprocess.run(command, stdout=subprocess.PIPE)
-    text = done.stdout.decode("utf-8", "replace")
+    # eval/retrieve.py runs in this process (no second interpreter); its argv, its output
+    # and its exit code are what `python3 eval/retrieve.py ARGV` gives.
+    argv = ["--vault", str(vault), "--method", args.method, *args.rest,
+            *(advisor.retrieve_args() if advisor else []), args.prompt]
+    trace(["eval/retrieve.py", *argv])
+    returncode, text, _ = mcp_server.run_in_process(argv, None)
     try:
         packet = json.loads(text)
     except ValueError:
@@ -257,11 +257,11 @@ def cmd_search(args: argparse.Namespace) -> int:
         packet = mcp_server.as_error(packet)
         print(json.dumps(packet, ensure_ascii=False))
         print(f"context-layer search: {packet.get('error')}", file=sys.stderr)
-        return done.returncode or 1
+        return returncode or 1
     if advisor is not None and isinstance(packet, dict):
         packet = jev.advise_search(vault.resolve(), args.prompt, args.method, packet, advisor)
         text = json.dumps(packet, ensure_ascii=False, separators=(",", ":")) + "\n"
-    if args.github and not args.no_github and done.returncode == 0 and isinstance(packet, dict):
+    if args.github and not args.no_github and returncode == 0 and isinstance(packet, dict):
         augmented = mcp_server.github_fallback(vault.resolve(), args.prompt, packet)
         if augmented is not packet:
             packet = augmented
@@ -270,7 +270,7 @@ def cmd_search(args: argparse.Namespace) -> int:
     note = mcp_server.withheld_note(packet)
     if note:
         print(f"context-layer search: {note}", file=sys.stderr)
-    return done.returncode
+    return returncode
 
 
 def cmd_github_context(args: argparse.Namespace) -> int:
