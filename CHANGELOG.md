@@ -18,6 +18,28 @@
   `context-layer index` runs the package's own `router/build_index.py` in process
   instead of `$CONTEXT_LAYER_HOME/router/build_index.py` in a child process.
 
+- Faster per-prompt path. `search` and the prompt hook run `eval/retrieve.py` in
+  their own process (no second interpreter); the hook keeps its 20 s limit on a
+  thread. The MCP server keeps one warm retrieval worker (`retrieve.py --serve`);
+  cancelling a search or a 120 s timeout kills the worker's process tree and the
+  next search starts a new one. The index hash of the coverage receipt is computed
+  every call, on a thread that overlaps the query; exclusions are checked only on
+  the names a packet reads; name rules skip pathlib and Unicode work for plain
+  names. Packets are unchanged.
+- Fewer tokens per session and prompt: the MCP tool list and `instructions` say the
+  same with less text (tools/list 12,781 -> 8,685 bytes), JSON-RPC lines and tool
+  results use compact separators, and the hook context opens with one framing
+  sentence; fts-part items of a synaptic hook context drop the repeated
+  `reason: fts` line.
+- New, opt-in: `search --relevance-floor R` and `hook --relevance-floor R` leave out
+  a top-k note whose bm25 is weaker than R times the strongest one (default 0 = off).
+- Changed (may affect callers): the hook's header text is shorter (markers, nonce,
+  items and packing are unchanged); MCP tool descriptions are shorter; the MCP
+  server's error packets and augmented packets are serialised without spaces;
+  `retrieve.py --serve` is a new mode; the prompt reaches retrieval as a string,
+  never as an argument, and a `CONTEXT_LAYER_HOME` checkout must provide
+  `eval/retrieve.py` with `run()`.
+
 - Put a runnable first example at the center of the README and move detailed
   measurements to [the validation guide](docs/validation.md), retaining their
   automated checks. Simplify the package description and documentation navigation.
