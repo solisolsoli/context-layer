@@ -1450,11 +1450,14 @@ class PromptHook(HostFixture):
         # F2-30: `hook --budget-tokens 100` without --compact ran fts and said nothing, while
         # `search`, `packet build` and `install` refuse it. A hook line exits 1 (never 2).
         payload = json.dumps({"prompt": "release versioning policy"})
-        for flags, says in ((("--budget-tokens", "100"), "need --method synaptic"),
+        for flags, says in ((("--method", "fts", "--budget-tokens", "100"),
+                             "need --method synaptic"),
+                            (("--budget-tokens", "100"),              # the default is synaptic
+                             "--budget-tokens sizes only the --compact"),
                             (("--method", "synaptic", "--budget-tokens", "100"),
                              "--budget-tokens sizes only the --compact"),
-                            (("--extra-tokens", "50"), "need --method synaptic"),
-                            (("--compact",), "need --method synaptic"),
+                            (("--method", "fts", "--extra-tokens", "50"), "need --method synaptic"),
+                            (("--method", "fts", "--compact"), "need --method synaptic"),
                             (("--method", "synaptic", "--compact", "--extra-tokens", "50"),
                              "--extra-tokens sizes the default synaptic packet")):
             with self.subTest(flags=flags):
@@ -1464,7 +1467,8 @@ class PromptHook(HostFixture):
                 self.assertEqual(len(done.stderr.strip().splitlines()), 1, done.stderr)
                 self.assertIn(says, done.stderr)
         for flags in (("--method", "synaptic", "--compact", "--budget-tokens", "800"),
-                      ("--method", "synaptic", "--extra-tokens", "300"), ()):
+                      ("--method", "synaptic", "--extra-tokens", "300"), ("--extra-tokens", "50"),
+                      ("--compact",), ("--method", "fts"), ()):
             with self.subTest(flags=flags):
                 self.assertEqual(self.hook(payload, *flags).returncode, 0)
 
@@ -1520,7 +1524,7 @@ class PromptHook(HostFixture):
                 self.assertNotIn("Traceback", done.stderr)
         fallback = self.hook(payload, "--method", "jev")
         self.assertIn("path=notes/release.md", self.context(fallback))
-        self.assertIn("unknown --method 'jev'; using fts", fallback.stderr)
+        self.assertIn("unknown --method 'jev'; using synaptic", fallback.stderr)
 
     def test_prompts_that_look_like_options_empty_or_huge(self):
         # B-12: the prompt is an argument after `--`, bounded, never an option.

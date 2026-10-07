@@ -810,8 +810,8 @@ class SynapticHookInstall(Vault):
     def test_hook_flags_without_a_hook_are_refused(self):
         for extra in (["--method", "synaptic"], ["--hook", "--budget-tokens", "800"],
                       ["--hook", "--method", "synaptic", "--budget-tokens", "0"],
-                      ["--extra-tokens", "300"], ["--hook", "--compact"],
-                      ["--hook", "--extra-tokens", "300"],
+                      ["--extra-tokens", "300"], ["--hook", "--method", "fts", "--compact"],
+                      ["--hook", "--method", "fts", "--extra-tokens", "300"],
                       ["--hook", "--method", "synaptic", "--extra-tokens", "-1"],
                       ["--hook", "--method", "synaptic", "--compact", "--extra-tokens", "300"],
                       ["--hook", "--method", "synaptic", "--compact", "--budget-tokens", "0"]):

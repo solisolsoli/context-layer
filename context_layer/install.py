@@ -139,17 +139,17 @@ def mcp_snippet(vault: Path, session_evidence: bool = False) -> dict:
     return {"mcpServers": {SERVER_NAME: mcp_entry(vault, session_evidence)}}
 
 
-def hook_argv(vault: Path, method: str = "fts", budget_tokens: "int | None" = None,
+def hook_argv(vault: Path, method: "str | None" = None, budget_tokens: "int | None" = None,
               extra_tokens: "int | None" = None, compact: bool = False,
               host: str = "claude-code", max_context_chars: "int | None" = None,
               session_evidence: bool = False, extra: "tuple[str, ...]" = ()) -> list[str]:
-    """The hook command line. fts (the default) adds no flag, so an fts hook written by
-    an earlier version and one written now are the same command. Synaptic flags are
-    written only when given: --extra-tokens sizes the default synaptic packet,
+    """The hook command line. Without --method the hook runs its own default (synaptic,
+    focused; mcp_server.HOOK_DEFAULT_METHOD); a method asked for is written. Synaptic
+    flags are written only when given: --extra-tokens sizes the default synaptic packet,
     --budget-tokens only the --compact one. `extra` holds further hook flags, already
     checked (hook_flags())."""
     tail = ["hook", host]
-    if method != "fts":
+    if method is not None:
         tail += ["--method", method]
     if compact:
         tail += ["--compact"]
@@ -197,7 +197,7 @@ def hook_command(argv: list[str]) -> str:
     return "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand " + encoded
 
 
-def hook_entry(vault: Path, method: str = "fts", budget_tokens: "int | None" = None,
+def hook_entry(vault: Path, method: "str | None" = None, budget_tokens: "int | None" = None,
                extra_tokens: "int | None" = None, compact: bool = False,
                host: str = "claude-code", max_context_chars: "int | None" = None,
                session_evidence: bool = False, extra: "tuple[str, ...]" = ()) -> dict:
@@ -559,7 +559,7 @@ def marker_file(text: "str | None") -> str:
 
 
 def claude_settings_changes(project: Path, vault: Path, removing: bool, prompt_hook: bool,
-                            rules_hooks: bool, plan_default: bool, method: str = "fts",
+                            rules_hooks: bool, plan_default: bool, method: "str | None" = None,
                             budget_tokens: "int | None" = None,
                             extra_tokens: "int | None" = None,
                             compact: bool = False, scope: str = "project",
@@ -794,7 +794,7 @@ def _parsed_has_table(text: str) -> bool:
 
 
 def codex_hooks_change(project: Path, vault: Path, removing: bool, prompt_hook: bool,
-                       rules_hooks: bool, method: str = "fts",
+                       rules_hooks: bool, method: "str | None" = None,
                        budget_tokens: "int | None" = None, extra_tokens: "int | None" = None,
                        compact: bool = False, max_context_chars: "int | None" = None,
                        session_evidence: bool = False,
@@ -846,7 +846,8 @@ def format_snippet(fmt: str, vault: Path, session_evidence: bool = False) -> str
     return render_json({"mcpServers": {SERVER_NAME: entry}})
 
 
-def print_config(host: str, vault: Path, project: Path, want_hook: bool, method: str = "fts",
+def print_config(host: str, vault: Path, project: Path, want_hook: bool,
+                 method: "str | None" = None,
                  budget_tokens: "int | None" = None, extra_tokens: "int | None" = None,
                  compact: bool = False, fmt: "str | None" = None,
                  max_context_chars: "int | None" = None, session_evidence: bool = False,
@@ -923,7 +924,7 @@ def run(args: argparse.Namespace, removing: bool) -> int:
         print(f"context-layer {label}: vault not found: {vault}", file=sys.stderr)
         return 1
     project = Path(args.project).expanduser().resolve() if args.project else vault
-    method = getattr(args, "method", "fts")
+    method = getattr(args, "method", None)
     budget_tokens = getattr(args, "budget_tokens", None)
     extra_tokens = getattr(args, "extra_tokens", None)
     compact = getattr(args, "compact", False)
@@ -933,7 +934,7 @@ def run(args: argparse.Namespace, removing: bool) -> int:
     hook_extra = hook_flags(args)
     if not removing:
         hooked = host in ("claude-code", "codex") and args.hook
-        if (method != "fts" or budget_tokens is not None or extra_tokens is not None
+        if (method is not None or budget_tokens is not None or extra_tokens is not None
                 or compact or max_context_chars is not None or hook_extra) and not hooked:
             return usage(label, "--method, --extra-tokens, --compact, --budget-tokens, "
                                 "--max-context-chars, --relevance-floor and --delivery "
@@ -948,7 +949,7 @@ def run(args: argparse.Namespace, removing: bool) -> int:
             return usage(label, "--relevance-floor applies to fts and the default synaptic "
                                 "packet, not --compact")
         if (compact or extra_tokens is not None or budget_tokens is not None) \
-                and method != "synaptic":
+                and method not in (None, "synaptic"):
             return usage(label, "--extra-tokens, --compact and --budget-tokens need "
                                 "--method synaptic")
         if extra_tokens is not None and (extra_tokens < 0 or compact):
@@ -1054,18 +1055,19 @@ def register(sub: argparse._SubParsersAction) -> None:
                     ".claude/ or .codex/ folder that held only this tool's entries.",
     )
     p_uninstall.add_argument("host", choices=list(HOSTS))
-    p_install.add_argument("--method", choices=list(HOOK_METHODS), default="fts",
-                           help="With --hook: retrieval method the prompt hook runs (default "
-                                "fts; synaptic is opt-in and experimental).")
+    p_install.add_argument("--method", choices=list(HOOK_METHODS), default=None,
+                           help="With --hook: retrieval method the prompt hook runs (default: "
+                                "the hook's own, synaptic with focused delivery; fts: lexical "
+                                "matches only). A method given is written into the hook line.")
     p_install.add_argument("--extra-tokens", type=int, default=None, metavar="N",
-                           help="With --hook --method synaptic: estimated-token budget for "
+                           help="With --hook (synaptic): estimated-token budget for "
                                 "link-graph extras added after the unchanged fts packet "
                                 "(default: the hook's own, 600).")
     p_install.add_argument("--compact", action="store_true",
-                           help="With --hook --method synaptic: the compact packer (passages "
+                           help="With --hook (synaptic): the compact packer (passages "
                                 "within --budget-tokens) instead of fts packet + extras.")
     p_install.add_argument("--budget-tokens", type=int, default=None, metavar="N",
-                           help="With --hook --method synaptic --compact only: packet budget "
+                           help="With --hook (synaptic) --compact only: packet budget "
                                 "in estimated tokens (default: the hook's own, 1200).")
     p_install.add_argument("--max-context-chars", type=int, default=None, metavar="N",
                            help="With --hook: most characters of context the hook prints "

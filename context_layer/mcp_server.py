@@ -86,6 +86,7 @@ LIST_TTL_MS = 3_600_000                 # 2026-07-28 CacheableResult: the tool l
 METHODS = ("grep", "fts", "fts-canonical", "router", "synaptic")
 HOOK_METHODS = ("fts", "synaptic")
 HOOK_DELIVERY = "focus"              # the hook's default --delivery (retrieve.py)
+HOOK_DEFAULT_METHOD = "synaptic"     # the hook's default --method
 HOOK_HOSTS = ("claude-code", "codex")
 BUDGET_TOKENS_DEFAULT = 1200         # synaptic --compact budget, estimated tokens (ceil(chars / 4))
 EXTRA_TOKENS_DEFAULT = 600           # synaptic default: extras budget after the fts packet
@@ -1893,12 +1894,12 @@ def run_hook(args: argparse.Namespace) -> int:
     vault = open_vault(args, "hook")
     if vault is None:
         return 1
-    method = getattr(args, "method", "fts")
+    method = getattr(args, "method", HOOK_DEFAULT_METHOD)
     if method not in HOOK_METHODS:
         # A hook line written by a newer version must still answer: use the default.
-        print(f"context-layer hook: unknown --method {one_line(method)!r}; using fts",
-              file=sys.stderr)
-        method = "fts"
+        print(f"context-layer hook: unknown --method {one_line(method)!r}; using "
+              f"{HOOK_DEFAULT_METHOD}", file=sys.stderr)
+        method = HOOK_DEFAULT_METHOD
     max_chars = getattr(args, "max_context_chars", MAX_CONTEXT_DEFAULT)
     payload, problem = read_hook_payload()
     if problem:
@@ -2053,17 +2054,18 @@ def register(sub: argparse._SubParsersAction) -> None:
                     f"missing --vault, a retrieval slower than {HOOK_TIMEOUT} s, hook JSON "
                     "with no prompt string), prints one line to stderr and exits 1. It never exits 2, which "
                     "Claude Code reads as 'block this prompt'. An unknown --method falls back "
-                    "to fts with a note on stderr.",
+                    f"to {HOOK_DEFAULT_METHOD} with a note on stderr.",
     )
     p_hook.error = usage_error("hook")
     p_hook.add_argument("host", choices=list(HOOK_HOSTS),
                         help="Host whose hook format to emit (codex: expected to match, not "
                              "verified on the reference machine).")
     p_hook.add_argument("--vault", required=True, help="Vault to search.")
-    p_hook.add_argument("--method", default="fts", metavar="{fts,synaptic}",
-                        help="fts (default) or synaptic (opt-in, experimental: link-graph "
-                             "activation, token-budgeted passages, writes "
-                             ".context/activation.json). Any other value runs fts.")
+    p_hook.add_argument("--method", default=HOOK_DEFAULT_METHOD, metavar="{fts,synaptic}",
+                        help=f"{HOOK_DEFAULT_METHOD} (default, experimental: the focused fts "
+                             "items plus passages of linked notes within --extra-tokens; "
+                             "writes .context/activation.json) or fts (lexical matches "
+                             f"only). Any other value runs {HOOK_DEFAULT_METHOD}.")
     add_budget_flags(p_hook)
     p_hook.add_argument("--delivery", choices=["focus", "window", "prefix"], default=None,
                         help=f"What of each note the hook delivers (default: {HOOK_DELIVERY}: "

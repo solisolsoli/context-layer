@@ -10,8 +10,9 @@ Two ways to give an AI host the vault's evidence without pasting it by hand:
   `initialize`-era revisions 2025-11-25, 2025-06-18, 2025-03-26 and 2024-11-05
   (see [Protocol revisions](#protocol-revisions)).
 - **Prompt hook** (`context-layer hook claude-code`) — runs on every prompt and
-  prepends FTS evidence (or, opt-in, synaptic evidence) before the model sees
-  the question. Claude Code; the same hook in Codex's documented format is
+  prepends focused synaptic evidence (FTS hits plus notes reached through
+  explicit links; `--method fts` for FTS only) before the model sees the
+  question. Claude Code; the same hook in Codex's documented format is
   expected but unverified (no Codex CLI ran on the reference machine).
 
 They are independent. The MCP server is on demand and precise; the hook is
@@ -130,7 +131,8 @@ Adds one `UserPromptSubmit` command hook to `<project>/.claude/settings.json`
 (`.claude/settings.local.json` with `--scope local`), as its own entry, with
 `"timeout": 30`; existing hooks are copied through untouched. The hook runs
 `context-layer hook claude-code --vault <vault>`, which reads the host's hook
-JSON on stdin, runs the FTS search for its `prompt`, and prints
+JSON on stdin, runs the synaptic search (the fts items, focused, plus link-reached
+passages; `--method fts` for lexical matches only) for its `prompt`, and prints
 `hookSpecificOutput.additionalContext`. Each evidence item sits between markers
 that carry a random per-packet nonce, with the path, the line span and the hash
 in the opening marker, so text inside a note cannot forge an item boundary:
@@ -164,20 +166,25 @@ neither break the header onto a new line nor close it early:
 (0.2 joined items as `path (sha256 first 12) — content`; the 0.2 live comparison
 in `eval/LIVE_COMPARE.md` was recorded with that older format.)
 
-To run the opt-in synaptic method in the hook instead:
+Since 0.5 the hook runs synaptic retrieval with focused delivery by default:
+the fts hits plus notes reached through explicit links, each cut to the blocks
+that match the prompt and their neighbours (byte and line ranges and sha256
+kept). To size the link extras or to keep the hook on FTS only:
 
 ```sh
 context-layer install claude-code --vault /path/to/vault --hook \
-  --method synaptic --extra-tokens 600 --apply
+  --extra-tokens 600 --apply                     # synaptic, larger link budget
+context-layer install claude-code --vault /path/to/vault --hook \
+  --method fts --apply                           # FTS only, as before 0.5
 ```
 
-The flags are written into the hook command (`hook claude-code --method synaptic
---extra-tokens 600 --vault <vault>`); `uninstall` recognises and removes that
-entry too, and re-installing without `--method` replaces it with the fts hook.
-In the default synaptic mode the packet is the unchanged fts packet plus link
-extras within `--extra-tokens` (default 600). `--budget-tokens N` sizes only the
-compact packer, so it is accepted only together with `--compact`
-(`--method synaptic --compact --budget-tokens 1200`); see `docs/synapse.md`.
+The flags are written into the hook command (`hook claude-code --extra-tokens
+600 --vault <vault>`, or `--method fts`); `uninstall` recognises and removes
+that entry too, and re-installing without `--method` replaces it with the
+default synaptic hook. In the default synaptic mode the packet is the fts
+packet plus link extras within `--extra-tokens` (default 600). `--budget-tokens
+N` sizes only the compact packer, so it is accepted only together with
+`--compact` (`--compact --budget-tokens 1200`); see `docs/synapse.md`.
 
 **The optional advisor in the hook.** With the advisor configured *and* its
 `auto_context` feature enabled by name (`context-layer jev shadow|on <vault>

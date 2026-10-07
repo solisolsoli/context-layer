@@ -55,13 +55,13 @@ mean length.
 | --- | ---: | ---: |
 | fts, `window` (the 0.4 hook default) | 12/56, 1,188 chars | 12/56, 1,990 chars |
 | synaptic, `window` | 56/56, 2,041 chars | 56/56, 3,299 chars |
-| fts, `focus` (the hook default now) | 12/56, 1,033 chars | 12/56, 1,041 chars |
-| synaptic, `focus` (`hook --method synaptic`) | 56/56, 1,602 chars | 56/56, 1,898 chars |
+| fts, `focus` (`hook --method fts`) | 12/56, 1,033 chars | 12/56, 1,041 chars |
+| synaptic, `focus` (the hook default now) | 56/56, 1,602 chars | 56/56, 1,898 chars |
 
 `--extra-paragraph` appends one paragraph of invented filler words under a new
 heading to every note, so notes are about twice as long. Where notes are as short
 as in the plain set, the focused synaptic hook costs more than the 0.4 fts hook
-(1,602 vs 1,188 characters) and answers 56 questions instead of 12; it is opt-in (`install ... --hook --method synaptic`). Focus can
+(1,602 vs 1,188 characters) and answers 56 questions instead of 12. `search` and MCP `search_vault` stay fts. Focus can
 miss an answer that shares no word with the question and is not next to a block
 that does, in the same section.
 

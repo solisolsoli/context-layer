@@ -42,6 +42,12 @@
   (`--delivery window` gives the earlier items). On the development set the fts hook
   context falls from 1,188 to 1,033 characters (1,990 to 1,041 with longer notes),
   with the same 12/56 complete; see docs/validation.md.
+- Changed (may affect callers): the prompt hook's default `--method` is `synaptic`
+  (with the focused delivery); `install --hook` without `--method` writes no method, so
+  the hook's default applies, and `install --method fts` now writes `--method fts`. Dev
+  set: 56/56 complete at 1,602 characters (the 0.4 fts hook: 12/56 at 1,188); 56/56 at
+  1,898 with `--extra-paragraph` (0.4 fts hook: 12/56 at 1,990). An unknown `--method`
+  falls back to synaptic. `search` and MCP `search_vault` still default to fts.
 - New, opt-in: `search --relevance-floor R` and `hook --relevance-floor R` leave out
   a top-k note whose bm25 is weaker than R times the strongest one (default 0 = off).
   `install ... --hook --relevance-floor R` writes the hook flag.

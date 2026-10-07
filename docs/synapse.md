@@ -1,7 +1,8 @@
 # Synaptic retrieval (experimental)
 
-"Synaptic" is the name of an opt-in retrieval method, `search --method
-synaptic`, that uses the vault's explicit links. It has two modes.
+"Synaptic" is the name of a retrieval method, `search --method
+synaptic`, that uses the vault's explicit links. It is opt-in for `search` and
+MCP and the default of the prompt hook (since 0.5, with focused delivery). It has two modes.
 
 - **Default mode: the fts packet plus graph extras.** The packet starts with
   exactly the packet `--method fts` returns for the same flags: the same
