@@ -60,8 +60,18 @@ import sys
 import time
 import unicodedata
 
-from .session_evidence import safe_stem
-from .platform_support import file_lock
+
+
+# Imported on first use: most rules commands (and `brain init`, which reads this module)
+# never take a lock or name a session file, and these imports cost more than the rest.
+def safe_stem(value):
+    from .session_evidence import safe_stem as real
+    return real(value)
+
+
+def file_lock(*args, **kwargs):
+    from .platform_support import file_lock as real
+    return real(*args, **kwargs)
 
 RULE_FILES = ("CLAUDE.md", "AGENTS.md")
 LOG_FILE = "LOG.md"
