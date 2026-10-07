@@ -623,6 +623,55 @@ class HookFraming(Vault):
         plain = json.loads(self.hook().stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertLessEqual(floored.count("<<evidence "), plain.count("<<evidence "))
 
+    def test_in_process_retrieval_never_swaps_sys_stdout(self):
+        # F1: retrieve.run() must not redirect the process-wide sys.stdout; threads that
+        # search at once all get their packet and leave sys.stdout as it was.
+        from context_layer import mcp_server
+        before = sys.stdout
+        argv = ["--vault", str(self.vault), "--method", "fts"]
+        expected = mcp_server.run_in_process(argv, "alpha secret")[1]
+        results, errors = [], []
+
+        def worker():
+            try:
+                for _ in range(10):
+                    results.append(mcp_server.run_in_process(argv, "alpha secret")[1])
+            except Exception as exc:              # surfaced below
+                errors.append(exc)
+        threads = [threading.Thread(target=worker) for _ in range(6)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(60)
+        self.assertEqual(errors, [])
+        self.assertIs(sys.stdout, before)
+        self.assertEqual(len(results), 60)
+        self.assertTrue(all(json.loads(r)["evidence"] == json.loads(expected)["evidence"]
+                            for r in results))
+        code, text = mcp_server.run_in_process(["--help"], None)[:2]
+        self.assertEqual(code, 0)
+        self.assertIn("usage: retrieve.py", text)          # help is returned, not printed
+        self.assertIs(sys.stdout, before)
+
+    def test_a_timed_out_in_process_retrieval_leaves_stdout_alone(self):
+        # F2: after a timeout the abandoned retrieval must not own the caller's stdout.
+        from context_layer import mcp_server
+        release = threading.Event()
+        self.addCleanup(release.set)
+        real = mcp_server.retrieve_module()
+
+        def slow(args):
+            release.wait(30)
+            return {"schema": "evidence-delivery-v1", "operation_status": "ok",
+                    "status": "NOT_FOUND", "evidence": []}
+        before = sys.stdout
+        with mock.patch.object(real, "retrieve", slow):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                mcp_server.run_in_process(["--vault", str(self.vault), "--method", "fts"],
+                                          "alpha", timeout=0.2)
+        self.assertIs(sys.stdout, before)
+        release.set()
+
     def test_a_timed_out_hook_process_exits_at_once(self):
         # The abandoned retrieval thread is a daemon: the hook process ends with exit 1
         # right after its message, it does not wait for the retrieval.

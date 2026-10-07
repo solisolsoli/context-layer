@@ -761,8 +761,32 @@ def fts_tail_items(connection, vault, prefixes, name, size, args):
     return items
 
 
+class Parser(argparse.ArgumentParser):
+    """argparse that keeps what it would print to stdout (--help, a usage line asked for)
+    in `self.printed` instead of writing it, so an in-process caller gets it as text and
+    sys.stdout is never swapped (other threads keep theirs). Errors still go to stderr."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.printed = []
+
+    def _print_message(self, message, file=None):
+        if message and (file is None or file is sys.stdout or file is sys.__stdout__):
+            self.printed.append(message)
+        else:
+            super()._print_message(message, file)
+
+
+class Exit(SystemExit):
+    """SystemExit from argparse, carrying the text it would have printed to stdout."""
+
+    def __init__(self, code, printed):
+        super().__init__(code)
+        self.printed = printed
+
+
 def build_parser():
-    parser = argparse.ArgumentParser(prog='retrieve.py', description=__doc__)
+    parser = Parser(prog='retrieve.py', description=__doc__)
     parser.add_argument('--method', required=True, choices=METHODS)
     parser.add_argument('--vault', required=True, type=Path)
     parser.add_argument('--top-k', type=int, default=3)
@@ -821,19 +845,22 @@ def execute(argv, prompt=None):
     line does. With `prompt` given (an in-process caller), the prompt is that string and
     neither the positional prompt nor --prompt-file may be given."""
     parser = build_parser()
-    args = parser.parse_args(argv)
-    problem = inapplicable_flag(args)
-    if problem:
-        parser.exit(2, f'{parser.prog}: error: {problem}\n')
-    for name, default in SYNAPTIC_DEFAULTS.items():
-        if getattr(args, name) is None:
-            setattr(args, name, default)
-    if prompt is None:
-        args.prompt = read_prompt(parser, args)
-    elif args.prompt is not None or args.prompt_file is not None:
-        parser.error('the prompt is passed by the caller; give no prompt argument')
-    else:
-        args.prompt = prompt
+    try:
+        args = parser.parse_args(argv)
+        problem = inapplicable_flag(args)
+        if problem:
+            parser.exit(2, f'{parser.prog}: error: {problem}\n')
+        for name, default in SYNAPTIC_DEFAULTS.items():
+            if getattr(args, name) is None:
+                setattr(args, name, default)
+        if prompt is None:
+            args.prompt = read_prompt(parser, args)
+        elif args.prompt is not None or args.prompt_file is not None:
+            parser.error('the prompt is passed by the caller; give no prompt argument')
+        else:
+            args.prompt = prompt
+    except SystemExit as exc:
+        raise Exit(exc.code, ''.join(parser.printed)) from None
     try:
         if min(args.top_k, args.budget, args.per_source, args.budget_tokens) <= 0 \
                 or args.extra_tokens < 0:
@@ -855,21 +882,19 @@ def run(argv, prompt=None):
     The text is what the command prints, byte for byte (help and usage output included);
     argparse errors give exit code 2 with the message on stderr, as on the command line.
     The opt-in usage ledger is written after the packet is built, as `main` does."""
-    out = io.StringIO()
     try:
-        with contextlib.redirect_stdout(out):
-            code, text, packet, args = execute(argv, prompt)
-    except SystemExit as exc:
+        code, text, packet, args = execute(argv, prompt)
+    except Exit as exc:
         code = exc.code
         if code is None:
             code = 0
         elif not isinstance(code, int):
             print(code, file=sys.stderr)
             code = 1
-        return code, out.getvalue(), None
+        return code, exc.printed, None
     if packet is not None:
         record_usage(args, packet)
-    return code, out.getvalue() + text, packet
+    return code, text, packet
 
 
 def serve(stdin=None, stdout=None):
@@ -909,7 +934,11 @@ def main(argv=None):
     arguments = sys.argv[1:] if argv is None else list(argv)
     if arguments == ['--serve']:
         return serve()
-    code, text, packet, args = execute(arguments)
+    try:
+        code, text, packet, args = execute(arguments)
+    except Exit as exc:
+        sys.stdout.write(exc.printed)
+        raise SystemExit(exc.code) from None
     sys.stdout.write(text)
     if packet is not None:
         record_usage(args, packet)
