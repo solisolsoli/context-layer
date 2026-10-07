@@ -407,6 +407,55 @@ class FoldingContract(unittest.TestCase):
         self.assertEqual(text[textfold.headings(text)[1][0]:].split("\n")[0], "## Two ##")
 
 
+class RelevanceFloor(unittest.TestCase):
+    """--relevance-floor R (opt-in): weak top-k notes are left out and listed; off by default."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.vault = Path(self.temp.name) / "vault"
+        write(self.vault, ".context/routes.json", json.dumps(ROUTES))
+        write(self.vault, "notes/strong.md", "# Kestrel harbor\n\nkestrel harbor lantern "
+                                             "kestrel harbor lantern schedule\n")
+        write(self.vault, "notes/weak.md", "# Other\n\n" + "filler words here. " * 40
+              + "a lantern once.\n")
+        code, _, err = index_quietly(self.vault)
+        self.assertEqual(code, 0, err)
+
+    def test_off_by_default_and_the_floor_leaves_out_weak_notes(self):
+        _, plain = run_packet(self.vault, "kestrel harbor lantern")
+        self.assertEqual(paths(plain), ["notes/strong.md", "notes/weak.md"])
+        self.assertNotIn("relevance_floor", plain)
+        _, zero = run_packet(self.vault, "kestrel harbor lantern", "fts", "--relevance-floor", "0")
+        self.assertEqual(zero, plain)
+        code, floored = run_packet(self.vault, "kestrel harbor lantern", "fts",
+                                   "--relevance-floor", "0.5")
+        self.assertEqual(code, 0)
+        self.assertEqual(paths(floored), ["notes/strong.md"])
+        self.assertEqual(floored["relevance_floor"],
+                         {"ratio": 0.5, "below_floor": ["notes/weak.md"]})
+        self.assertEqual(floored["evidence"][0], plain["evidence"][0])
+
+    def test_synaptic_keeps_the_floored_fts_packet_whole(self):
+        _, fts = run_packet(self.vault, "kestrel harbor lantern", "fts", "--relevance-floor", "0.5")
+        _, synaptic = run_packet(self.vault, "kestrel harbor lantern", "synaptic",
+                                 "--relevance-floor", "0.5")
+        for item in fts["evidence"]:
+            self.assertTrue(any(other["source_path"] == item["source_path"]
+                                and other["content"] == item["content"]
+                                for other in synaptic["evidence"]), item["source_path"])
+        self.assertEqual(synaptic["relevance_floor"], fts["relevance_floor"])
+
+    def test_out_of_range_and_inapplicable_values_are_refused(self):
+        code, packet = run_packet(self.vault, "kestrel", "fts", "--relevance-floor", "1")
+        self.assertEqual((code, packet["status"]), (1, "ERROR"))
+        for method, extra in (("grep", []), ("synaptic", ["--compact"])):
+            with self.subTest(method=method), redirect_stderr(io.StringIO()), \
+                    self.assertRaises(SystemExit) as raised:
+                run_packet(self.vault, "kestrel", method, *extra, "--relevance-floor", "0.3")
+            self.assertEqual(raised.exception.code, 2)
+
+
 class DeliveredEvidence(unittest.TestCase):
     """Packet integrity: coverage receipt, per-source withholding, duplicates, flags."""
 

@@ -609,6 +609,20 @@ class HookFraming(Vault):
         self.assertLess(time.monotonic() - started, 10)
         self.assertIn("timed out after 1.0 s", stderr.getvalue())
 
+    def test_hook_relevance_floor_is_opt_in_and_validated(self):
+        for bad in ("1", "-0.1", "x"):
+            with self.subTest(bad=bad):
+                done = self.cli("hook", "claude-code", "--vault", str(self.vault),
+                                "--relevance-floor", bad, stdin=json.dumps({"prompt": "alpha"}))
+                self.assertEqual(done.returncode, 1, done.stderr)    # never 2 for a hook
+                self.assertEqual(done.stdout, "")
+        done = self.cli("hook", "claude-code", "--vault", str(self.vault), "--relevance-floor",
+                        "0.5", stdin=json.dumps({"prompt": "alpha secret"}))
+        self.assertEqual(done.returncode, 0, done.stderr)
+        floored = json.loads(done.stdout)["hookSpecificOutput"]["additionalContext"]
+        plain = json.loads(self.hook().stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertLessEqual(floored.count("<<evidence "), plain.count("<<evidence "))
+
     def test_a_timed_out_hook_process_exits_at_once(self):
         # The abandoned retrieval thread is a daemon: the hook process ends with exit 1
         # right after its message, it does not wait for the retrieval.

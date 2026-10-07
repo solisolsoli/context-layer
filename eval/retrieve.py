@@ -466,6 +466,29 @@ def retrieve(args):
             ranked = Kept(ranked, is_excluded)
         withheld = []
 
+        pinned = set()
+        floor_dropped = []
+
+        def below_floor(candidates):
+            """--relevance-floor R (opt-in; 0 = off): of the top-k candidates, drop a note
+            whose best bm25 is weaker than R x the strongest candidate's. A canonical pin and
+            a note ranked only by its name fields are always kept. Nothing is back-filled; the
+            dropped paths are listed in the packet's `relevance_floor` block."""
+            if not args.relevance_floor or not rows:
+                return candidates
+            scores = dict(rows)
+            known = [scores[name] for name in candidates if name in scores]
+            if not known or min(known) >= 0:
+                return candidates
+            limit = args.relevance_floor * min(known)
+            kept = []
+            for name in candidates:
+                if name in pinned or name not in scores or scores[name] <= limit:
+                    kept.append(name)
+                else:
+                    floor_dropped.append(name)
+            return kept
+
         def in_content(items):
             """Whether each delivered text holds a query match, by the method's own rule."""
             if args.method == 'grep':
@@ -488,7 +511,8 @@ def retrieve(args):
             by_content = {}
             budget = args.budget
             mode = 'prefix' if args.method == 'grep' else delivery
-            for name in names[:args.top_k]:
+            candidates = below_floor(names[:args.top_k])
+            for name in candidates:
                 if budget <= 0:
                     break
                 expected = {r[0] for r in connection.execute('SELECT DISTINCT source_sha256 FROM records WHERE source_path=?', (name,))}
@@ -529,6 +553,9 @@ def retrieve(args):
         def with_withheld(packet):
             if withheld:
                 packet['withheld'] = withheld
+            if args.relevance_floor:
+                packet['relevance_floor'] = {'ratio': args.relevance_floor,
+                                             'below_floor': list(floor_dropped)}
             if args.jev_candidates:  # the optional advisor's side channel (see below)
                 attach_jev_candidates(packet, args, ranked, connection, vault, prefixes)
             return packet
@@ -563,7 +590,7 @@ def retrieve(args):
                 indexed, reader, options)))
         if args.method == 'fts-canonical':
             parsed = context_router.parse_prompt(args.prompt, config)
-            pinned = []
+            pinned_names = []
             for route in parsed['routes']:
                 for entry in config['routes'][route].get('canonical_sources', []):
                     if isinstance(entry, dict) and entry.get('attachment') == 'opportunistic':
@@ -572,8 +599,9 @@ def retrieve(args):
                     source_path(vault, name, prefixes)
                     if name not in allowed:
                         raise ValueError(f'Canonical source not indexed: {name}')
-                    pinned.append(name)
-            ranked = list(dict.fromkeys(pinned + list(ranked)))
+                    pinned_names.append(name)
+            ranked = list(dict.fromkeys(pinned_names + list(ranked)))
+            pinned.update(pinned_names)
         evidence = lexical_evidence(ranked)
         return with_coverage(with_withheld({
             'schema': 'evidence-delivery-v1', 'operation_status': 'ok',
@@ -612,6 +640,10 @@ def inapplicable_flag(args):
                                 or (args.method == 'synaptic' and args.compact)):
         return ('--jev-candidates applies to --method fts and the default synaptic '
                 'packet only')
+    if args.relevance_floor and (args.method in ('grep', 'router')
+                                 or (args.method == 'synaptic' and args.compact)):
+        return ('--relevance-floor applies to --method fts, fts-canonical and the default '
+                'synaptic packet (its fts part)')
     if args.name_fields and args.method in ('grep', 'router'):
         return '--name-fields applies to --method fts, fts-canonical and synaptic'
     return None
@@ -728,6 +760,11 @@ def build_parser():
                              'frontmatter aliases and headings of an index built with '
                              '`index --name-fields`, and merge those hits into the ranking '
                              '(off by default; the default packet is unchanged).')
+    parser.add_argument('--relevance-floor', type=float, default=0.0, metavar='R',
+                        help='fts, fts-canonical and the fts part of the default synaptic '
+                             'packet: drop a top-k note whose bm25 is weaker than R times the '
+                             'strongest one (0 <= R < 1; default 0 = off). Fewer tokens; may '
+                             'drop evidence. Dropped paths are listed under relevance_floor.')
     parser.add_argument('--prompt-file', metavar='PATH',
                         help='read the prompt from this UTF-8 file (- reads standard input) '
                              'instead of the last argument; avoids command-line length limits.')
@@ -763,6 +800,8 @@ def execute(argv, prompt=None):
         if min(args.top_k, args.budget, args.per_source, args.budget_tokens) <= 0 \
                 or args.extra_tokens < 0:
             raise ValueError('Budgets and top-k must be positive')
+        if not 0 <= args.relevance_floor < 1:
+            raise ValueError('--relevance-floor must be at least 0 and below 1')
         if not 0 <= args.jev_candidates <= JEV_CANDIDATES_CAP:
             raise ValueError(f'--jev-candidates must be between 0 and {JEV_CANDIDATES_CAP}')
         packet = retrieve(args)

@@ -46,6 +46,17 @@ est. tokens with per-worker compact packets; the coordinator's verification read
 12,452 → 2,580; the one planted fabricated quote was caught (re-measured after the compact-packet change). Not billed tokens
 and not quality evidence. [docs/subagents.md](subagents.md)
 
+### Opt-in relevance floor
+
+`--relevance-floor R` (search and hook; off by default) leaves out a top-k note
+whose bm25 is weaker than R times the strongest one. On the synaptic development
+set (`python3 tests/dev_bridge_eval.py --methods synaptic -- --relevance-floor R`,
+written alongside the code, not a benchmark) the default synaptic packet stays
+56/56 complete at R = 0.3 and R = 0.5 while its mean falls from ~282 to ~219
+(R = 0.3) and ~169 (R = 0.5) est. tokens. It can drop a note that held the
+answer when a stronger-scoring note outranks it; it is not measured on the
+sealed benchmark, so it is not a default.
+
 ## What it does not claim
 
 - It does not answer questions; it delivers evidence. `PARTIAL` means evidence

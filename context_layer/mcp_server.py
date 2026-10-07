@@ -1763,6 +1763,15 @@ def open_vault(args: argparse.Namespace, label: str) -> Path | None:
             print(f"context-layer {label}: {flag} {value} is above the cap of {cap}",
                   file=sys.stderr)
             return None
+    floor = getattr(args, "relevance_floor", 0.0) or 0.0
+    if not 0 <= floor < 1:
+        print(f"context-layer {label}: --relevance-floor must be at least 0 and below 1",
+              file=sys.stderr)
+        return None
+    if floor and getattr(args, "compact", False):
+        print(f"context-layer {label}: --relevance-floor applies to fts and the default "
+              "synaptic packet, not --compact", file=sys.stderr)
+        return None
     limit = getattr(args, "max_context_chars", MAX_CONTEXT_DEFAULT)
     if not MAX_CONTEXT_MIN <= limit <= HOST_CONTEXT_LIMIT:
         print(f"context-layer {label}: --max-context-chars must be between {MAX_CONTEXT_MIN} "
@@ -1844,9 +1853,12 @@ def run_hook(args: argparse.Namespace) -> int:
             plan = advisor.hook_plan(vault, method, state.compact)
         except Exception:                      # the advisor never breaks the hook
             advisor, plan = None, None
+    floor = getattr(args, "relevance_floor", 0.0) or 0.0
+    floor_args = ["--relevance-floor", repr(floor)] if floor and not state.compact else []
     text, packet, code = search(state, prompt, method, state.top_k, state.budget,
                                 state.per_source, state.budget_tokens, timeout=HOOK_TIMEOUT,
-                                extra_args=plan.retrieve_args() if plan is not None else ())
+                                extra_args=floor_args + (plan.retrieve_args() if plan is not None
+                                                         else []))
     if packet is None or code != 0 or packet.get("operation_status") != "ok":
         detail = (packet or {}).get("error") or text
         # Exit 1, never 2: Claude Code treats 2 from UserPromptSubmit as "block and
@@ -1977,6 +1989,10 @@ def register(sub: argparse._SubParsersAction) -> None:
                              f"{MAX_CONTEXT_DEFAULT}; {MAX_CONTEXT_MIN}-{HOST_CONTEXT_LIMIT}; "
                              "Claude Code saves a longer string to a file and passes only a "
                              "preview).")
+    p_hook.add_argument("--relevance-floor", type=float, default=0.0, metavar="R",
+                        help="Opt-in: leave out a top-k note whose bm25 is weaker than R times "
+                             "the strongest one (0 <= R < 1; default 0 = off). Fewer tokens; "
+                             "may drop evidence (eval/retrieve.py --relevance-floor).")
     p_hook.add_argument("--session-evidence", action="store_true",
                         help="Append the delivered paths and hashes (never text) to "
                              ".context/session-evidence/<session>.jsonl when that folder "
