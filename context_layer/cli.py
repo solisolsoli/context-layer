@@ -242,12 +242,13 @@ def cmd_search(args: argparse.Namespace) -> int:
     # byte for byte; the provider client is never imported on that path.
     advisor = jev.search_plan(vault.resolve(), args.method, args.rest) \
         if args.jev and not args.no_jev else None
-    # eval/retrieve.py runs in this process (no second interpreter); its argv, its output
-    # and its exit code are what `python3 eval/retrieve.py ARGV` gives.
+    # eval/retrieve.py runs in this process (no second interpreter); its output and exit
+    # code are what `python3 eval/retrieve.py ARGV` gives. The prompt is handed over as a
+    # string, never as an argument, so `--prompt=--help` is a prompt, not an option.
     argv = ["--vault", str(vault), "--method", args.method, *args.rest,
-            *(advisor.retrieve_args() if advisor else []), args.prompt]
-    trace(["eval/retrieve.py", *argv])
-    returncode, text, _ = mcp_server.run_in_process(argv, None)
+            *(advisor.retrieve_args() if advisor else [])]
+    trace(["eval/retrieve.py", *argv, "<prompt>"])
+    returncode, text, _ = mcp_server.run_in_process(argv, args.prompt)
     try:
         packet = json.loads(text)
     except ValueError:

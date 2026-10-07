@@ -323,19 +323,66 @@ _RETRIEVER = []
 
 def retrieve_module():
     """eval/retrieve.py loaded once into this process (wheel and checkout layouts alike,
-    and CONTEXT_LAYER_HOME), so `search`, the hook and packets need no second interpreter."""
+    and CONTEXT_LAYER_HOME), so `search`, the hook and packets need no second interpreter.
+    None for a retriever without run() (a CONTEXT_LAYER_HOME checkout of an earlier
+    version): callers then run it as a child process, as before."""
     if not _RETRIEVER:
         import importlib.util
         script = retriever_script()
+        try:
+            source = script.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            source = ""
+        if "\ndef run(" not in source:             # an earlier retriever: never imported
+            _RETRIEVER.append(None)
+            return None
         spec = importlib.util.spec_from_file_location("context_layer_retrieve", script)
         if spec is None or spec.loader is None:
             raise OSError(f"cannot load {script.name}")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        if not callable(getattr(module, "run", None)):
-            raise OSError("eval/retrieve.py is from another context-layer version (no run())")
-        _RETRIEVER.append(module)
+        _RETRIEVER.append(module if callable(getattr(module, "run", None)) else None)
     return _RETRIEVER[0]
+
+
+def run_subprocess(argv: list[str], prompt: str | None,
+                   timeout: float | None = None) -> tuple[int, str, str]:
+    """`retrieve.py ARGV` as a child process (the path for a retriever without run()): the
+    prompt on stdin (`--prompt-file -`) when the script offers it, else after `--`. Inside
+    a cancellable tool call the child is attached to the Job, so a cancel kills it."""
+    script = retriever_script()
+    try:
+        offers_stdin = "--prompt-file" in script.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        offers_stdin = False
+    command = [sys.executable, str(script), *argv]
+    stdin_data = None
+    if prompt is not None:
+        if offers_stdin:
+            command += ["--prompt-file", "-"]
+            stdin_data = prompt.encode("utf-8")
+        else:
+            command += ["--", prompt]
+    job = getattr(CURRENT, "job", None)
+    with managed_process_tree(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              stdin=subprocess.DEVNULL if stdin_data is None
+                              else subprocess.PIPE) as proc:
+        if job is not None and not job.attach(proc):
+            proc.kill()
+            proc.communicate()
+            raise Cancelled()
+        try:
+            out, err = proc.communicate(input=stdin_data, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            raise
+        finally:
+            if job is not None:
+                job.detach()
+    if job is not None and job.cancelled:
+        raise Cancelled()
+    return proc.returncode, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
 
 
 def run_in_process(argv: list[str], prompt: str | None,
@@ -345,8 +392,12 @@ def run_in_process(argv: list[str], prompt: str | None,
     With a timeout the retrieval runs on a daemon thread; if it has not finished in time
     this raises subprocess.TimeoutExpired and leaves the thread behind: the callers with
     a timeout (the prompt hook, a one-shot `packet build`) exit right after, which ends it."""
+    module = retrieve_module()
+    if module is None:
+        return run_subprocess(argv, prompt, timeout)
+
     def call() -> tuple[int, str, str]:
-        code, text, _ = retrieve_module().run(argv, prompt)
+        code, text, _ = module.run(argv, prompt)
         return code, text, ""
     if timeout is None:
         return call()
@@ -433,6 +484,8 @@ class RetrievalWorker:
                     pass
 
     def call(self, argv: list[str], prompt: str, timeout: float) -> tuple[int, str, str]:
+        if retrieve_module() is None:          # no --serve in this retriever: one child per call
+            return run_subprocess(argv, prompt, timeout)
         job = getattr(CURRENT, "job", None)
         with self.lock:
             if self.proc is None or self.proc.poll() is not None:

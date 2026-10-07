@@ -86,8 +86,9 @@ with their `.prev` copies, which is its own undo.
   so it lands in the host's own session history.
 - **Shell history and process lists**: a prompt passed as `--prompt "..."` is
   in your shell history and visible in the process list while it runs. With
-  `--verbose` the CLI wrapper also echoes the command it forwards (including
-  the prompt and absolute paths) to stderr; without it, it does not. `route` accepts
+  `--verbose` the CLI wrapper also echoes the command it forwards (absolute
+  paths, and for `route` the prompt; `search` shows `<prompt>`) to stderr;
+  without it, it does not. `route` accepts
   `--prompt-file` for anything sensitive; `search` takes the prompt only as an
   argument today. The MCP server and the hook receive prompts over stdin and
   never put a prompt on a command line: the hook runs retrieval in its own

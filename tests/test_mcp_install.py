@@ -1671,6 +1671,20 @@ if __name__ == "__main__" and sys.argv[1:] == ["--serve"]:
 """
 
 
+LEGACY_RETRIEVER = """import json, os, sys
+# A retriever of an earlier version: command line only (no run(), no --serve). It is never
+# imported, so this top level stands for the old script's command-line entry point.
+args = sys.argv[1:]
+if args == ["--serve"]:
+    sys.exit("retrieve.py: error: unrecognized arguments: --serve")
+prompt = sys.stdin.read() if args[-2:] == ["--prompt-file", "-"] else args[-1]
+with open(os.environ["FAKE_REPORT"], "a", encoding="utf-8") as handle:
+    handle.write(json.dumps({"argv": args, "prompt": prompt}) + "\\n")
+print(json.dumps({"schema": "evidence-delivery-v1", "operation_status": "ok",
+                  "status": "NOT_FOUND", "evidence": []}))
+"""
+
+
 class RetrievalArgv(HostFixture):
     """What the MCP server and the hook hand to eval/retrieve.py."""
 
@@ -1718,6 +1732,40 @@ class RetrievalArgv(HostFixture):
         seen = json.loads(report.read_text())
         self.assertEqual(seen["prompt"], "-x release")
         self.assertNotIn("-x release", seen["argv"])
+
+
+    def test_a_checkout_without_run_is_run_as_a_child_process(self):
+        # A review F3: CONTEXT_LAYER_HOME on an earlier checkout (retrieve.py without run()
+        # or --serve) keeps working through a child process: search, hook and MCP.
+        home = self.root / "legacy-home"
+        shutil.copytree(REPO / "router", home / "router")
+        (home / "eval").mkdir()
+        (home / "eval" / "retrieve.py").write_text(LEGACY_RETRIEVER, encoding="utf-8")
+        report = self.root / "legacy-report.jsonl"
+        env = dict(self.env, CONTEXT_LAYER_HOME=str(home), FAKE_REPORT=str(report))
+        done = self.cli("search", str(self.vault), "--prompt", "-x release", env=env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(json.loads(done.stdout)["status"], "NOT_FOUND")
+        hooked = self.cli("hook", "claude-code", "--vault", str(self.vault),
+                          stdin=json.dumps({"prompt": "release"}), env=env)
+        self.assertEqual(hooked.returncode, 0, hooked.stderr)
+        client = McpClient(self, env)
+        client.initialize("2025-06-18")
+        for ident in (1, 2):
+            result = client.request(ident, "tools/call", {"name": "search_vault",
+                                                          "arguments": {"prompt": "release"}})
+            self.assertFalse(result["result"]["isError"], result)
+        rows = [json.loads(line) for line in report.read_text().splitlines()]
+        self.assertEqual([row["prompt"] for row in rows], ["-x release", "release", "release",
+                                                         "release"])
+
+    def test_a_prompt_that_starts_with_a_dash_is_searched(self):
+        # A review F4: `search --prompt=--help` is a prompt, not a retrieve.py option.
+        done = self.cli("search", str(self.vault), "--prompt=--help")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(json.loads(done.stdout)["schema"], "evidence-delivery-v1")
+        dashed = json.loads(self.cli("search", str(self.vault), "--prompt=-x release").stdout)
+        self.assertEqual(dashed["evidence"][0]["source_path"], "notes/release.md")
 
 
 class StatusFallback(HostFixture):

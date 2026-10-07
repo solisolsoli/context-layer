@@ -46,8 +46,10 @@
   items and packing are unchanged); MCP tool descriptions are shorter; the MCP
   server's error packets and augmented packets are serialised without spaces;
   `retrieve.py --serve` is a new mode; the prompt reaches retrieval as a string,
-  never as an argument, and a `CONTEXT_LAYER_HOME` checkout must provide
-  `eval/retrieve.py` with `run()`.
+  never as an argument, so `search --prompt=--help` (any prompt that starts with
+  `-`) is now searched instead of printing retrieve.py's usage. A `CONTEXT_LAYER_HOME`
+  checkout whose `eval/retrieve.py` has no `run()` is run as a child process per call,
+  as before.
 
 - Put a runnable first example at the center of the README and move detailed
   measurements to [the validation guide](docs/validation.md), retaining their
