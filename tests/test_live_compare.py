@@ -403,7 +403,8 @@ class LiveCompare(unittest.TestCase):
         environment = isolated_home_env(os.environ, self.home)
         environment["FAKE_HOST_LOG"] = str(self.log)
         done = subprocess.run([sys.executable, str(self.fake), "-p", "H01 probe"],
-                              cwd=self.vault, env=environment, capture_output=True, text=True)
+                              cwd=self.vault, env=environment, capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(json.loads(self.log.read_text(encoding="utf-8"))["arm"], "hook")
 
