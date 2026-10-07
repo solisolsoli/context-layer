@@ -1142,6 +1142,23 @@ class InstallClaudeCode(HostFixture):
             self.assertEqual(refused.returncode, 2, refused.stdout)
         self.assertEqual(self.install("--max-context-chars", "6000").returncode, 2)
 
+    def test_relevance_floor_is_written_and_checked(self):
+        done = self.install("--hook", "--relevance-floor", "0.3", "--apply")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        command = json.loads(self.settings().read_text())["hooks"]["UserPromptSubmit"][0][
+            "hooks"][0]["command"]
+        self.assertIn("--relevance-floor 0.3", readable_hook_command(command))
+        for flags in (("--hook", "--relevance-floor", "1"), ("--hook", "--relevance-floor", "-0.1"),
+                      ("--relevance-floor", "0.3"),
+                      ("--hook", "--method", "synaptic", "--compact", "--relevance-floor", "0.3")):
+            refused = self.install(*flags)
+            self.assertEqual(refused.returncode, 2, (flags, refused.stdout, refused.stderr))
+        plain = self.install("--hook", "--apply")
+        self.assertEqual(plain.returncode, 0, plain.stderr)
+        command = json.loads(self.settings().read_text())["hooks"]["UserPromptSubmit"][0][
+            "hooks"][0]["command"]
+        self.assertNotIn("--relevance-floor", readable_hook_command(command))
+
 
 class InstallOptions(HostFixture):
     def test_session_evidence_switches_and_folder(self):

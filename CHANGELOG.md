@@ -35,6 +35,7 @@
   `reason: fts` line.
 - New, opt-in: `search --relevance-floor R` and `hook --relevance-floor R` leave out
   a top-k note whose bm25 is weaker than R times the strongest one (default 0 = off).
+  `install ... --hook --relevance-floor R` writes the hook flag.
 - Changed (may affect callers): the hook's header text is shorter (markers, nonce,
   items and packing are unchanged); MCP tool descriptions are shorter; the MCP
   server's error packets and augmented packets are serialised without spaces;

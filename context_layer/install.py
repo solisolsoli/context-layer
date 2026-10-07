@@ -142,11 +142,12 @@ def mcp_snippet(vault: Path, session_evidence: bool = False) -> dict:
 def hook_argv(vault: Path, method: str = "fts", budget_tokens: "int | None" = None,
               extra_tokens: "int | None" = None, compact: bool = False,
               host: str = "claude-code", max_context_chars: "int | None" = None,
-              session_evidence: bool = False) -> list[str]:
+              session_evidence: bool = False, extra: "tuple[str, ...]" = ()) -> list[str]:
     """The hook command line. fts (the default) adds no flag, so an fts hook written by
     an earlier version and one written now are the same command. Synaptic flags are
     written only when given: --extra-tokens sizes the default synaptic packet,
-    --budget-tokens only the --compact one."""
+    --budget-tokens only the --compact one. `extra` holds further hook flags, already
+    checked (hook_flags())."""
     tail = ["hook", host]
     if method != "fts":
         tail += ["--method", method]
@@ -160,7 +161,14 @@ def hook_argv(vault: Path, method: str = "fts", budget_tokens: "int | None" = No
         tail += ["--max-context-chars", str(max_context_chars)]
     if session_evidence:
         tail += ["--session-evidence"]
+    tail += list(extra)
     return cli_argv(vault, *tail)
+
+
+def hook_flags(args) -> "tuple[str, ...]":
+    """The opt-in hook flags `install` passes through as written (see `hook --help`)."""
+    floor = getattr(args, "relevance_floor", None)
+    return ("--relevance-floor", repr(floor)) if floor else ()
 
 
 def env_prefix() -> str:
@@ -190,9 +198,9 @@ def hook_command(argv: list[str]) -> str:
 def hook_entry(vault: Path, method: str = "fts", budget_tokens: "int | None" = None,
                extra_tokens: "int | None" = None, compact: bool = False,
                host: str = "claude-code", max_context_chars: "int | None" = None,
-               session_evidence: bool = False) -> dict:
+               session_evidence: bool = False, extra: "tuple[str, ...]" = ()) -> dict:
     argv = hook_argv(vault, method, budget_tokens, extra_tokens, compact, host,
-                     max_context_chars, session_evidence)
+                     max_context_chars, session_evidence, extra)
     entry = {"type": "command", "command": hook_command(argv),
              "timeout": HOOK_TIMEOUT_S}
     if host == "codex":
@@ -554,7 +562,8 @@ def claude_settings_changes(project: Path, vault: Path, removing: bool, prompt_h
                             extra_tokens: "int | None" = None,
                             compact: bool = False, scope: str = "project",
                             max_context_chars: "int | None" = None,
-                            session_evidence: bool = False) -> list[Change]:
+                            session_evidence: bool = False,
+                            hook_extra: "tuple[str, ...]" = ()) -> list[Change]:
     """Every settings key this tool owns, merged in one pass per file (one diff, one
     backup), plus the plan-default marker when this tool sets or removes defaultMode.
 
@@ -580,7 +589,8 @@ def claude_settings_changes(project: Path, vault: Path, removing: bool, prompt_h
             if prompt_hook:
                 _merge_hook(data, path, HOOK_EVENT, is_ours,
                             hook_entry(vault, method, budget_tokens, extra_tokens, compact,
-                                       "claude-code", max_context_chars, session_evidence)
+                                       "claude-code", max_context_chars, session_evidence,
+                                       hook_extra)
                             if path == target else None)
             if rules_hooks:
                 for event in (*RULES_EVENTS, ATTRIBUTION_EVENT):
@@ -785,7 +795,8 @@ def codex_hooks_change(project: Path, vault: Path, removing: bool, prompt_hook: 
                        rules_hooks: bool, method: str = "fts",
                        budget_tokens: "int | None" = None, extra_tokens: "int | None" = None,
                        compact: bool = False, max_context_chars: "int | None" = None,
-                       session_evidence: bool = False) -> Change:
+                       session_evidence: bool = False,
+                       hook_extra: "tuple[str, ...]" = ()) -> Change:
     """Our hooks in <project>/.codex/hooks.json (learn.chatgpt.com/docs/hooks: the same
     event -> matcher group -> handler shape as Claude Code). Codex loads project hooks only
     in a trusted project and runs a new or changed hook only after it is reviewed in /hooks."""
@@ -798,7 +809,7 @@ def codex_hooks_change(project: Path, vault: Path, removing: bool, prompt_hook: 
         if prompt_hook:
             _merge_hook(data, path, HOOK_EVENT, is_ours,
                         hook_entry(vault, method, budget_tokens, extra_tokens, compact, "codex",
-                                   max_context_chars, session_evidence))
+                                   max_context_chars, session_evidence, hook_extra))
         if rules_hooks:
             for event in RULES_EVENTS:
                 _merge_hook(data, path, event, is_ours_rules, rules_hook_entry(vault, event))
@@ -837,7 +848,7 @@ def print_config(host: str, vault: Path, project: Path, want_hook: bool, method:
                  budget_tokens: "int | None" = None, extra_tokens: "int | None" = None,
                  compact: bool = False, fmt: "str | None" = None,
                  max_context_chars: "int | None" = None, session_evidence: bool = False,
-                 rules_hooks: bool = False) -> int:
+                 rules_hooks: bool = False, hook_extra: "tuple[str, ...]" = ()) -> int:
     """Show what would be written; touch nothing, whatever the other flags say."""
     if host == "codex":
         print(f"codex: {codex_home() / 'config.toml'}, between the markers below",
@@ -848,7 +859,7 @@ def print_config(host: str, vault: Path, project: Path, want_hook: bool, method:
             print(f"codex: {project / '.codex' / 'hooks.json'}", file=sys.stderr)
             change = codex_hooks_change(project, vault, False, want_hook, rules_hooks, method,
                                         budget_tokens, extra_tokens, compact,
-                                        max_context_chars, session_evidence)
+                                        max_context_chars, session_evidence, hook_extra)
             print(change.new or "", end="")
         return 0
     if host == "generic" and fmt:
@@ -868,7 +879,7 @@ def print_config(host: str, vault: Path, project: Path, want_hook: bool, method:
         print(f"claude-code: {project / '.claude' / 'settings.json'}", file=sys.stderr)
         print(render_json({"hooks": {HOOK_EVENT: [{"hooks": [
             hook_entry(vault, method, budget_tokens, extra_tokens, compact, "claude-code",
-                       max_context_chars, session_evidence)]}]}}), end="")
+                       max_context_chars, session_evidence, hook_extra)]}]}}), end="")
     return 0
 
 
@@ -917,13 +928,20 @@ def run(args: argparse.Namespace, removing: bool) -> int:
     max_context_chars = getattr(args, "max_context_chars", None)
     session_evidence = getattr(args, "session_evidence", False)
     fmt = getattr(args, "format", None)
+    hook_extra = hook_flags(args)
     if not removing:
         hooked = host in ("claude-code", "codex") and args.hook
         if (method != "fts" or budget_tokens is not None or extra_tokens is not None
-                or compact or max_context_chars is not None) and not hooked:
-            return usage(label, "--method, --extra-tokens, --compact, --budget-tokens and "
-                                "--max-context-chars configure the prompt hook; add --hook "
-                                "(claude-code or codex)")
+                or compact or max_context_chars is not None or hook_extra) and not hooked:
+            return usage(label, "--method, --extra-tokens, --compact, --budget-tokens, "
+                                "--max-context-chars and --relevance-floor configure the "
+                                "prompt hook; add --hook (claude-code or codex)")
+        floor = getattr(args, "relevance_floor", None)
+        if floor is not None and not 0 <= floor < 1:
+            return usage(label, "--relevance-floor must be at least 0 and below 1")
+        if floor and compact:
+            return usage(label, "--relevance-floor applies to fts and the default synaptic "
+                                "packet, not --compact")
         if (compact or extra_tokens is not None or budget_tokens is not None) \
                 and method != "synaptic":
             return usage(label, "--extra-tokens, --compact and --budget-tokens need "
@@ -951,7 +969,7 @@ def run(args: argparse.Namespace, removing: bool) -> int:
         if printing:
             return print_config(host, vault, project, args.hook, method, budget_tokens,
                                 extra_tokens, compact, fmt, max_context_chars,
-                                session_evidence, getattr(args, "rules", False))
+                                session_evidence, getattr(args, "rules", False), hook_extra)
         if host == "generic":
             # Nothing to write: a generic client is configured by hand from this snippet.
             return print_config("generic", vault, project, args.hook, fmt=fmt,
@@ -969,14 +987,14 @@ def run(args: argparse.Namespace, removing: bool) -> int:
                 changes.extend(claude_settings_changes(
                     project, vault, removing, args.hook, args.rules, args.plan_default,
                     method, budget_tokens, extra_tokens, compact, args.scope,
-                    max_context_chars, session_evidence))
+                    max_context_chars, session_evidence, hook_extra))
         else:
             changes.append(codex_change(vault, removing, session_evidence))
             if args.hook or args.rules or removing:
                 changes.append(codex_hooks_change(project, vault, removing, args.hook,
                                                   args.rules, method, budget_tokens,
                                                   extra_tokens, compact, max_context_chars,
-                                                  session_evidence))
+                                                  session_evidence, hook_extra))
         if not removing:
             print(MACHINE_NOTE + MACHINE_ADVICE[host], file=sys.stderr)
         written = emit(changes, args.apply, project)
@@ -1048,6 +1066,10 @@ def register(sub: argparse._SubParsersAction) -> None:
                            help="With --hook: most characters of context the hook prints "
                                 f"(default: the hook's own, {mcp_server.MAX_CONTEXT_DEFAULT}; "
                                 f"{mcp_server.MAX_CONTEXT_MIN}-{mcp_server.HOST_CONTEXT_LIMIT}).")
+    p_install.add_argument("--relevance-floor", type=float, default=None, metavar="R",
+                           help="With --hook: pass --relevance-floor R to the hook (drop a "
+                                "top-k note weaker than R x the strongest; 0 <= R < 1; off "
+                                "by default; may drop evidence).")
     p_install.add_argument("--session-evidence", action="store_true",
                            help="Record delivered paths and hashes (never text) per host "
                                 "session in <vault>/.context/session-evidence/: adds the hook "

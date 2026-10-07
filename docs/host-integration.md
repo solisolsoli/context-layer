@@ -196,7 +196,7 @@ one line, `N item(s) omitted to fit the 9000-character hook limit: <paths>`. An
 item is never cut. `install ... --hook --max-context-chars N` writes the flag.
 
 **Fewer tokens, opt-in.** `--relevance-floor R` on the hook line (0 <= R < 1, default
-0 = off; not written by `install`) leaves out a top-k note whose bm25 is weaker than
+0 = off; `install ... --hook --relevance-floor R` writes it) leaves out a top-k note whose bm25 is weaker than
 R times the strongest one, in fts and in the fts part of the default synaptic packet;
 it may drop a note that held the answer. Measured only on the development set:
 [validation guide](validation.md#opt-in-relevance-floor).
