@@ -768,9 +768,22 @@ def graph_path(vault: Path) -> Path:
     return Path(vault) / ".context" / GRAPH_NAME
 
 
+def router_module(name: str):
+    """A router/ module (wheel or checkout layout), the same object as
+    mcp_server.router_module(name) returns, without importing the MCP server."""
+    import importlib
+    try:
+        return importlib.import_module(f"{__package__}.router.{name}")  # wheel layout
+    except ImportError:
+        from .cli import repo_home
+        root = str(repo_home() / "router")
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        return importlib.import_module(name)  # checkout layout
+
+
 def _policy():
-    from .mcp_server import policy
-    return policy()
+    return router_module("source_policy")
 
 
 def indexed_notes(index: Path) -> dict[str, str]:
@@ -945,13 +958,12 @@ def build(vault: Path, index: Path | None = None, out: Path | None = None,
     says `unchanged`. Resolution itself always covers every link: a new note can
     change how another note's links resolve.
     """
-    from .mcp_server import exclude_prefixes
     started = time.perf_counter()
     vault = Path(vault).resolve()
     index = index or (vault / ".context" / "index.sqlite")
     out = out or graph_path(vault)
     policy = _policy()
-    prefixes = exclude_prefixes(vault)
+    prefixes = list(policy.load_exclusions(vault))     # as mcp_server.exclude_prefixes
 
     def excluded(name: str) -> bool:
         try:

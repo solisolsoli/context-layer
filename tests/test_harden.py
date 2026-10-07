@@ -912,5 +912,38 @@ class NoPrivateTraces(unittest.TestCase):
         self.assertEqual(hits, [])
 
 
+
+class LazyCommandParser(unittest.TestCase):
+    """cli.py imports a component only when its command runs. The command -> module
+    table must name exactly what each module's register() adds, and a parser built for
+    one command must accept what the full parser accepts for it."""
+
+    def test_the_table_matches_every_register(self):
+        import importlib
+        from context_layer import cli
+        for name, commands in cli.COMPONENT_COMMANDS.items():
+            module = importlib.import_module(f"context_layer.{name}")
+            sub = argparse.ArgumentParser().add_subparsers()
+            module.register(sub)
+            self.assertEqual(sorted(sub.choices), sorted(commands), name)
+        full = cli.build_parser()
+        names = next(a for a in full._actions if isinstance(a, argparse._SubParsersAction))
+        listed = {c for commands in cli.COMPONENT_COMMANDS.values() for c in commands}
+        self.assertTrue(listed <= set(names.choices))
+
+    def test_version_and_a_builtin_command_import_no_component(self):
+        code = ("import sys; from context_layer import cli; cli.main(['--version']); "
+                "cli.build_parser('index'); "
+                "print(sorted(n for n in cli.COMPONENTS if 'context_layer.' + n in sys.modules))")
+        done = subprocess.run([sys.executable, "-c", code], cwd=REPO, capture_output=True,
+                              text=True, env=dict(os.environ, PYTHONUTF8="1"))
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.splitlines(), [f"context-layer {_version()}", "[]"])
+
+
+def _version() -> str:
+    from context_layer import __version__
+    return __version__
+
 if __name__ == "__main__":
     unittest.main()

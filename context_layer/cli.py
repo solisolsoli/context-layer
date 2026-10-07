@@ -12,20 +12,62 @@ Python 3.10+; standard library only.
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 from pathlib import Path
-import sqlite3
-import subprocess
 import sys
 
-from . import (__version__, brain, brief, doctor, graph, health, install, jev, mcp_server, memory,
-               orchestrate, rules, session_show, tasks)
-from .vault_scan import print_report, render_config, scan_vault
+from . import __version__
 try:
     from .router.textio import configure_stdout
 except ImportError:
     from router.textio import configure_stdout
+
+
+class _LazyModule:
+    """A component module imported on first attribute access, so a command pays only
+    for the modules it uses (`--version` and `index` never import the MCP server's
+    advisor, the task runner or the installers)."""
+
+    def __init__(self, name: str, qualified: "str | None" = None):
+        object.__setattr__(self, "_name", name)
+        object.__setattr__(self, "_qualified", qualified or f"{__package__}.{name}")
+
+    def _load(self):
+        module = importlib.import_module(self._qualified)
+        globals()[self._name] = module          # later lookups skip the proxy
+        return module
+
+    def __getattr__(self, attribute: str):
+        return getattr(self._load(), attribute)
+
+    # A reference taken before the first use (`patch.object(cli.subprocess, ...)`)
+    # still reaches the real module.
+    def __setattr__(self, attribute: str, value) -> None:
+        setattr(self._load(), attribute, value)
+
+    def __delattr__(self, attribute: str) -> None:
+        delattr(self._load(), attribute)
+
+
+# 0.2+ components own one module each; each module's register() adds these commands.
+# tests/test_harden.py checks this table against what every register() really adds.
+COMPONENT_COMMANDS = {
+    "mcp_server": ("hook", "mcp"), "install": ("install", "uninstall"), "memory": ("memory",),
+    "tasks": ("tasks",), "health": ("rollback", "status"), "rules": ("rules",),
+    "brain": ("brain",), "orchestrate": ("handback", "handoff", "job", "packet"),
+    "jev": ("jev",), "graph": ("graph",), "doctor": ("doctor",), "brief": ("brief",),
+    "session_show": ("session",),
+}
+COMPONENTS = tuple(COMPONENT_COMMANDS)
+brain = brief = doctor = graph = health = install = jev = mcp_server = memory = None
+orchestrate = rules = session_show = tasks = None
+for _name in COMPONENTS:
+    globals()[_name] = _LazyModule(_name)
+del _name
+sqlite3 = _LazyModule("sqlite3", "sqlite3")             # only a few commands need these
+subprocess = _LazyModule("subprocess", "subprocess")
 
 
 def repo_home() -> Path:
@@ -93,6 +135,7 @@ def cmd_init(args: argparse.Namespace) -> int:
               f"it, or --print-only to see what would be generated.", file=sys.stderr)
         return 1
 
+    from .vault_scan import print_report, render_config, scan_vault
     result = scan_vault(vault, max_routes=args.max_routes)
     config = render_config(result)
     written = False
@@ -134,7 +177,7 @@ def cmd_index(args: argparse.Namespace) -> int:
               "run `context-layer init <vault>` first to write one", file=sys.stderr)
     # The builder runs in this process (no second interpreter start); router/build_index.py
     # stays runnable on its own. What it read and hashed in this run is handed to the graph.
-    _, builder = health._router_modules()
+    builder = graph.router_module("build_index")
     argv = ["--vault", str(vault)] + args.rest
     trace(["build_index.py", *argv])
     result: dict = {}
@@ -300,7 +343,10 @@ def cmd_eval(args: argparse.Namespace) -> int:
 
 # ---------------------------------------------------------------------------
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(command: "str | None" = None) -> argparse.ArgumentParser:
+    """The CLI parser. With `command`, only the component that owns it registers its
+    sub-commands (the others are not imported); `--help`, no command or an unknown one
+    register every component, so help and error messages list them all."""
     parser = argparse.ArgumentParser(
         prog="context-layer",
         allow_abbrev=False,
@@ -426,13 +472,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_eval.set_defaults(func=cmd_eval, forward_to="eval/evaluate.py")
 
     # 0.2 phases own one module each so parallel work never edits this block.
-    for module in (mcp_server, install, memory, tasks, health, rules, brain, orchestrate, jev, graph,
-                   doctor, brief, session_show):
-        module.register(sub)
+    owners = [name for name, commands in COMPONENT_COMMANDS.items() if command in commands]
+    if command is None or command not in sub.choices:
+        owners = owners or list(COMPONENTS)
+    for name in owners:
+        globals()[name].register(sub)
     # A prefix of a flag (--pro for --prompt) is not silently accepted anywhere.
     for child in sub.choices.values():
         child.allow_abbrev = False
     return parser
+
+
+def _command(tokens: "list[str]") -> "str | None":
+    """The sub-command a command line names, or None when it is not plain (help,
+    version, an option before the command): then the full parser is built."""
+    for token in tokens:
+        if token == "--verbose":
+            continue
+        return None if token.startswith("-") else token
+    return None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -443,7 +501,11 @@ def main(argv: list[str] | None = None) -> int:
     # dropped. The trade-off is deliberate and worth stating: a mistyped flag is
     # forwarded rather than rejected here, and the underlying script reports it.
     global VERBOSE
-    args, extra = build_parser().parse_known_args(argv)
+    tokens = sys.argv[1:] if argv is None else list(argv)
+    if tokens == ["--version"]:                  # answered before any parser is built
+        print(f"context-layer {__version__}")
+        return 0
+    args, extra = build_parser(_command(tokens)).parse_known_args(tokens)
     # --verbose is accepted before or after the subcommand; it is never forwarded.
     VERBOSE = bool(args.verbose or "--verbose" in extra)
     args.rest = [token for token in extra if token not in ("--", "--verbose")]
