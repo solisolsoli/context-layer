@@ -162,8 +162,10 @@ quotes", <https://obsidian.md/help/properties>). Aliases come from `aliases`
 - **Atomic rebuild.** The graph is written to a staging file and moved into
   place with `os.replace`.
 - **Reuse.** A note whose bytes did not change reuses its stored parse (table
-  `parse_cache`); every link is resolved again. When none of the graph's inputs
-  changed, `graph.sqlite` is not rewritten
+  `parse_cache`). When only note contents changed (the same notes, exclusions and
+  file list), only the changed notes' links are resolved again, in a copy that
+  replaces the graph atomically; any other change rebuilds it. When none of the
+  graph's inputs changed, `graph.sqlite` is not rewritten
   ([source-lifecycle.md](source-lifecycle.md#incremental-update-the-default-and---full)).
 - **Damaged graph.** When `graph.sqlite` exists but cannot be read (a missing
   table, a damaged file, a newer layout), synaptic retrieval goes on without

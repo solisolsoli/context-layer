@@ -7,7 +7,9 @@
   hashed), runs the builder in the same process, and hands the link graph what it
   hashed, so the graph does not read the notes again. The graph reuses the stored
   parse of every note whose bytes did not change (new table `parse_cache` in
-  `graph.sqlite`) and still resolves every link. The CLI imports a component only
+  `graph.sqlite`); when only note contents changed it re-resolves just those notes'
+  links in a copy that replaces the graph atomically (an added, removed or renamed
+  note, or a changed file list, still rebuilds it). The CLI imports a component only
   when its command runs; `--version` builds no parser. `init` walks the vault once
   and skips tooling, dot and excluded folders.
 - Changed (may affect callers): an `index` run that finds nothing to change leaves
@@ -42,6 +44,7 @@
   with the same 12/56 complete; see docs/validation.md.
 - New, opt-in: `search --relevance-floor R` and `hook --relevance-floor R` leave out
   a top-k note whose bm25 is weaker than R times the strongest one (default 0 = off).
+  `install ... --hook --relevance-floor R` writes the hook flag.
 - Changed (may affect callers): the hook's header text is shorter (markers, nonce,
   items and packing are unchanged); MCP tool descriptions are shorter; the MCP
   server's error packets and augmented packets are serialised without spaces;
