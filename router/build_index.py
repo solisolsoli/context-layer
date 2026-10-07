@@ -118,17 +118,22 @@ def iter_files(vault: Path, extensions: "set[str]", skip_parts: "set[str]",
     (a backslash, or ':' in the first path component; both legal on POSIX) is
     appended to `unsupported` instead: it could never be read back as a source."""
     found = []
+    # source_path()'s parent checks (no symlinked component, still inside the vault)
+    # depend only on the directory, so they run once per directory, not once per file;
+    # the file itself is checked below. `None` = not checked yet.
+    parent_ok: "dict[str, bool]" = {}
     for current, directories, names in os.walk(vault, followlinks=False):
         base = Path(current)
+        here = base.relative_to(vault).as_posix()
+        prefix = "" if here == "." else here + "/"
         # A directory with an unsupported name is still walked, so its files are
         # listed; tool, dot and excluded directories are pruned unread.
         directories[:] = [d for d in directories if d not in skip_parts
             and not (base / d).is_symlink()
-            and walked_name_state((base / d).relative_to(vault).as_posix(),
-                                  skip_prefixes) != "excluded"]
+            and walked_name_state(prefix + d, skip_prefixes) != "excluded"]
         for name in sorted(names):
             path = base / name
-            relative = path.relative_to(vault).as_posix()
+            relative = prefix + name
             if path.suffix.lower() not in extensions or path.is_symlink():
                 continue
             state = walked_name_state(relative, skip_prefixes)
@@ -138,11 +143,16 @@ def iter_files(vault: Path, extensions: "set[str]", skip_parts: "set[str]",
                 if unsupported is not None and path.is_file():
                     unsupported.append(relative)
                 continue
-            try:
-                path = source_path(vault, relative, skip_prefixes)
-            except ValueError:
-                continue    # a parent became a symlink during the walk: never followed
-            if path.is_file():
+            ok = parent_ok.get(prefix)
+            if ok is None:
+                try:
+                    if prefix:
+                        source_path(vault, prefix[:-1], skip_prefixes)
+                    ok = True
+                except ValueError:
+                    ok = False      # a parent became a symlink during the walk: never followed
+                parent_ok[prefix] = ok
+            if ok and path.is_file():
                 found.append(path)
     return sorted(found)
 
@@ -201,6 +211,32 @@ class Source(NamedTuple):
     size: int
     mtime: str
     text: "str | None"
+    mtime_ns: int = -1      # st_mtime_ns when this run read the file (-1: not recorded)
+
+
+# Reading and hashing every in-scope file is I/O bound; a few threads overlap it.
+# Results are consumed in index order, and at most READ_AHEAD files (and about
+# READ_AHEAD_BYTES of their bytes) are in flight, so memory stays bounded.
+READ_THREADS = min(8, os.cpu_count() or 1)
+READ_AHEAD = 64
+READ_AHEAD_BYTES = 64 << 20
+
+
+def _read_source(path: Path, known_sha: "str | None"):
+    """(digest, text, error) for one file; runs in a worker thread. The text is decoded
+    only when the bytes differ from the ones the previous index holds."""
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return "", None, "unreadable"
+    digest = hashlib.sha256(raw).hexdigest()
+    text = None
+    if known_sha != digest:
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeError:
+            return digest, None, "not_utf8"
+    return digest, text, None
 
 
 def iter_sources(vault: Path, extensions: "set[str]", skip_prefixes: "tuple[str, ...]",
@@ -213,37 +249,74 @@ def iter_sources(vault: Path, extensions: "set[str]", skip_prefixes: "tuple[str,
 
     `known` maps a path to the sha256 the previous index holds. A file whose bytes
     still hash to that value is not decoded again (its text was valid UTF-8 then).
+    Every file is read and hashed on every run: size and mtime are never trusted.
     """
     unsupported: "list[str]" = []
-    for path in iter_files(vault, extensions, set(DEFAULT_SKIP_PARTS), skip_prefixes,
-                           unsupported):
-        rel = str(path.relative_to(vault)).replace("\\", "/")
-        try:
-            stat = path.stat()
-        except OSError:
-            skipped.append({"path": rel, "reason": "unreadable"})
-            continue
-        size = stat.st_size
-        if size == 0:
-            continue                      # nothing to find in it
-        if size > max_bytes:
-            skipped.append({"path": rel, "reason": "oversize", "size": size})
-            continue
-        try:
-            raw = path.read_bytes()
-        except OSError:
-            skipped.append({"path": rel, "reason": "unreadable"})
-            continue
-        digest = hashlib.sha256(raw).hexdigest()
-        text = None
-        if known is None or known.get(rel) != digest:
+    files = iter_files(vault, extensions, set(DEFAULT_SKIP_PARTS), skip_prefixes, unsupported)
+    root = str(vault)
+    cut = len(root) + (0 if root.endswith(("/", "\\")) else 1)
+
+    def relative(path: Path) -> str:
+        text = str(path)
+        if text.startswith(root):
+            return text[cut:].replace("\\", "/")
+        return str(path.relative_to(vault)).replace("\\", "/")
+
+    def planned():
+        """(rel, path, stat) for each file worth reading, in order; skips recorded."""
+        for path in files:
+            rel = relative(path)
             try:
-                text = raw.decode("utf-8")
-            except UnicodeError:
-                skipped.append({"path": rel, "reason": "not_utf8"})
+                stat = path.stat()
+            except OSError:
+                skipped.append({"path": rel, "reason": "unreadable"})
                 continue
+            if stat.st_size == 0:
+                continue                      # nothing to find in it
+            if stat.st_size > max_bytes:
+                skipped.append({"path": rel, "reason": "oversize", "size": stat.st_size})
+                continue
+            yield rel, path, stat
+
+    def finish(rel, path, stat, outcome) -> "Source | None":
+        digest, text, error = outcome
+        if error is not None:
+            skipped.append({"path": rel, "reason": error})
+            return None
         mtime = datetime.fromtimestamp(stat.st_mtime).astimezone().isoformat()
-        yield Source(rel, path.suffix.lower(), digest, size, mtime, text)
+        return Source(rel, path.suffix.lower(), digest, stat.st_size, mtime, text,
+                      stat.st_mtime_ns)
+
+    known_get = (known or {}).get
+    if READ_THREADS <= 1 or len(files) < 2 * READ_AHEAD:
+        for rel, path, stat in planned():
+            source = finish(rel, path, stat, _read_source(path, known_get(rel)))
+            if source is not None:
+                yield source
+    else:
+        from collections import deque
+        from concurrent.futures import ThreadPoolExecutor
+        pool = ThreadPoolExecutor(max_workers=READ_THREADS, thread_name_prefix="index-read")
+        pending: "deque" = deque()
+        in_flight = 0
+        try:
+            for rel, path, stat in planned():
+                pending.append((rel, path, stat,
+                                pool.submit(_read_source, path, known_get(rel))))
+                in_flight += stat.st_size
+                while pending and (len(pending) >= READ_AHEAD or in_flight >= READ_AHEAD_BYTES):
+                    rel0, path0, stat0, future = pending.popleft()
+                    in_flight -= stat0.st_size
+                    source = finish(rel0, path0, stat0, future.result())
+                    if source is not None:
+                        yield source
+            while pending:
+                rel0, path0, stat0, future = pending.popleft()
+                source = finish(rel0, path0, stat0, future.result())
+                if source is not None:
+                    yield source
+        finally:
+            pool.shutdown(wait=True, cancel_futures=True)
     skipped += [{"path": name, "reason": "unsupported_name"} for name in unsupported]
     skipped.sort(key=lambda entry: (str(entry["path"]), str(entry["reason"])))
 
@@ -522,6 +595,55 @@ def apply_update(staging: Path, out: Path, base: "dict[str, BaseNote]",
                   unchanged=unchanged, rewritten=rewritten)
 
 
+def unchanged_total(out: Path, base: "dict[str, BaseNote]", sources: "list[Source]",
+                    skipped: "list[dict[str, object]]", vault: Path, max_bytes: int,
+                    name_fields: bool = False) -> "int | None":
+    """The record count when the live index already is the index this build would
+    write: every note has the same bytes, ids and timestamps, nothing was added or
+    removed, and index_meta and the manifest differ at most in `built_at`. None when
+    anything differs. Then the index and the manifest are left as they are (no
+    staging copy, integrity check or replacement; `built_at` stays the time of the
+    build that wrote them). Their `.prev` copies are still refreshed, as after any
+    build, so two runs still clear a deleted note from `.prev`. The live index passed
+    FTS5's integrity check when it was staged; `status` runs that check again, and
+    `--full` rebuilds."""
+    if len(base) != len(sources):
+        return None
+    next_id = 1
+    for source in sources:
+        old = base.get(source.path)
+        if old is None or old.sha != source.sha or old.first != next_id \
+                or old.stamps != (source.mtime, source.mtime):
+            return None
+        next_id += old.count
+    total = next_id - 1
+    try:
+        connection = sqlite3.connect(out.resolve().as_uri() + "?mode=ro", uri=True)
+        try:
+            meta = dict(connection.execute("SELECT key, value FROM index_meta"))
+        finally:
+            connection.close()
+    except sqlite3.Error:
+        return None
+    built_at = meta.pop("built_at", None)
+    wanted = {"vault": str(vault), "files": str(len(sources)), "records": str(total),
+              "max_file_bytes": str(max_bytes),
+              "skipped_by_reason": json.dumps(skip_counts(skipped)),
+              CHUNK_META: str(CHUNK),
+              "format_version": str(index_format.INDEX_FORMAT_VERSION)}
+    if name_fields:
+        wanted[NAME_META] = "1"
+    if built_at is None or meta != wanted:
+        return None
+    try:
+        manifest = out.with_name(MANIFEST_NAME).read_bytes()
+    except OSError:
+        return None
+    if manifest != manifest_bytes(built_at, sources, max_bytes, skipped):
+        return None
+    return total
+
+
 def collect_sources(vault: Path, extensions: "set[str]", skip_prefixes: "tuple[str, ...]",
                     max_bytes: int, skipped: "list[dict[str, object]]",
                     known: "dict[str, str]", text_budget: "int | None") -> "list[Source]":
@@ -601,7 +723,11 @@ def check_staged(staging: Path) -> None:
         connection.close()
 
 
-def main(argv: "list[str] | None" = None) -> int:
+def main(argv: "list[str] | None" = None, result: "dict | None" = None) -> int:
+    """Build or update the index. `result`, when given, receives `changed` (False when
+    the live index was already current and was left as it is) and `sources` (what
+    this run read and hashed: path, sha256, size, mtime, mtime_ns; text only for
+    notes decoded in this run)."""
     parser = argparse.ArgumentParser(
         prog="build_index.py",
         description="Build the SQLite/FTS5 lexical index that context_router.py reads.",
@@ -660,6 +786,7 @@ def main(argv: "list[str] | None" = None) -> int:
         skipped: "list[dict[str, object]]" = []
         stream: "Iterator[Source] | None" = None
         rows = 0
+        noop: "int | None" = None
         if not args.full:
             scanned = False
             try:
@@ -668,10 +795,16 @@ def main(argv: "list[str] | None" = None) -> int:
                 sources = collect_sources(vault, extensions, skip_prefixes, max_bytes, skipped,
                                           {path: note.sha for path, note in base.items()}, budget)
                 scanned = True
-                update = apply_update(staging, out, base, sources, built_at, vault,
-                                      max_bytes, skip_counts(skipped), MAX_REWRITE_SHARE,
-                                      args.name_fields)
-                check_staged(staging)
+                noop = unchanged_total(out, base, sources, skipped, vault, max_bytes,
+                                       args.name_fields)
+                if noop is None:
+                    update = apply_update(staging, out, base, sources, built_at, vault,
+                                          max_bytes, skip_counts(skipped), MAX_REWRITE_SHARE,
+                                          args.name_fields)
+                    check_staged(staging)
+                else:
+                    update = Update(changed=0, added=0, removed=0, unchanged=len(sources),
+                                    rewritten=0)
             except TooManyRewrites as exc:
                 update, fallback = None, str(exc)
                 if scanned:                 # the scan is done: the stored text saves a second one
@@ -698,6 +831,8 @@ def main(argv: "list[str] | None" = None) -> int:
             except index_format.IndexFormatError as exc:
                 print(f"build_index error: {exc}", file=sys.stderr)
                 return 1
+        elif noop is not None:
+            rows = noop
         else:
             connection = sqlite3.connect(staging)
             try:
@@ -705,19 +840,25 @@ def main(argv: "list[str] | None" = None) -> int:
             finally:
                 connection.close()
         counts = skip_counts(skipped)
+        manifest = out.with_name(MANIFEST_NAME)
         # Nothing above this line touches the live index, so a failed build
         # leaves the previous index and its manifest exactly as they were.
-        manifest = out.with_name(MANIFEST_NAME)
         keep_previous(out)
-        staging.replace(out)
+        if noop is None:
+            staging.replace(out)
         keep_previous(manifest)
-        replace_atomically(manifest, manifest_bytes(built_at, sources, max_bytes, skipped))
+        if noop is None:
+            replace_atomically(manifest, manifest_bytes(built_at, sources, max_bytes, skipped))
+        if result is not None:
+            result["changed"] = noop is None
+            result["sources"] = sources
         files = len(sources)
         print(f"indexed {files} files, {rows} records -> {display(out, vault)}")
         if update is not None:
             print(f"incremental: {update.changed} changed, {update.added} added, "
                   f"{update.removed} removed, {update.unchanged} unchanged "
-                  f"({update.rewritten} records rewritten)")
+                  f"({update.rewritten} records rewritten)"
+                  + ("; index unchanged" if noop is not None else ""))
         elif fallback:
             print(f"full rebuild: {fallback}")
         if skipped:

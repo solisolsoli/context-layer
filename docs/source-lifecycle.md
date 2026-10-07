@@ -162,10 +162,19 @@ after `index`: a link resolves against every note name, so a new note can change
 another note's links, and the graph is not updated note by note.
 
 What it does not save: the walk, the boundary checks, and reading and hashing every
-file still run on every `index`; only decoding, chunking, full-text insertion and
-the rebuild of the full-text index are limited to the changed notes. There is no
-timestamp shortcut, because a file edited to the same size with its old timestamp
-restored must still be found. The `index_sha256` in a search's coverage receipt is
+file still run on every `index` (the reads overlap on a few threads); only decoding,
+chunking, full-text insertion and the rebuild of the full-text index are limited to
+the changed notes. There is no timestamp shortcut, because a file edited to the
+same size with its old timestamp restored must still be found.
+
+When nothing differs (the same notes with the same bytes, ids and timestamps, and
+the same `index_meta` and manifest apart from `built_at`), the run prints
+`incremental: 0 changed, ... ; index unchanged` and leaves `index.sqlite` and
+`index-manifest.json` as they are: no staging copy, no second integrity check, no
+replacement. Their `built_at` then stays the time of the build that wrote them.
+The `.prev` copies are refreshed as after any build, so running `index` twice still
+clears a deleted note from `.prev`. The live index passed the FTS5 integrity check
+when it was written; `status` runs that check again, and `index --full` rebuilds. The `index_sha256` in a search's coverage receipt is
 the hash of the index file, which differs between an updated and a rebuilt index
 with the same content.
 

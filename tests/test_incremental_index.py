@@ -376,6 +376,20 @@ class IncrementalEqualsFull(unittest.TestCase):
             self.setUp()
         self.assertGreater(used, steps * 0.7, f"in-place updates: {used} of {steps} steps")
 
+    def test_random_edit_sequences_match_a_full_rebuild_with_parallel_reads(self):
+        """The threaded read-and-hash path (used on larger vaults) yields exactly what the
+        serial one does: forced on here with a tiny read-ahead window."""
+        used = steps = 0
+        with patch.object(build_index, "READ_THREADS", 4), \
+                patch.object(build_index, "READ_AHEAD", 2), \
+                patch.object(build_index, "READ_AHEAD_BYTES", 4000):
+            for seed in range(200, 200 + max(SEEDS // 2, 3)):
+                sequence_used, sequence_steps = self.run_sequence(seed, 1.0)
+                used, steps = used + sequence_used, steps + sequence_steps
+                self.temp.cleanup()
+                self.setUp()
+        self.assertGreater(used, steps * 0.7, f"in-place updates: {used} of {steps} steps")
+
     def test_second_run_without_changes_is_stable(self):
         vault = Vault(self.vault_dir, random.Random(5))
         for _ in range(8):
@@ -440,6 +454,69 @@ class IncrementalEqualsFull(unittest.TestCase):
             packets.append(text)
         self.assertEqual(packets[0], packets[1])
         self.assertIn('"source_path":"a.md"', packets[0])
+
+
+class NothingToWrite(unittest.TestCase):
+    """A run that finds nothing to change leaves the index and manifest bytes (and
+    files) as they were; `.prev` is refreshed as after any build, so running `index`
+    twice still clears a deleted note from it (docs/privacy.md)."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.vault = Path(self.temp.name) / "vault"
+        (self.vault / ".context").mkdir(parents=True)
+        (self.vault / ".context" / "routes.json").write_text(json.dumps(ROUTES))
+        for name in ("a", "b", "c", "gone"):
+            (self.vault / f"{name}.md").write_text(f"alpha {name}\n")
+        self.ctx = self.vault / ".context"
+        self.index = self.ctx / build_index.INDEX_NAME
+        self.manifest = self.ctx / build_index.MANIFEST_NAME
+        self.assertEqual(run_build(self.vault)[0], 0)
+        (self.vault / "gone.md").unlink()
+        self.assertEqual(run_build(self.vault)[0], 0)        # a real change
+
+    def live(self):
+        return {path.name: (path.read_bytes(), path.stat().st_mtime_ns)
+                for path in (self.index, self.manifest)}
+
+    def test_a_run_without_changes_leaves_the_index_and_manifest_as_they_were(self):
+        before = self.live()
+        self.assertIn(b"gone.md", (self.ctx / (self.manifest.name + ".prev")).read_bytes())
+        result: dict = {}
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            code = build_index.main(["--vault", str(self.vault)], result)
+        self.assertEqual(code, 0, stderr.getvalue())
+        self.assertIn("0 changed, 0 added, 0 removed, 3 unchanged (0 records rewritten); "
+                      "index unchanged", stdout.getvalue())
+        self.assertEqual(self.live(), before)
+        self.assertFalse(result["changed"])
+        self.assertEqual([s.path for s in result["sources"]], ["a.md", "b.md", "c.md"])
+        # .prev now holds the same generation: the deleted note's text is gone from it.
+        for path in (self.index, self.manifest):
+            self.assertEqual((self.ctx / (path.name + ".prev")).read_bytes(), path.read_bytes())
+        self.assertEqual(sorted(p.name for p in self.ctx.iterdir()
+                                if p.name.startswith((".index-", ".staging-"))), [])
+
+    def test_a_same_size_edit_with_the_old_timestamp_is_not_a_no_op(self):
+        note = self.vault / "a.md"
+        stamp = note.stat().st_mtime_ns
+        note.write_text("omega a\n")
+        os.utime(note, ns=(stamp, stamp))
+        code, out, err = run_build(self.vault)
+        self.assertEqual(code, 0, err)
+        self.assertIn("1 changed", out)
+        self.assertNotIn("index unchanged", out)
+
+    def test_a_changed_limit_or_a_lost_manifest_is_written(self):
+        routes = dict(ROUTES, max_file_bytes=6100)
+        (self.ctx / "routes.json").write_text(json.dumps(routes))
+        self.assertNotIn("index unchanged", run_build(self.vault)[1])
+        self.assertIn("index unchanged", run_build(self.vault)[1])
+        (self.ctx / build_index.MANIFEST_NAME).unlink()
+        self.assertNotIn("index unchanged", run_build(self.vault)[1])
+        self.assertTrue((self.ctx / build_index.MANIFEST_NAME).is_file())
 
 
 class Atomicity(unittest.TestCase):
