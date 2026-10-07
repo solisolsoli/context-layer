@@ -922,7 +922,8 @@ def _digest(value) -> str:
                           .encode("utf-8")).hexdigest()
 
 
-def _meta_summary(out: Path, meta: dict[str, str], started: float) -> dict:
+def _meta_summary(out: Path, meta: dict[str, str], started: float,
+                  skipped: dict[str, str]) -> dict:
     """The summary build() returns, for a graph that was left as it is."""
     def number(key: str) -> int:
         return int(meta.get(key, "0"))
@@ -933,11 +934,193 @@ def _meta_summary(out: Path, meta: dict[str, str], started: float) -> dict:
             "unresolved_not_indexed": number("unresolved_not_indexed"),
             "attachment_links": number("attachment_links"),
             "excluded_links": number("excluded_links"),
-            "skipped": number("skipped_notes"), "excluded_notes": number("excluded_notes"),
+            "skipped": number("skipped_notes"),
+            "skipped_by_reason": dict(sorted(
+                (reason, list(skipped.values()).count(reason)) for reason in set(skipped.values()))),
+            "excluded_notes": number("excluded_notes"),
             "frontmatter_blocks": number("frontmatter_blocks"),
             "frontmatter_ignored_values": number("frontmatter_ignored_values"),
             "built_at": meta.get("built_at", ""), "unchanged": True,
             "seconds": round(time.perf_counter() - started, 4), "bytes": out.stat().st_size}
+
+
+def _update_in_place(vault: Path, out: Path, prefixes, policy, excluded, notes: dict,
+                     parsed: dict, parse, skipped: dict, excluded_notes: int, inputs: str,
+                     previous_meta: dict, dumped: dict, started: float) -> dict | None:
+    """Update a copy of the previous graph for the notes whose bytes (or skip state)
+    changed, and replace graph.sqlite with it. None when that is not safe: another set of
+    notes, other exclusions, another vault file list where the previous build needed it,
+    or more than a quarter of the notes changed. The rows a reader sees (ordered by
+    source, line, insertion) equal a full build's: an unchanged note's links resolve the
+    same way against the same notes and files, and every degree is counted again."""
+    if previous_meta.get("prefixes_sha256") != _digest(sorted(prefixes)):
+        return None
+    try:
+        connection = sqlite3.connect(out.resolve().as_uri() + "?mode=ro", uri=True)
+        try:
+            previous = {row[0]: tuple(row[1:]) for row in connection.execute(
+                "SELECT path, sha256, size, mtime_ns, aliases, out_degree, in_degree, degree"
+                " FROM notes")}
+            if set(previous) != set(notes):
+                return None
+            previous_skipped = dict(connection.execute("SELECT path, reason FROM skipped"))
+            changed = sorted(name for name in notes
+                             if previous[name][0] != notes[name]["sha256"]
+                             or previous_skipped.get(name) != skipped.get(name))
+            if len(changed) > max(8, len(notes) // 4):
+                return None
+            gone = set(changed)
+            pairs = [row for row in connection.execute(
+                "SELECT source_path, target_path FROM edges") if row[0] not in gone]
+            reasons = dict.fromkeys(LINK_REASONS, 0)
+            for source, reason in connection.execute(
+                    "SELECT source_path, reason FROM unresolved"):
+                if source not in gone:
+                    reasons[reason] += 1
+            front_kept = [row for row in connection.execute(
+                "SELECT path, ignored FROM frontmatter") if row[0] not in gone]
+        finally:
+            connection.close()
+    except (sqlite3.Error, OSError, ValueError, KeyError):
+        return None
+    files_digest = previous_meta.get("files_sha256", "")
+    files = None
+    if files_digest:
+        files = vault_files(vault, prefixes, policy)
+        if _digest(files) != files_digest:
+            return None
+    resolver = Resolver(list(notes), (lambda: files) if files is not None
+                        else (lambda: vault_files(vault, prefixes, policy)), excluded)
+    edges, unresolved, frontmatter, cache_rows = [], [], [], []
+    for name in changed:
+        if name in skipped:
+            continue
+        note = parsed[name]
+        if note is None:
+            note = parsed[name] = parse(name, notes[name]["sha256"], None)
+            notes[name]["aliases"] = note.aliases
+        for link in note.links:
+            found = resolver.resolve_link(name, link.target, link.kind, link.markdown)
+            if found.path is None:
+                unresolved.append((name, link.line, link.kind, found.reason,
+                                   None if found.reason == "excluded" else link.target,
+                                   json.dumps(found.candidates, ensure_ascii=False)
+                                   if found.candidates else None))
+            elif found.path != name:
+                edges.append((link.kind, name, found.path, link.line, notes[name]["sha256"],
+                              link.heading, link.block, link.field))
+        if note.frontmatter != "none":
+            frontmatter.append((name, "unclosed" if note.frontmatter == "unclosed"
+                                else ("partial" if note.frontmatter_ignored else "parsed"),
+                                note.frontmatter_ignored))
+        cache_rows.append((name, notes[name]["sha256"], dumped.get(name) or _dump_parsed(note)))
+    pairs += [(row[1], row[2]) for row in edges]
+    for row in unresolved:
+        reasons[row[3]] += 1
+    neighbours: dict[str, set[str]] = {n: set() for n in notes}
+    distinct: dict[str, set[str]] = {}
+    for source, target in pairs:
+        neighbours[source].add(target)
+        neighbours[target].add(source)
+        distinct.setdefault(source, set()).add(target)
+    in_deg = {n: 0 for n in notes}
+    for targets in distinct.values():
+        for target in targets:
+            in_deg[target] += 1
+    updates = []
+    for name, value in notes.items():
+        aliases = previous[name][3] if value["aliases"] is None else json.dumps(value["aliases"])
+        row = (value["sha256"], value["size"], value["mtime_ns"], aliases,
+               len(distinct.get(name, ())), in_deg[name], len(neighbours[name]))
+        if row != previous[name]:
+            updates.append(row + (name,))
+    front_count = len(front_kept) + len(frontmatter)
+    front_ignored = sum(row[1] for row in front_kept) + sum(row[2] for row in frontmatter)
+    built_at = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    meta = _meta_rows(built_at, len(notes), len(pairs), reasons, len(skipped), excluded_notes,
+                      front_count, front_ignored, inputs, prefixes,
+                      _digest(resolver._files_seen) if resolver._files_seen is not None
+                      else files_digest)
+    handle = tempfile.NamedTemporaryFile(prefix=".graph-", suffix=".sqlite", dir=out.parent,
+                                         delete=False)
+    staging = Path(handle.name)
+    handle.close()
+    try:
+        import shutil
+        shutil.copyfile(out, staging)
+        connection = sqlite3.connect(staging)
+        try:
+            gone_rows = [(name,) for name in changed]
+            connection.executemany("DELETE FROM edges WHERE source_path=?", gone_rows)
+            connection.executemany("DELETE FROM unresolved WHERE source_path=?", gone_rows)
+            connection.executemany("DELETE FROM frontmatter WHERE path=?", gone_rows)
+            connection.executemany("DELETE FROM parse_cache WHERE path=?", gone_rows)
+            connection.execute("DELETE FROM skipped")
+            connection.execute("DELETE FROM graph_meta")
+            connection.executemany(
+                "INSERT INTO edges (kind, source_path, target_path, line, source_sha256, heading,"
+                " block, field) VALUES (?,?,?,?,?,?,?,?)", edges)
+            connection.executemany(
+                "INSERT INTO unresolved (source_path, line, kind, reason, target, candidates)"
+                " VALUES (?,?,?,?,?,?)", unresolved)
+            connection.executemany("INSERT INTO skipped (path, reason) VALUES (?,?)",
+                                   sorted(skipped.items()))
+            connection.executemany("INSERT INTO frontmatter (path, status, ignored) VALUES (?,?,?)",
+                                   frontmatter)
+            connection.executemany(
+                "INSERT INTO parse_cache (path, sha256, parsed) VALUES (?,?,?)", cache_rows)
+            connection.executemany(
+                "UPDATE notes SET sha256=?, size=?, mtime_ns=?, aliases=?, out_degree=?,"
+                " in_degree=?, degree=? WHERE path=?", updates)
+            connection.executemany("INSERT INTO graph_meta (key, value) VALUES (?,?)",
+                                   sorted(meta.items()))
+            connection.commit()
+        finally:
+            connection.close()
+        os.replace(staging, out)
+    finally:
+        staging.unlink(missing_ok=True)
+    return _summary(out, len(notes), len(pairs), reasons, skipped, excluded_notes, front_count,
+                    front_ignored, built_at, started) | {"updated_notes": len(changed)}
+
+
+def _meta_rows(built_at: str, notes: int, edges: int, reasons: dict, skipped: int,
+               excluded_notes: int, front_count: int, front_ignored: int, inputs: str,
+               prefixes, files_digest: str) -> dict[str, str]:
+    return {"schema_version": GRAPH_SCHEMA_VERSION, "built_at": built_at,
+            "notes": str(notes), "edges": str(edges),
+            "unresolved": str(sum(reasons[r] for r in UNREACHED)),
+            "unresolved_missing": str(reasons["missing"]),
+            "unresolved_ambiguous": str(reasons["ambiguous"]),
+            "unresolved_not_indexed": str(reasons["not_indexed"]),
+            "attachment_links": str(reasons["attachment"]),
+            "excluded_links": str(reasons["excluded"]),
+            "skipped_notes": str(skipped), "excluded_notes": str(excluded_notes),
+            "frontmatter_blocks": str(front_count),
+            "frontmatter_ignored_values": str(front_ignored),
+            "builder": _builder_key(), "inputs_sha256": inputs,
+            "prefixes_sha256": _digest(sorted(prefixes)),
+            # The file list matters only when some link missed every note.
+            "files_sha256": files_digest}
+
+
+def _summary(out: Path, notes: int, edges: int, reasons: dict, skipped: dict,
+             excluded_notes: int, front_count: int, front_ignored: int, built_at: str,
+             started: float) -> dict:
+    by_reason: dict[str, int] = {}
+    for reason in skipped.values():
+        by_reason[reason] = by_reason.get(reason, 0) + 1
+    return {"graph": str(out), "notes": notes, "edges": edges,
+            "unresolved": sum(reasons[r] for r in UNREACHED),
+            "unresolved_missing": reasons["missing"],
+            "unresolved_ambiguous": reasons["ambiguous"],
+            "unresolved_not_indexed": reasons["not_indexed"],
+            "attachment_links": reasons["attachment"], "excluded_links": reasons["excluded"],
+            "skipped": len(skipped), "skipped_by_reason": dict(sorted(by_reason.items())),
+            "excluded_notes": excluded_notes, "frontmatter_blocks": front_count,
+            "frontmatter_ignored_values": front_ignored,
+            "built_at": built_at, "seconds": round(time.perf_counter() - started, 4),
+            "bytes": out.stat().st_size}
 
 
 def build(vault: Path, index: Path | None = None, out: Path | None = None,
@@ -1028,7 +1211,16 @@ def build(vault: Path, index: Path | None = None, out: Path | None = None,
             line = _skipped_line(skipped, excluded_notes)
             if line:
                 print(line, file=sys.stderr)
-            return _meta_summary(out, previous_meta, started)
+            return _meta_summary(out, previous_meta, started, skipped)
+    if previous_meta:
+        updated = _update_in_place(vault, out, prefixes, policy, excluded, notes, parsed, parse,
+                                   skipped, excluded_notes, inputs, previous_meta, dumped,
+                                   started)
+        if updated is not None:
+            line = _skipped_line(skipped, excluded_notes)
+            if line:
+                print(line, file=sys.stderr)
+            return updated
     for name, note in parsed.items():
         if note is None:
             parsed[name] = parse(name, notes[name]["sha256"], None)
@@ -1089,21 +1281,11 @@ def build(vault: Path, index: Path | None = None, out: Path | None = None,
                                    sorted(skipped.items()))
             connection.executemany("INSERT INTO frontmatter (path, status, ignored) VALUES (?,?,?)",
                                    frontmatter)
-            meta = {"schema_version": GRAPH_SCHEMA_VERSION, "built_at": built_at,
-                    "notes": str(len(notes)), "edges": str(len(edges)),
-                    "unresolved": str(sum(reasons[r] for r in UNREACHED)),
-                    "unresolved_missing": str(reasons["missing"]),
-                    "unresolved_ambiguous": str(reasons["ambiguous"]),
-                    "unresolved_not_indexed": str(reasons["not_indexed"]),
-                    "attachment_links": str(reasons["attachment"]),
-                    "excluded_links": str(reasons["excluded"]),
-                    "skipped_notes": str(len(skipped)), "excluded_notes": str(excluded_notes),
-                    "frontmatter_blocks": str(len(frontmatter)),
-                    "frontmatter_ignored_values": str(sum(row[2] for row in frontmatter)),
-                    "builder": _builder_key(), "inputs_sha256": inputs,
-                    # The file list matters only when some link missed every note.
-                    "files_sha256": _digest(resolver._files_seen)
-                    if resolver._files_seen is not None else ""}
+            meta = _meta_rows(built_at, len(notes), len(edges), reasons, len(skipped),
+                              excluded_notes, len(frontmatter),
+                              sum(row[2] for row in frontmatter), inputs, prefixes,
+                              _digest(resolver._files_seen)
+                              if resolver._files_seen is not None else "")
             connection.executemany(
                 "INSERT INTO parse_cache (path, sha256, parsed) VALUES (?,?,?)",
                 [(name, notes[name]["sha256"], dumped.get(name) or _dump_parsed(note))
@@ -1119,20 +1301,8 @@ def build(vault: Path, index: Path | None = None, out: Path | None = None,
     line = _skipped_line(skipped, excluded_notes)
     if line:
         print(line, file=sys.stderr)
-    by_reason: dict[str, int] = {}
-    for reason in skipped.values():
-        by_reason[reason] = by_reason.get(reason, 0) + 1
-    elapsed = time.perf_counter() - started
-    return {"graph": str(out), "notes": len(notes), "edges": len(edges),
-            "unresolved": sum(reasons[r] for r in UNREACHED),
-            "unresolved_missing": reasons["missing"],
-            "unresolved_ambiguous": reasons["ambiguous"],
-            "unresolved_not_indexed": reasons["not_indexed"],
-            "attachment_links": reasons["attachment"], "excluded_links": reasons["excluded"],
-            "skipped": len(skipped), "skipped_by_reason": dict(sorted(by_reason.items())),
-            "excluded_notes": excluded_notes, "frontmatter_blocks": len(frontmatter),
-            "frontmatter_ignored_values": sum(row[2] for row in frontmatter),
-            "built_at": built_at, "seconds": round(elapsed, 4), "bytes": out.stat().st_size}
+    return _summary(out, len(notes), len(edges), reasons, skipped, excluded_notes,
+                    len(frontmatter), sum(row[2] for row in frontmatter), built_at, started)
 
 
 def _distinct_pairs(edges) -> dict[str, set[str]]:

@@ -465,10 +465,16 @@ def graph_logical(path: Path) -> dict:
         for key in ("built_at", "builder", "inputs_sha256", "files_sha256"):
             meta.pop(key, None)
         tables = {"meta": meta}
-        for table, order in (("notes", "path"), ("edges", "id"), ("unresolved", "rowid"),
-                             ("skipped", "path"), ("frontmatter", "path")):
+        # Readers order edges and unresolved links by source, line and insertion; an
+        # in-place update keeps that order but not the row ids themselves.
+        for table, columns, order in (
+                ("notes", "*", "path"),
+                ("edges", "kind, source_path, target_path, line, source_sha256, heading, block,"
+                          " field", "source_path, line, id"),
+                ("unresolved", "*", "source_path, line, rowid"),
+                ("skipped", "*", "path"), ("frontmatter", "*", "path")):
             tables[table] = connection.execute(
-                f"SELECT * FROM {table} ORDER BY {order}").fetchall()
+                f"SELECT {columns} FROM {table} ORDER BY {order}").fetchall()
         return tables
     finally:
         connection.close()
@@ -526,9 +532,40 @@ class GraphFromCacheEqualsFresh(unittest.TestCase):
     the same run, reuses unchanged notes' parses and leaves an unchanged graph alone.
     After every randomized step that graph must equal one built from scratch."""
 
+    def build_both(self, vault_dir: Path, root: Path, name: str):
+        from context_layer import graph
+        result: dict = {}
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            self.assertEqual(build_index.main(["--vault", str(vault_dir)], result), 0)
+            live = graph.build(vault_dir, verified={s.path: s for s in result["sources"]})
+            graph.build(vault_dir, out=root / name)
+        self.assertEqual(graph_logical(graph.graph_path(vault_dir)), graph_logical(root / name))
+        return live
+
+    def test_an_attachment_that_appears_changes_another_notes_link(self):
+        """An unchanged note's link can resolve differently when the vault's file list
+        changes; the in-place update must notice and rebuild."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            vault_dir = root / "vault"
+            vault_dir.mkdir()
+            (vault_dir / "a.md").write_text("alpha ![[pic.png]] and [[b]]\n")
+            (vault_dir / "b.md").write_text("bravo\n")
+            first = self.build_both(vault_dir, root, "one.sqlite")
+            self.assertEqual((first["unresolved_missing"], first["attachment_links"]), (1, 0))
+            (vault_dir / "pic.png").write_bytes(b"\x89PNG fake")
+            (vault_dir / "b.md").write_text("bravo changed\n")
+            second = self.build_both(vault_dir, root, "two.sqlite")
+            self.assertEqual((second["unresolved_missing"], second["attachment_links"]), (0, 1))
+            self.assertNotIn("updated_notes", second)
+            (vault_dir / "b.md").write_text("bravo changed again, see [[a]]\n")
+            third = self.build_both(vault_dir, root, "three.sqlite")
+            self.assertEqual(third.get("updated_notes"), 1)
+            self.assertEqual(third["edges"], 2)
+
     def test_random_edit_sequences(self):
         from context_layer import graph
-        unchanged = steps = 0
+        unchanged = updated = steps = 0
         for seed in range(300, 300 + max(SEEDS // 2, 3)):
             with tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
@@ -536,7 +573,13 @@ class GraphFromCacheEqualsFresh(unittest.TestCase):
                 vault_dir.mkdir()
                 vault = LinkVault(vault_dir, random.Random(seed))
                 for step in range(STEPS):
-                    vault.step()
+                    if step % 2:                   # content edits only: the in-place path
+                        for _ in range(vault.rng.randint(1, 3)):
+                            vault.rng.choice([vault.op_link, vault.op_link, vault.op_modify,
+                                              vault.op_same_size_edit, vault.op_not_utf8,
+                                              vault.op_restore_utf8])()
+                    else:
+                        vault.step()
                     if step % 7 == 6:
                         vault.stamp(vault.pick() or vault.put("a.md", "alpha\n"))
                     result: dict = {}
@@ -551,15 +594,19 @@ class GraphFromCacheEqualsFresh(unittest.TestCase):
                         reference = root / f"fresh-{step}.sqlite"
                         fresh = graph.build(vault_dir, out=reference)
                     unchanged += bool(live.get("unchanged"))
+                    updated += "updated_notes" in live
                     steps += 1
                     self.assertFalse(fresh.get("unchanged"))
                     left = graph_logical(graph.graph_path(vault_dir))
                     right = graph_logical(reference)
                     self.assertEqual(left, right, f"seed {seed} step {step}: "
                                      + first_difference(left, right))
-                    for key in ("notes", "edges", "unresolved", "skipped", "excluded_notes"):
+                    for key in ("notes", "edges", "unresolved", "skipped", "excluded_notes",
+                                "frontmatter_blocks", "frontmatter_ignored_values",
+                                "skipped_by_reason", "attachment_links", "excluded_links"):
                         self.assertEqual(live[key], fresh[key], f"{key} seed {seed} step {step}")
-        self.assertGreater(steps, 0)
+        # Not a comparison of a full build with itself: the in-place path ran often.
+        self.assertGreater(updated, steps * 0.2, f"in-place graph updates: {updated} of {steps}")
 
 
 class CliIndexRuns(unittest.TestCase):
