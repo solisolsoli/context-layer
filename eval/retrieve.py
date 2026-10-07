@@ -16,6 +16,7 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import sys
+import threading
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'router'))
@@ -300,13 +301,10 @@ class Kept:
         return bool(self._kept)
 
 
-# Caches that only a long-lived process (`--serve`, the MCP server's worker) benefits from.
-# Both are keyed so a hit is the value a fresh computation would give: the exclusion verdict
-# of a name is a pure function of the name and the configured exclusions; the index digest
-# is keyed by the identity of the open file (device, inode, size, modification and, on
-# POSIX, status-change time in ns), so a rebuilt or rewritten index is hashed again.
+# The exclusion verdict of a name is a pure function of the name and the configured
+# exclusions, so a long-lived process (`--serve`, the MCP server's worker) keeps the
+# verdicts per exclusion list instead of recomputing them on every call.
 _MATCHERS = {}
-_DIGESTS = {}
 
 
 def cached_matcher(prefixes):
@@ -319,27 +317,36 @@ def cached_matcher(prefixes):
     return matcher
 
 
-def file_identity(handle):
-    info = os.fstat(handle.fileno())
-    ctime = None if os.name == 'nt' else info.st_ctime_ns
-    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, ctime)
+class IndexDigest:
+    """SHA-256 of every byte of the open index file, computed on a thread while the query
+    runs (reading and hashing release the GIL), so the coverage receipt costs no wall time
+    it did not cost before. Never cached: every call hashes the bytes it reads."""
 
+    def __init__(self, handle):
+        self._handle = handle
+        self._value = None
+        self._error = None
+        self._thread = threading.Thread(target=self._run, name='index-digest', daemon=True)
+        self._thread.start()
 
-def index_digest(handle):
-    """SHA-256 of every byte of the open index file (one pass, 1 MiB reads)."""
-    key = file_identity(handle)
-    digest = _DIGESTS.get(key)
-    if digest is None:
-        hasher = hashlib.sha256()
-        handle.seek(0)
-        for block in iter(lambda: handle.read(1 << 20), b''):
-            hasher.update(block)
-        digest = hasher.hexdigest()
-        if file_identity(handle) == key:       # unchanged while it was read: keep it
-            if len(_DIGESTS) >= 4:
-                _DIGESTS.clear()
-            _DIGESTS[key] = digest
-    return digest
+    def _run(self):
+        try:
+            hasher = hashlib.sha256()
+            self._handle.seek(0)
+            for block in iter(lambda: self._handle.read(1 << 20), b''):
+                hasher.update(block)
+            self._value = hasher.hexdigest()
+        except BaseException as exc:          # re-raised by result()
+            self._error = exc
+
+    def wait(self):
+        self._thread.join()
+
+    def result(self):
+        self.wait()
+        if self._error is not None:
+            raise self._error
+        return self._value
 
 
 def open_index(index):
@@ -370,7 +377,7 @@ def open_index(index):
     raise ValueError('the index was replaced three times while it was opened; try again')
 
 
-def coverage(connection, handle, query_terms, expression):
+def coverage(connection, digest, query_terms, expression):
     """What this query searched: never a path, bounded in size."""
     try:
         meta = dict(connection.execute('SELECT key, value FROM index_meta'))
@@ -383,7 +390,7 @@ def coverage(connection, handle, query_terms, expression):
     receipt = {
         'indexed_notes': connection.execute(
             'SELECT COUNT(DISTINCT source_path) FROM records').fetchone()[0],
-        'index_sha256': index_digest(handle),
+        'index_sha256': digest.result(),
         'query_terms': query_terms[:COVERAGE_TERMS],
         'match_expression': expression,
         'skipped_by_reason': skipped if isinstance(skipped, dict) else None,
@@ -417,6 +424,7 @@ def retrieve(args):
             packet['status'] = 'PARTIAL'
         return packet
     connection, handle = open_index(vault / '.context/index.sqlite')
+    digest = IndexDigest(handle)
     try:
         # Exclusions are string rules, checked only on the names a method looks at; the
         # symlink and vault-boundary checks touch the file system, so source_path() runs
@@ -529,7 +537,7 @@ def retrieve(args):
             if packet.get('status') == 'NOT_FOUND':
                 packet['reason'] = (NO_TERMS if not query_terms
                                     else NOT_DELIVERED if ranked else NO_MATCH)
-            packet['coverage'] = coverage(connection, handle, query_terms,
+            packet['coverage'] = coverage(connection, digest, query_terms,
                                           None if args.method == 'grep' else expression)
             return packet
 
@@ -572,6 +580,7 @@ def retrieve(args):
             'status': 'PARTIAL' if evidence else 'NOT_FOUND', 'evidence': evidence}))
     finally:
         connection.close()
+        digest.wait()
         handle.close()
 
 

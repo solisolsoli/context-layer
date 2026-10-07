@@ -52,7 +52,7 @@ import sys
 import threading
 import time
 
-from . import __version__, health, memory
+from . import __version__
 from .platform_support import managed_process_tree
 
 # ---------------------------------------------------------------------------
@@ -875,6 +875,7 @@ def tool_read_source(state: Server, arguments: dict) -> dict:
 
 
 def tool_vault_status(state: Server, arguments: dict) -> dict:  # noqa: ARG001
+    from . import health
     summary = getattr(health, "status_summary", None)
     payload = summary(state.vault) if callable(summary) else builtin_status(state.vault)
     return tool_result(json.dumps(payload, ensure_ascii=False, default=str))
@@ -893,6 +894,7 @@ def tool_memory_record(state: Server, arguments: dict) -> dict:
     session = arguments.get("session")
     if session is not None and not isinstance(session, str):
         raise InvalidParams("session must be a string")
+    from . import memory
     try:
         closes = list_arg(arguments, "closes") or None
         if closes is not None and not all(isinstance(item, str) for item in closes):
@@ -907,6 +909,7 @@ def tool_memory_record(state: Server, arguments: dict) -> dict:
 def tool_memory_resume(state: Server, arguments: dict) -> dict:
     limit = int_arg(arguments, "limit", 20, cap=RESUME_LIMIT_CAP)
     kinds = list_arg(arguments, "kinds")
+    from . import memory
     try:
         payload = memory.resume(state.vault, limit=limit, kinds=kinds)
     except ValueError as exc:
@@ -1885,11 +1888,15 @@ def run_hook(args: argparse.Namespace) -> int:
     started = time.monotonic()
     # The optional advisor's hook feature (`auto_context`, off unless enabled by name):
     # the plan reads .context/jev.json only; None means today's hook, byte for byte.
-    try:
-        from . import jev as advisor
-        plan = advisor.hook_plan(vault, method, state.compact)
-    except Exception:                          # the advisor never breaks the hook
-        advisor, plan = None, None
+    # Without .context/jev.json the plan is None (not configured), so the advisor module is
+    # not even imported on that path.
+    advisor, plan = None, None
+    if os.path.lexists(vault / ".context" / "jev.json"):
+        try:
+            from . import jev as advisor
+            plan = advisor.hook_plan(vault, method, state.compact)
+        except Exception:                      # the advisor never breaks the hook
+            advisor, plan = None, None
     text, packet, code = search(state, prompt, method, state.top_k, state.budget,
                                 state.per_source, state.budget_tokens, timeout=HOOK_TIMEOUT,
                                 extra_args=plan.retrieve_args() if plan is not None else ())

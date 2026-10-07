@@ -171,4 +171,39 @@ class BoundaryTests(unittest.TestCase):
         self.assertIn('must be positive',self.assert_error(self.route('--json','--max-sources','-1'))['error'])
 
 
+class NameRuleFastPaths(unittest.TestCase):
+    """relative_name() and the exclusion fold skip pathlib and Unicode normalisation for
+    names that are already normal / ASCII; the result must be the slow path's, always."""
+
+    def test_fast_paths_equal_the_slow_definitions_on_random_names(self):
+        import random
+        import unicodedata
+        from pathlib import PurePosixPath
+        import source_policy
+
+        def slow_relative(value):
+            if not isinstance(value, str) or not value or '\\' in value:
+                raise ValueError
+            path = PurePosixPath(value)
+            if not path.parts or path.is_absolute() or '..' in path.parts or ':' in path.parts[0]:
+                raise ValueError
+            return path.as_posix().rstrip('/')
+
+        def outcome(function, value):
+            try:
+                return 'ok', function(value)
+            except ValueError:
+                return ('error',)
+
+        alphabet = list('aZ./:-_ \\') + ['..', '.', '//', '\u00e9', '\u00c9', '\u00df',
+                                          '\u0130', 'e\u0301', '\u212b', '\ufb01', '\u03a3']
+        rng = random.Random(11)
+        for _ in range(20000):
+            value = ''.join(rng.choice(alphabet) for _ in range(rng.randint(0, 8)))
+            self.assertEqual(outcome(source_policy.relative_name, value),
+                             outcome(slow_relative, value), value)
+            self.assertEqual(source_policy._fold(value), unicodedata.normalize(
+                'NFC', unicodedata.normalize('NFC', value).casefold()), value)
+
+
 if __name__ == '__main__': unittest.main()

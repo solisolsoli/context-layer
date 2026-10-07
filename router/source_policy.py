@@ -24,6 +24,10 @@ class SymlinkSource(ValueError):
 def relative_name(value):
     if not isinstance(value, str) or not value or '\\' in value:
         raise ValueError('Source path must be a nonempty relative POSIX path')
+    parts = value.split('/')
+    if value[0] != '/' and ':' not in parts[0] and all(
+            part and part != '.' and part != '..' for part in parts):
+        return value          # already normal: what the PurePosixPath round trip returns
     path = PurePosixPath(value)
     if not path.parts or path.is_absolute() or '..' in path.parts or ':' in path.parts[0]:
         raise ValueError('Source path escapes the vault')
@@ -41,6 +45,8 @@ def _fold(value):
     excluded by either spelling. Characters stay literal otherwise (`%`, `_`,
     quotes are not wildcards).
     """
+    if value.isascii():
+        return value.lower()  # ASCII: NFC is the identity and casefold() is lower()
     return unicodedata.normalize('NFC', unicodedata.normalize('NFC', value).casefold())
 
 
