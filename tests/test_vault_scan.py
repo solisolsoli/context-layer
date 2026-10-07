@@ -41,6 +41,23 @@ class ScannerTests(unittest.TestCase):
 
     # -- noise -------------------------------------------------------------
 
+    def test_text_files_skip_tooling_dot_excluded_empty_and_linked_paths(self) -> None:
+        from context_layer.vault_scan import collect_text_files
+        for name in ("notes/a.md", "notes/deep/b.TXT", "Index.md", ".dot.md", "arch.md",
+                     "node_modules/x.md", ".git/y.md", "notes/.hidden/z.md", "archive/old.md",
+                     "venv/v.md", "notes/pic.png"):
+            write(self.root, name, "alpha\n")
+        write(self.root, "notes/empty.md", "")
+        linked = []
+        if os.name != "nt":
+            os.symlink(self.root / "notes", self.root / "linked")
+            os.symlink(self.root / "notes" / "a.md", self.root / "alias.md")
+            linked = ["linked/a.md", "alias.md"]
+        found = [p.as_posix() for p in collect_text_files(self.root, ["arch"])]
+        self.assertEqual(found, [".dot.md", "Index.md", "notes/a.md", "notes/deep/b.TXT"])
+        self.assertFalse(set(found) & set(linked))
+
+
     def test_obvious_noise_is_excluded(self) -> None:
         write(self.root, ".obsidian/app.json", "{}")
         write(self.root, ".trash/gone.md", "# gone\n")

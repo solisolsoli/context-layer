@@ -25,8 +25,10 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import re
+import stat as stat_module
 
 from . import __version__
 
@@ -337,24 +339,31 @@ def writable_exclusions(excluded: list[tuple[str, str]]) -> tuple[
 
 
 def collect_text_files(vault: Path, exclude_prefixes: list[str]) -> list[Path]:
+    """Non-empty text files outside tooling, dot and excluded folders, sorted, relative
+    to the vault. Symlinks are never followed or listed. A folder that no file below
+    could survive (tooling, dot, or covered by an exclusion prefix) is not walked."""
     prefixes = tuple(exclude_prefixes)
     found = []
-    for path in sorted(vault.rglob("*")):
-        if path.is_symlink() or not path.is_file() or path.suffix.lower() not in TEXT_EXTENSIONS:
-            continue
-        rel = path.relative_to(vault)
-        if set(rel.parts) & TOOLING_DIRS or any(p.startswith(".") for p in rel.parts[:-1]):
-            continue
-        rel_str = str(rel).replace("\\", "/")
-        if rel_str.startswith(prefixes):
-            continue
-        try:
-            if path.stat().st_size == 0:
+    for current, directories, names in os.walk(vault, followlinks=False):
+        here = os.path.relpath(current, vault)
+        prefix = "" if here == "." else here.replace(os.sep, "/") + "/"
+        directories[:] = [d for d in directories
+                          if d not in TOOLING_DIRS and not d.startswith(".")
+                          and not (prefix + d + "/").startswith(prefixes)]
+        for name in names:
+            if os.path.splitext(name)[1].lower() not in TEXT_EXTENSIONS or name in TOOLING_DIRS:
                 continue
-        except OSError:
-            continue
-        found.append(rel)
-    return found
+            rel_str = prefix + name
+            if rel_str.startswith(prefixes):
+                continue
+            try:
+                info = os.lstat(os.path.join(current, name))
+            except OSError:
+                continue
+            if not stat_module.S_ISREG(info.st_mode) or info.st_size == 0:
+                continue          # a symlink, a pipe or an empty file
+            found.append(Path(rel_str))
+    return sorted(found)
 
 
 # --------------------------------------------------------------------------
