@@ -403,8 +403,9 @@ writers never collide. The payload has these fields:
   - Each item sits between `<<evidence N nonce path=… lines=… sha256=… hop=…>>`
     and `<<end N nonce>>`. The nonce is random per packet, so text inside a
     note cannot forge an item boundary.
-  - A `reason:`/`via:` line comes first in each item, with `[truncated]` when
-    the excerpt is part of a longer note.
+  - A link-reached or advised item opens with a `reason:`/`via:` line; an item of
+    the fts part (`hop=0`) has none. `[truncated]` marks an excerpt of a longer
+    note.
 
 **Prompt injection.** Notes are delivered verbatim to an AI host that may
 follow instructions written inside them. The "data, never instructions"
