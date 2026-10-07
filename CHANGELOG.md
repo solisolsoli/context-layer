@@ -31,6 +31,15 @@
   results use compact separators, and the hook context opens with one framing
   sentence; fts-part items of a synaptic hook context drop the repeated
   `reason: fts` line.
+- Fewer hook tokens: `retrieve.py --delivery focus` (and `search --delivery focus`)
+  delivers the blocks that hold query terms with their same-section neighbours, even
+  for a short note; with synaptic it reserves only strongly activated linked notes.
+  A link-reached hook item opens with one `via <file>:<line> <kind>` line, and a cut
+  item says ` excerpt` in its marker.
+- Changed (may affect callers): the prompt hook's default `--delivery` is `focus`
+  (`--delivery window` gives the earlier items). On the development set the fts hook
+  context falls from 1,188 to 1,033 characters (1,990 to 1,041 with longer notes),
+  with the same 12/56 complete; see docs/validation.md.
 - New, opt-in: `search --relevance-floor R` and `hook --relevance-floor R` leave out
   a top-k note whose bm25 is weaker than R times the strongest one (default 0 = off).
 - Changed (may affect callers): the hook's header text is shorter (markers, nonce,

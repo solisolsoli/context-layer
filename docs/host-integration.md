@@ -141,10 +141,16 @@ in the opening marker, so text inside a note cannot forge an item boundary:
 <<end 1 3f9a0c1d2e4b>>
 ```
 
-An item is the note whole when it fits the per-source limit (2,000 characters by
-default), else the verbatim window that holds the match, so `lines=` may start
-past line 1 (`docs/cli.md`, "Evidence items"). The 0.3 hook wrote the marker
-without `lines=`.
+The hook delivers each note focused (`--delivery focus`, the default): the blocks
+that hold query terms with their neighbours in the same section, even when the
+whole note would fit, so `lines=` may start past line 1 and ` excerpt` at the end
+of the marker says the item is shorter than its note; a note with no matching
+block, or whose selection is all of it, comes whole (or as its match windows when
+it is longer than the per-source limit, 2,000 characters by default).
+`--delivery window` gives the items `search` gives (`docs/cli.md`, "Evidence
+items"). Measured on the development set only:
+[validation guide](validation.md#focused-hook-delivery). The 0.3 hook wrote the
+marker without `lines=`.
 
 A path that holds whitespace, a quote, `<`, `>`, `=`, a backslash or a
 non-printing character is written as a quoted string in which `<`, `>` and every

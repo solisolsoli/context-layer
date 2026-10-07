@@ -1532,7 +1532,7 @@ class PromptHook(HostFixture):
             with self.subTest(limit=limit):
                 extra = ("--max-context-chars", limit) if limit else ()
                 context = self.context(self.hook(json.dumps({"prompt": "lantern wick glass"}),
-                                                 *flags, *extra))
+                                                 *flags, "--delivery", "window", *extra))
                 cap = int(limit or 9000)
                 self.assertLessEqual(len(context), cap)
                 shown = [item for item in packet["evidence"]
@@ -1548,6 +1548,28 @@ class PromptHook(HostFixture):
                                   context.rsplit("omitted", 1)[1])
                 else:
                     self.assertNotIn("omitted", context)
+
+    def test_the_hook_delivers_focused_items_by_default(self):
+        # The hook's default --delivery is focus: exactly the items `search --delivery
+        # focus` gives, each between its markers; --delivery window gives the search packet.
+        (self.vault / "notes" / "ferry.md").write_text(
+            "# Ferry\n\nThe release ferry leaves at six.\n\n## Other\n\nThe cafe sells soup.\n",
+            encoding="utf-8")
+        self.index()
+        for delivery in ("focus", "window"):
+            with self.subTest(delivery=delivery):
+                packet = json.loads(self.cli("search", str(self.vault), "--prompt", "release ferry",
+                                             "--delivery", delivery).stdout)
+                extra = () if delivery == "focus" else ("--delivery", "window")
+                context = self.context(self.hook(json.dumps({"prompt": "release ferry"}), *extra))
+                for item in packet["evidence"]:
+                    self.assertIn("\n" + item["content"] + "\n<<end ", context)
+                self.assertEqual(context.count("\n<<evidence "), len(packet["evidence"]))
+        focus = json.loads(self.cli("search", str(self.vault), "--prompt", "release ferry",
+                                    "--delivery", "focus").stdout)
+        ferry = next(i for i in focus["evidence"] if i["source_path"] == "notes/ferry.md")
+        self.assertNotIn("cafe", ferry["content"])
+        self.assertTrue(ferry["truncated"])
 
     def test_file_names_cannot_forge_a_marker_header(self):
         # B-11: a path with `>>` (or a newline) stays inside one escaped header field.

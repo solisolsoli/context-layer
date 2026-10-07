@@ -85,6 +85,7 @@ LIST_TTL_MS = 3_600_000                 # 2026-07-28 CacheableResult: the tool l
 
 METHODS = ("grep", "fts", "fts-canonical", "router", "synaptic")
 HOOK_METHODS = ("fts", "synaptic")
+HOOK_DELIVERY = "focus"              # the hook's default --delivery (retrieve.py)
 HOOK_HOSTS = ("claude-code", "codex")
 BUDGET_TOKENS_DEFAULT = 1200         # synaptic --compact budget, estimated tokens (ceil(chars / 4))
 EXTRA_TOKENS_DEFAULT = 600           # synaptic default: extras budget after the fts packet
@@ -1568,8 +1569,8 @@ def fts_header(nonce: str) -> str:
 
 
 def synaptic_header(nonce: str, est: int) -> str:
-    return (f"context-layer vault evidence (synaptic, experimental; ~{est} estimated tokens, "
-            "ceil(chars/4) of evidence text). " + framing(nonce))
+    return (f"context-layer vault evidence (synaptic, experimental; ~{est} estimated "
+            "tokens). " + framing(nonce))
 
 
 def estimated_tokens(items: list) -> int:
@@ -1789,6 +1790,10 @@ def open_vault(args: argparse.Namespace, label: str) -> Path | None:
         print(f"context-layer {label}: --relevance-floor must be at least 0 and below 1",
               file=sys.stderr)
         return None
+    if getattr(args, "delivery", None) and getattr(args, "compact", False):
+        print(f"context-layer {label}: --delivery applies to fts and the default synaptic "
+              "packet, not --compact", file=sys.stderr)
+        return None
     if floor and getattr(args, "compact", False):
         print(f"context-layer {label}: --relevance-floor applies to fts and the default "
               "synaptic packet, not --compact", file=sys.stderr)
@@ -1876,6 +1881,9 @@ def run_hook(args: argparse.Namespace) -> int:
             advisor, plan = None, None
     floor = getattr(args, "relevance_floor", 0.0) or 0.0
     floor_args = ["--relevance-floor", repr(floor)] if floor and not state.compact else []
+    delivery = getattr(args, "delivery", None) or HOOK_DELIVERY
+    if not state.compact:            # the compact packer has its own passages
+        floor_args += ["--delivery", delivery]
     text, packet, code = search(state, prompt, method, state.top_k, state.budget,
                                 state.per_source, state.budget_tokens, timeout=HOOK_TIMEOUT,
                                 extra_args=floor_args + (plan.retrieve_args() if plan is not None
@@ -2004,6 +2012,12 @@ def register(sub: argparse._SubParsersAction) -> None:
                              "activation, token-budgeted passages, writes "
                              ".context/activation.json). Any other value runs fts.")
     add_budget_flags(p_hook)
+    p_hook.add_argument("--delivery", choices=["focus", "window", "prefix"], default=None,
+                        help=f"What of each note the hook delivers (default: {HOOK_DELIVERY}: "
+                             "the blocks that hold query terms and their same-section "
+                             "neighbours; window: the whole note when it fits --per-source, "
+                             "as `search` does; eval/retrieve.py --delivery). Not with "
+                             "--compact.")
     p_hook.add_argument("--max-context-chars", type=int, default=MAX_CONTEXT_DEFAULT,
                         metavar="N",
                         help=f"Most characters of context to print (default: "
