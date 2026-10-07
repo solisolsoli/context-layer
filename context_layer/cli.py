@@ -199,7 +199,8 @@ def cmd_index(args: argparse.Namespace) -> int:
     index = index_out_path(args.rest)
     try:
         summary = graph.build(vault, index=index,
-                              verified={source.path: source for source in result["sources"]})
+                              verified={source.path: source for source in result["sources"]},
+                              reuse="--full" not in args.rest)
     except (OSError, ValueError, sqlite3.Error) as exc:
         print(f"context-layer index: link graph not built: {exc}", file=sys.stderr)
         return 1

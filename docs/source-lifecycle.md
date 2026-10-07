@@ -166,6 +166,7 @@ a new note can change how another note's links resolve. When nothing the graph
 depends on changed (the notes, their SHA-256, size and mtime, the exclusions, and the
 vault's file list when a link needed it), `graph.sqlite` is left as it is and the
 summary line ends in `(unchanged)`; `graph.sqlite.prev` is refreshed as after any build.
+`index --full` rebuilds the graph from the notes too, without the stored parses.
 
 What it does not save: the walk, the boundary checks, and reading and hashing every
 file still run on every `index` (the reads overlap on a few threads); only decoding,

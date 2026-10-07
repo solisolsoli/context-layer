@@ -941,7 +941,7 @@ def _meta_summary(out: Path, meta: dict[str, str], started: float) -> dict:
 
 
 def build(vault: Path, index: Path | None = None, out: Path | None = None,
-          verified=None) -> dict:
+          verified=None, reuse: bool = True) -> dict:
     """Extract every note's links and replace graph.sqlite atomically. Returns a summary.
 
     A note the builder cannot use (changed, deleted or unreadable since the index
@@ -956,7 +956,8 @@ def build(vault: Path, index: Path | None = None, out: Path | None = None,
     notes and their sha256/size/mtime_ns, the exclusions, and the vault's file list
     when the previous build needed it), graph.sqlite is left as it is and the summary
     says `unchanged`. Resolution itself always covers every link: a new note can
-    change how another note's links resolve.
+    change how another note's links resolve. `reuse=False` (`index --full`) ignores
+    the previous graph and parses every note again.
     """
     started = time.perf_counter()
     vault = Path(vault).resolve()
@@ -971,7 +972,7 @@ def build(vault: Path, index: Path | None = None, out: Path | None = None,
         except ValueError:
             return False
 
-    previous_meta, cache = _previous_graph(out)
+    previous_meta, cache = _previous_graph(out) if reuse else ({}, {})
     verified = verified or {}
 
     dumped: dict[str, str] = {}          # cached parses, reused verbatim when written again

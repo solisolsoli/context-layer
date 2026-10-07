@@ -562,6 +562,43 @@ class GraphFromCacheEqualsFresh(unittest.TestCase):
         self.assertGreater(steps, 0)
 
 
+class CliIndexRuns(unittest.TestCase):
+    """`context-layer index` end to end: the in-process builder, the graph left alone
+    when nothing changed, `--full` rebuilding both, usage errors, rollback pairing."""
+
+    def cli(self, *args):
+        return subprocess.run([sys.executable, "-m", "context_layer.cli", *args], cwd=REPO,
+                              capture_output=True, text=True,
+                              env=dict(os.environ, PYTHONUTF8="1"))
+
+    def test_repeat_full_and_usage(self):
+        with tempfile.TemporaryDirectory() as temp:
+            vault = Path(temp) / "v"
+            (vault / "notes").mkdir(parents=True)
+            (vault / "notes" / "a.md").write_text("alpha see [[b]]\n")
+            (vault / "notes" / "b.md").write_text("bravo\n")
+            self.assertEqual(self.cli("init", str(vault)).returncode, 0)
+            first = self.cli("index", str(vault))
+            self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertIn("graph: 2 notes, 1 edges", first.stdout)
+            self.assertNotIn("(unchanged)", first.stdout)
+            again = self.cli("index", str(vault))
+            self.assertEqual(again.returncode, 0, again.stderr)
+            self.assertIn("; index unchanged", again.stdout)
+            self.assertIn("graph: 2 notes, 1 edges", again.stdout)
+            self.assertTrue(again.stdout.rstrip().endswith("(unchanged)"), again.stdout)
+            self.assertEqual(self.cli("rollback", str(vault), "--dry-run").returncode, 0)
+            full = self.cli("index", str(vault), "--full")
+            self.assertEqual(full.returncode, 0, full.stderr)
+            self.assertNotIn("(unchanged)", full.stdout)
+            self.assertEqual(self.cli("index", str(vault), "--bogus").returncode, 2)
+            self.assertEqual(self.cli("index", str(vault), "--help").returncode, 0)
+            verbose = self.cli("--verbose", "index", str(vault), "--no-graph")
+            self.assertEqual(verbose.returncode, 0, verbose.stderr)
+            self.assertIn("+ build_index.py --vault", verbose.stderr)
+            self.assertNotIn("graph:", verbose.stdout)
+
+
 class NothingToWrite(unittest.TestCase):
     """A run that finds nothing to change leaves the index and manifest bytes (and
     files) as they were; `.prev` is refreshed as after any build, so running `index`
