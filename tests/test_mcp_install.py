@@ -1160,6 +1160,21 @@ class InstallClaudeCode(HostFixture):
         self.assertNotIn("--relevance-floor", readable_hook_command(command))
 
 
+    def test_delivery_is_written_and_checked(self):
+        done = self.install("--hook", "--delivery", "window", "--apply")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        command = json.loads(self.settings().read_text())["hooks"]["UserPromptSubmit"][0][
+            "hooks"][0]["command"]
+        self.assertIn("--delivery window", readable_hook_command(command))
+        ran = subprocess.run(command, shell=True, capture_output=True, text=True, env=self.env,
+                             input=json.dumps({"prompt": "release versioning policy"}))
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        for flags in (("--delivery", "window"),
+                      ("--hook", "--method", "synaptic", "--compact", "--delivery", "focus")):
+            refused = self.install(*flags)
+            self.assertEqual(refused.returncode, 2, (flags, refused.stdout, refused.stderr))
+
+
 class InstallOptions(HostFixture):
     def test_session_evidence_switches_and_folder(self):
         done = self.cli("install", "claude-code", "--vault", str(self.vault), "--project",

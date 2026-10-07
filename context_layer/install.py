@@ -168,7 +168,9 @@ def hook_argv(vault: Path, method: str = "fts", budget_tokens: "int | None" = No
 def hook_flags(args) -> "tuple[str, ...]":
     """The opt-in hook flags `install` passes through as written (see `hook --help`)."""
     floor = getattr(args, "relevance_floor", None)
-    return ("--relevance-floor", repr(floor)) if floor else ()
+    delivery = getattr(args, "delivery", None)
+    return ((("--relevance-floor", repr(floor)) if floor else ())
+            + (("--delivery", delivery) if delivery else ()))
 
 
 def env_prefix() -> str:
@@ -934,11 +936,14 @@ def run(args: argparse.Namespace, removing: bool) -> int:
         if (method != "fts" or budget_tokens is not None or extra_tokens is not None
                 or compact or max_context_chars is not None or hook_extra) and not hooked:
             return usage(label, "--method, --extra-tokens, --compact, --budget-tokens, "
-                                "--max-context-chars and --relevance-floor configure the "
-                                "prompt hook; add --hook (claude-code or codex)")
+                                "--max-context-chars, --relevance-floor and --delivery "
+                                "configure the prompt hook; add --hook (claude-code or codex)")
         floor = getattr(args, "relevance_floor", None)
         if floor is not None and not 0 <= floor < 1:
             return usage(label, "--relevance-floor must be at least 0 and below 1")
+        if getattr(args, "delivery", None) and compact:
+            return usage(label, "--delivery applies to fts and the default synaptic packet, "
+                                "not --compact")
         if floor and compact:
             return usage(label, "--relevance-floor applies to fts and the default synaptic "
                                 "packet, not --compact")
@@ -1070,6 +1075,9 @@ def register(sub: argparse._SubParsersAction) -> None:
                            help="With --hook: pass --relevance-floor R to the hook (drop a "
                                 "top-k note weaker than R x the strongest; 0 <= R < 1; off "
                                 "by default; may drop evidence).")
+    p_install.add_argument("--delivery", choices=["focus", "window", "prefix"], default=None,
+                           help="With --hook: pass --delivery to the hook (default: the "
+                                "hook's own, focus; window gives the items `search` gives).")
     p_install.add_argument("--session-evidence", action="store_true",
                            help="Record delivered paths and hashes (never text) per host "
                                 "session in <vault>/.context/session-evidence/: adds the hook "

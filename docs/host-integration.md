@@ -148,7 +148,7 @@ of the marker says the item is shorter than its note; a note with no matching
 block, or whose selection is all of it, comes whole (or as its match windows when
 it is longer than the per-source limit, 2,000 characters by default).
 `--delivery window` gives the items `search` gives (`docs/cli.md`, "Evidence
-items"). Measured on the development set only:
+items"); `install ... --hook --delivery window` writes it. Measured on the development set only:
 [validation guide](validation.md#focused-hook-delivery). The 0.3 hook wrote the
 marker without `lines=`.
 
