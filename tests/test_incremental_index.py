@@ -849,9 +849,8 @@ class GraphGenerationIntegrity(unittest.TestCase):
     def test_graph_freshness_bounds_growth_and_handles_short_reads(self):
         from context_layer import graph
         note = self.vault / "a.md"
-        original = note.read_bytes()
         real_fdopen = os.fdopen
-        reads = []
+        requests, returned = [], []
 
         class ShortReader:
             def __init__(self, handle, grow):
@@ -869,27 +868,36 @@ class GraphGenerationIntegrity(unittest.TestCase):
 
             def read(self, count):
                 self_test.assertGreater(count, 0)
-                reads.append(count)
+                requests.append(count)
                 if self.grow:
                     self.grow = False
                     with note.open("ab") as writer:
                         writer.write(b"x" * (2 << 20))
-                return self.handle.read(min(count, 2))
+                block = self.handle.read(min(count, 2))
+                returned.append(len(block))
+                return block
 
         self_test = self
-        for grow, expected in ((False, True), (True, False)):
-            reads.clear()
+        for newline in (b"\n", b"\r\n"):
+            original = b"# Alpha\n\nSee [[b]].\n".replace(b"\n", newline)
             note.write_bytes(original)
-            with patch.object(graph.os, "fdopen", side_effect=lambda fd, mode: ShortReader(
-                    real_fdopen(fd, mode), grow)), graph.Graph(self.vault) as view:
-                self.assertEqual(view.fresh("a.md"), expected)
-            self.assertTrue(reads)
-            self.assertLessEqual(max(reads), len(original) + 1)
-            self.assertLessEqual(len(reads) * 2, len(original) + 2)
-        # A source already grown greatly is rejected before a descriptor/content read.
-        with patch.object(graph.os, "open", side_effect=AssertionError("opened grown source")), \
-                graph.Graph(self.vault) as view:
-            self.assertFalse(view.fresh("a.md"))
+            self.build()
+            for grow, expected in ((False, True), (True, False)):
+                with self.subTest(newline=newline, grow=grow):
+                    requests.clear()
+                    returned.clear()
+                    note.write_bytes(original)
+                    with patch.object(graph.os, "fdopen", side_effect=lambda fd, mode: ShortReader(
+                            real_fdopen(fd, mode), grow)), graph.Graph(self.vault) as view:
+                        self.assertEqual(view.fresh("a.md"), expected)
+                    self.assertTrue(requests)
+                    self.assertLessEqual(max(requests), len(original) + 1)
+                    # Count bytes actually returned, including partial/empty EOF reads.
+                    self.assertEqual(sum(returned), len(original) + int(grow))
+            # A source already grown greatly is rejected before opening its content.
+            with patch.object(graph.os, "open", side_effect=AssertionError("opened grown source")), \
+                    graph.Graph(self.vault) as view:
+                self.assertFalse(view.fresh("a.md"))
 
 
 class Atomicity(unittest.TestCase):

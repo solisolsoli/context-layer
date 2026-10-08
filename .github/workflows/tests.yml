@@ -177,6 +177,8 @@ jobs:
       - run: python scripts/check_distribution.py dist/*.whl
       - name: native Windows task-state sharing regression
         run: python tests/test_tasks.py TaskStateRead
+      - name: graph freshness short reads and growth regression
+        run: python tests/test_incremental_index.py GraphGenerationIntegrity.test_graph_freshness_bounds_growth_and_handles_short_reads
       - name: every suite under tests/ (what make test runs)
         run: |
           failed=""
