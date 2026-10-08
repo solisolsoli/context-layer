@@ -26,16 +26,19 @@ patches instead of being folded into this project's own licence.
 | Python standard library — `sqlite3` (FTS5), `argparse`, `hashlib`, `json`, `difflib`, `fcntl`, `subprocess`, `venv` and the rest | CPython, supplied by whoever installs Python | PSF Licence Agreement for the standard library; SQLite itself is public domain and is built into CPython | None falls on this package | **Not distributed here.** It is a runtime requirement (`requires-python = ">=3.10"`), never vendored or copied. Its notices ship with the reader's own Python. |
 | `setuptools>=77` | Named in `[build-system].requires`; the builder fetches it. 77 is the first release that accepts the PEP 639 `license = "MIT"` string and `license-files` this project uses. | MIT | None falls on this package | **Not distributed here.** No setuptools code is inside the wheel or the sdist; only the files it generated (`PKG-INFO`, `*.egg-info/`, `dist-info/RECORD`, `WHEEL`, `METADATA`, `entry_points.txt`, `dist-info/licenses/`). |
 | `claude`, `codex`, or any `--cmd` binary used as a sub-agent backend | Already on the user's machine | Their own | None falls on this package | **Not distributed here.** `context-layer tasks` spawns a program the user already installed; see [`docs/tasks.md`](docs/tasks.md). |
-| Model providers the optional advisor can call: TypeSafe and OpenRouter (hosted services), Laya (an Apache-2.0 server the user runs), Ollama, llama.cpp, LM Studio and vLLM (servers the user runs), Claude Code (the user's own CLI) | Services and programs the user chooses and configures; nothing is contacted unless the user enables the advisor ([`docs/jev.md`](docs/jev.md)) | Their own terms and licences; a hosted service's terms and retention apply to what is sent to it, under the user's own key or login | None falls on this package | **Not distributed here.** No client library, model, weights or key of any of them is included. "Jev" and "TypeSafe" are named only to identify a compatible service; no affiliation is claimed. The design credit for the advisor is in [`CREDITS.md`](CREDITS.md). |
+| OpenAI Decisions API | The user explicitly sends public or synthetic text with `decisions assess --send` ([`docs/decisions.md`](docs/decisions.md)); ordinary retrieval does not call it | OpenAI's terms and data controls apply to sent text | None falls on this package | **Not distributed here.** The transport uses the Python standard library; no OpenAI SDK, model weights or API key are included. |
+| OpenAI Responses API | The user explicitly sends public or synthetic text with `responses run --send` ([`docs/responses.md`](docs/responses.md)); ordinary retrieval does not call it | OpenAI's terms and data controls apply to sent text | None falls on this package | **Not distributed here.** The transport uses the Python standard library; no OpenAI SDK, model weights or API key are included. |
 
 ## Runtime dependencies: none
 
 `dependencies = []` in `pyproject.toml`, deliberately. Installing this package
 downloads nothing beyond the package itself — `pip install --no-index --no-deps`
 is enough, and that is how `scripts/check_distribution.py` installs it. Nothing
-in the package makes a model API call or opens a network connection unless a
-person enables the optional advisor ([`docs/jev.md`](docs/jev.md)); its provider
-client, `context_layer/jev_client.py`, is the only module that can.
+in the package makes a model API call unless a person explicitly runs the
+manual Decisions or Responses command with `--send` ([`docs/decisions.md`](docs/decisions.md),
+[`docs/responses.md`](docs/responses.md)). Their transports are
+`context_layer/decisions_client.py` and `context_layer/responses_client.py`. Configured public GitHub
+context has a separate fetch-only transport, `context_layer/github_client.py`.
 
 ## What is deliberately not distributed
 
@@ -70,8 +73,7 @@ client, `context_layer/jev_client.py`, is the only module that can.
   assembled at run time, so no file spells it), and
   `isDesktopOnly` in the Obsidian plugin. The e-mail-shaped hits are fixtures
   with reserved domains (`example.com`, `example.org`, `*.test`,
-  URL userinfo cases) in `tests/test_release_tooling.py`, `tests/test_jev.py`
-  and `tests/test_jev_client.py`. The installer names the Codex config only as
+  URL userinfo cases) in `tests/test_release_tooling.py`. The installer names the Codex config only as
   the `$HOME/.codex/` placeholder.
 - **No upstream engine.** The patches are diffs. Nobody gets a runnable copy of
   `beyin_v3.py` from this package; applying them means fetching the pinned

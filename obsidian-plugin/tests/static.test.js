@@ -84,7 +84,7 @@ test('the only file the plugin reads is the activation trace, through the restri
     const code = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"\\])\/\/.*$/gm, '$1');
     const literals = Array.from(code.matchAll(/(['"`])((?:\\.|(?!\1)[^\\\n])*)\1/g), m => m[2]);
     for (const lit of literals) assert.equal(/\.context\/(?!activation)/.test(lit), false, rel(p) + ' names a .context file other than the trace: ' + lit);
-    assert.equal(/jev[-_.]?(calls|cache|config|\.json)/i.test(text), false, rel(p) + ' refers to advisor state files');
+    assert.equal(/\.context\/(?!activation)[a-z-]+\.jsonl?/i.test(text), false, rel(p) + ' refers to non-trace state files');
   }
   const activation = read(path.join(root, 'src', 'activation.js'));
   assert.match(activation, /const path = sanitizeTracePath\(getPath\(\)\);/, 'the watcher restricts the path before any read');

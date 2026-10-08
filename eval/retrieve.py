@@ -590,8 +590,6 @@ def retrieve(args):
             if args.relevance_floor:
                 packet['relevance_floor'] = {'ratio': args.relevance_floor,
                                              'below_floor': list(floor_dropped)}
-            if args.jev_candidates:  # the optional advisor's side channel (see below)
-                attach_jev_candidates(packet, args, ranked, connection, vault, prefixes)
             return packet
 
         def with_coverage(packet):
@@ -614,7 +612,6 @@ def retrieve(args):
                                       budget_tokens=args.budget_tokens, max_hops=args.max_hops,
                                       record_query=args.record_query,
                                       extra_tokens=args.extra_tokens)
-            options.jev_candidates = args.jev_candidates  # advisor side channel; 0 = off
             options.focus = delivery == 'focus'
             reader = lambda name: source_path(vault, name, prefixes).read_bytes()  # noqa: E731
             if compact:
@@ -671,10 +668,6 @@ def inapplicable_flag(args):
                                       or (args.method == 'synaptic' and args.compact)):
         return ('--delivery applies to --method fts, fts-canonical and the default '
                 'synaptic packet (its fts part)')
-    if args.jev_candidates and (args.method in ('grep', 'fts-canonical', 'router')
-                                or (args.method == 'synaptic' and args.compact)):
-        return ('--jev-candidates applies to --method fts and the default synaptic '
-                'packet only')
     if args.relevance_floor and (args.method in ('grep', 'router')
                                  or (args.method == 'synaptic' and args.compact)):
         return ('--relevance-floor applies to --method fts, fts-canonical and the default '
@@ -696,69 +689,6 @@ def read_prompt(parser, args):
     except (OSError, UnicodeError) as exc:
         detail = getattr(exc, 'strerror', None) or 'not UTF-8 text'
         parser.exit(2, f'{parser.prog}: error: --prompt-file cannot be read ({detail})\n')
-
-
-# ---------------------------------------------------------------------------
-# Jev candidates: a side channel for the optional advisor (context_layer/jev.py)
-# ---------------------------------------------------------------------------
-# Additive block. With --jev-candidates N the packet gains a top-level
-# `jev_candidates` object; `evidence` and every other key stay exactly as they
-# are without the flag. Deterministic, model-free, no network.
-
-JEV_CANDIDATES_CAP = 32
-
-
-def attach_jev_candidates(packet, args, ranked, connection, vault, prefixes):
-    """Up to N notes the packet did not deliver, for an advisor to judge: in the default
-    synaptic mode first the link-reached notes the synapse layer left out (it puts them in
-    `synapse.jev_candidates`; they move to the top level here), then, for fts and
-    synaptic alike, the bm25 tail: notes ranked after --top-k, each with the prefix fts
-    would deliver for it. Notes that changed since indexing are skipped, as fts skips them."""
-    if args.method not in ('fts', 'synaptic') or getattr(args, 'compact', False):
-        return packet
-    side = packet.get('synapse', {}).pop('jev_candidates', None) \
-        if isinstance(packet.get('synapse'), dict) else None
-    if not isinstance(side, dict):
-        side = {'schema': 'jev-candidates-v1', 'limit': args.jev_candidates, 'items': [],
-                'trace_run_id': None}
-    taken = {item['source_path'] for item in packet.get('evidence', [])}
-    taken |= {entry['source_path'] for entry in packet.get('withheld', [])}
-    taken |= {item['source_path'] for item in side['items']}
-    for rank, name in enumerate(ranked, start=1):
-        if len(side['items']) >= args.jev_candidates:
-            break
-        if rank <= args.top_k or name in taken:
-            continue
-        passages = fts_tail_items(connection, vault, prefixes, name,
-                                  min(args.per_source, args.budget), args)
-        if passages:
-            side['items'].append({'source_path': name, 'source_sha256': passages[0]['source_sha256'],
-                                  'kind': 'bm25_tail', 'rank': rank, 'link_line': None,
-                                  'passages': passages})
-    packet['jev_candidates'] = side
-    return packet
-
-
-def fts_tail_items(connection, vault, prefixes, name, size, args):
-    """What fts would deliver for `name` if it ranked inside --top-k (the same --delivery
-    rule, within `size` characters), each item with its byte and line span; [] when the
-    note changed, vanished or disagrees with the index."""
-    expected = {r[0] for r in connection.execute(
-        'SELECT DISTINCT source_sha256 FROM records WHERE source_path=?', (name,))}
-    try:
-        raw = source_path(vault, name, prefixes).read_bytes()
-        text = raw.decode('utf-8')
-    except (OSError, ValueError):
-        return []
-    sha = hashlib.sha256(raw).hexdigest()
-    if expected != {sha}:
-        return []
-    mode = args.delivery or 'window'
-    items = deliver(name, text, sha, terms(args.prompt), size, mode, synapse_module())
-    for item in items:
-        item['reason'] = f'fts {mode} of a note ranked after --top-k'
-        item['est_tokens'] = -(-len(item['content']) // 4)
-    return items
 
 
 class Parser(argparse.ArgumentParser):
@@ -830,11 +760,6 @@ def build_parser():
     parser.add_argument('--prompt-file', metavar='PATH',
                         help='read the prompt from this UTF-8 file (- reads standard input) '
                              'instead of the last argument; avoids command-line length limits.')
-    parser.add_argument('--jev-candidates', type=int, default=0, metavar='N',
-                        help='fts and default synaptic only: add a `jev_candidates` side '
-                             'channel with up to N undelivered notes for the optional advisor '
-                             f'(0-{JEV_CANDIDATES_CAP}; default 0 = none). Evidence is '
-                             'unchanged.')
     parser.add_argument('prompt', nargs='?')
     return parser
 
@@ -867,8 +792,6 @@ def execute(argv, prompt=None):
             raise ValueError('Budgets and top-k must be positive')
         if not 0 <= args.relevance_floor < 1:
             raise ValueError('--relevance-floor must be at least 0 and below 1')
-        if not 0 <= args.jev_candidates <= JEV_CANDIDATES_CAP:
-            raise ValueError(f'--jev-candidates must be between 0 and {JEV_CANDIDATES_CAP}')
         packet = retrieve(args)
     except (OSError, ValueError, KeyError, TypeError, AttributeError, sqlite3.Error, subprocess.TimeoutExpired) as exc:
         return 1, json.dumps({'schema':'evidence-delivery-v1','operation_status':'error',

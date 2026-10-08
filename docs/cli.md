@@ -25,20 +25,15 @@ are listed in the table and are kept for compatibility.
 | `doctor` | every check passed | a check failed (table shown) | usage |
 | `brief` | briefing printed | the vault has no usable state | usage |
 | `session show VAULT [ID] [--json]`, `session list VAULT [--json]` | report printed, including one that lists missing, torn or partial sources (`complete: false`) | unknown session id, no sessions in the vault (`show` without an id), or the vault is missing | usage: an empty id, `--limit` or `--max-bytes` below 1, an unknown flag |
-| `jev status VAULT [--json] [--check]` | shown | the configuration is invalid (shown, nothing changed) | usage, or the vault directory does not exist |
-| `jev off\|shadow\|on VAULT …` | written (or nothing to switch off) | refused: invalid file left untouched, no provider named, `calibration_required`, unknown feature | usage, a feature both enabled and disabled, or a vault directory that does not exist |
-| `jev report VAULT [--days N] [--json]` | shown | the log cannot be read | usage, or the vault directory does not exist |
-| `jev purge VAULT [--apply] [--all] [--receipts]` | shown or removed | I/O error | usage, or the vault directory does not exist |
-| `jev answer VAULT --claims FILE [--json]` | report produced, whatever the verdicts (advisory) | the claims file is refused (schema, size, symlink) | usage, or the vault directory does not exist |
-| `jev record VAULT --questions FILE …` | dry run shown, or every question answered | refused (no usable configuration, a kill switch, an invalid question, a credential in a question, an existing `--out` without `--append`), or some questions failed (their rows carry a code) | usage, or the vault directory does not exist |
-| `jev calibrate VAULT --report FILE --recording FILE [--apply] [--json]` | every purpose the enabled features need is met | refused (nothing written), or a needed purpose is not met | usage, or the vault directory does not exist |
-| `jev review-memory VAULT --proposal FILE [--json]` | a report was produced, whatever it says | the input was refused | usage, or the vault directory does not exist |
+| `decisions assess --task TASK --data-scope SCOPE --input FILE [--send]` | local preview, or a typed advisory answer after an explicit `--send` | transport, credential or invalid provider response failure | bad arguments, input JSON or scope; see [Decisions](decisions.md) |
+| `responses run --input-file FILE --data-scope SCOPE --model MODEL [--send]` | local preview, or a candidate answer after explicit `--send` | transport, credential or invalid provider response failure | bad arguments, input file or scope; see [Responses](responses.md) |
+| `api plan [--need NEED] [--data-scope SCOPE] [--model MODEL]` | offline advisory route preview | — | bad arguments; see [API routing](api-routing.md) |
 | `eval` (forwards to `eval/evaluate.py`) | the harness ran (a failed `--gate` is 3) | no stimulus matched the filters | usage, an invalid evidence contract, or a `--command` that cannot be started; **3**: `--gate` was given and the gate failed |
 | `route` (experimental router) | evidence run completed | source, index, configuration or I/O failure | **`NOT_FOUND`** (the router's abstention; kept from 0.2) |
 | `tasks run` | every task reached `pending_review` | any task did not | unknown argument |
 | `tasks verify` | `verified` | `rejected` | the task is not `pending_review` |
 | `tasks ledger VAULT [--replay] [--json]` | the chain holds and every `verified` or `rejected` task is backed by it (and, with `--replay`, every verdict reproduces) | the chain is broken, a `verified` or `rejected` task has no ledger line for its verdict, its last ledger verdict differs, or its `result.json` cites another ledger line (the `unattested` list in `--json`), or a replayed verdict differs | unknown argument |
-| `tasks` (other), `memory`, `rules`, `packet`, `job`, `handback`, `handoff`, `brain` (`handback check --jev` never changes the exit code) | done | refused (bad input, a boundary, drift, a failed check) | unknown argument; for `packet build` also `--budget-tokens` with `--method synaptic` but without `--compact`, or `--extra-tokens`/`--compact` without `--method synaptic` |
+| `tasks` (other), `memory`, `rules`, `packet`, `job`, `handback`, `handoff`, `brain` | done | refused (bad input, a boundary, drift, a failed check) | unknown argument; for `packet build` also `--budget-tokens` with `--method synaptic` but without `--compact`, or `--extra-tokens`/`--compact` without `--method synaptic` |
 | `install` / `uninstall` | diff shown or written | the host config cannot be read or written | usage, or `--method`/`--extra-tokens`/`--compact`/`--budget-tokens` without `--hook`, or `--budget-tokens` without `--compact` |
 
 Argparse itself exits 2 for a malformed command line on every command except
@@ -56,7 +51,7 @@ recorded under that id (`.context/tasks/LEDGER.jsonl`, joined to each task's
 `task.json` and `result.json`, with the same attested/UNATTESTED status as
 `tasks list`), the packet ids that were delivered (does
 `.context/packets/<id>.json` still exist, and which tasks were dispatched from it),
-and the advisor's counters. It is read-only: nothing is written, no model or
+and historical local records. It is read-only: nothing is written, no model or
 network is used, and no note text or prompt is printed.
 
 Every row names the file and line it came from (`file:LINE`) or the record or task
@@ -68,9 +63,7 @@ Sections show at most `--limit` rows (default 50) and say how many were not
 shown. Two things are joined by convention, not by proof: the evidence ledger's id
 comes from the host (`CLAUDE_CODE_SESSION_ID` or the hook input) while memory
 and the task ledger use `CONTEXT_LAYER_SESSION` or `--session`, so they meet only
-when the same id was used; and the advisor log has no session field, so its rows
-are those inside the time window of the session's other records
-(`"attributed": false`). A task that was never verified under the id, and was not
+when the same id was used. A task that was never verified under the id, and was not
 dispatched from a delivered packet, cannot be found. Without an id, `show` takes
 the session with the newest timestamp and says so on stderr; `session list` prints
 the ids found, newest first. The JSON schema is `session-show/v1` (list:
@@ -276,11 +269,8 @@ needs one (run `init`). `index` says so in one stderr line naming
 | `.context/index.sqlite` | `PRAGMA user_version`, and `format_version` in `index_meta` | 1 | 1 (an index from 0.2) | refused: upgrade, or rebuild with `context-layer index` |
 | `.context/graph.sqlite` | `schema_version` in `graph_meta` | 1 | 1 | not used: the synaptic packet degrades to the fts packet with `decision: "graph_unreadable"` |
 | `.context/memory/records.jsonl` | `format_version` per record | 2 (format 1 records carry no key and stay readable) | 1 | refused: upgrade context-layer |
-| `.context/jev.json` | `schema_version` | 1 | the advisor is off | the advisor behaves as off (`config_invalid`) |
-| `.context/jev-calls.jsonl`, `.context/jev-cache/*.json` | `v` per row / entry | 1 | — | the row or entry is ignored |
-| Jev recording (JSONL, written by `evaluate(..., capture=...)` and read by the `recorded` provider) | `contract` in every row | `jev-recording/v1` | the file is refused (`recording_invalid`) | the file is refused (`recording_invalid`) |
 | `.context/task-pins/<id>.json` | `schema` (`context-layer-task-pin-v1`) | v1 | the pin is malformed | the task is blocked: upgrade context-layer |
-| `.context/activation.json` | `version` (the additive `jev` object and per-node `jev` labels keep it at 1) | 1 | ignored by the Obsidian plugin | ignored by the plugin |
+| `.context/activation.json` | `version` | 1 | ignored by the Obsidian plugin | ignored by the plugin |
 
 ## Index integrity
 

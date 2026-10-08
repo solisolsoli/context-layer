@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Removed Jev's provider, configuration, search/hook/MCP and Obsidian advisor paths.
+  Existing local retrieval remains deterministic, and `check_claims` still checks
+  cited source hashes, line ranges and exact spans. Its report schema is now
+  `context-layer-claim-check/v1` (formerly `jev-claim-report/v1`); callers of
+  that report must update. Historical logs are read as legacy data only.
+- Added an explicit `decisions assess` preview/send command for public or
+  synthetic text: typed source relevance, claim relation and review priority.
+  It uses `POST /v1/decisions` with `gpt-6-luna` only when `--send` is present.
+  Its output is advisory; it does not authorize actions, establish source truth
+  or change search results. Local notes are never uploaded automatically.
+- Added manual `responses run` for a selected public or synthetic task, with an
+  explicit model, preview by default, `store: false`, no tools by default, and
+  one optional web search call. Added offline `api plan` to suggest a local,
+  Decisions or Responses route from explicit need and data scope. Neither
+  command changes retrieval, hooks, memory or action authorization.
+- The private-trace audit now exempts only the exact public Decisions model
+  identifier; a standalone occurrence of the overlapping private term remains
+  detectable.
+
 - Faster setup. `index` checks each folder's boundaries once instead of once per
   file, overlaps reading and hashing on a few threads (every file is still read and
   hashed), runs the builder in the same process, and hands the link graph what it

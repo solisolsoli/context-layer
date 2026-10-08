@@ -969,7 +969,9 @@ def trace_digest(phrase):
 
 def trace_digests(text):
     """Digests of every word and adjacent word pair; punctuation and hyphens split words."""
-    words = re.findall(r"[^\W_]+", text.casefold())
+    public_text = re.sub(r"\b" + re.escape("gpt-6-luna") + r"\b",
+                         "gpt-6-model", text.casefold())
+    words = re.findall(r"[^\W_]+", public_text)
     grams = set(words) | {f"{a} {b}" for a, b in zip(words, words[1:])}
     return {trace_digest(gram) for gram in grams}
 
@@ -980,6 +982,11 @@ class NoPrivateTraces(unittest.TestCase):
         for phrase in ("alpha secret", "lantern", "alpha", "and a"):
             self.assertIn(trace_digest(phrase), found, phrase)
         self.assertNotIn(trace_digest("an lantern"), found)
+
+    def test_exact_public_model_exemption_does_not_hide_standalone_word(self):
+        private_word = "lu" + "na"
+        self.assertNotIn(trace_digest(private_word), trace_digests("gpt-6-luna"))
+        self.assertIn(trace_digest(private_word), trace_digests("Lu" + "na"))
 
     def test_tracked_text_has_no_private_vault_traces(self):
         listed = subprocess.run(["git", "ls-files", "-z"], cwd=REPO, capture_output=True)

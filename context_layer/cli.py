@@ -27,8 +27,8 @@ except ImportError:
 
 class _LazyModule:
     """A component module imported on first attribute access, so a command pays only
-    for the modules it uses (`--version` and `index` never import the MCP server's
-    advisor, the task runner or the installers)."""
+    for the modules it uses (`--version` and `index` never import the MCP server,
+    the task runner or the installers)."""
 
     def __init__(self, name: str, qualified: "str | None" = None):
         object.__setattr__(self, "_name", name)
@@ -57,11 +57,12 @@ COMPONENT_COMMANDS = {
     "mcp_server": ("hook", "mcp"), "install": ("install", "uninstall"), "memory": ("memory",),
     "tasks": ("tasks",), "health": ("rollback", "status"), "rules": ("rules",),
     "brain": ("brain",), "orchestrate": ("handback", "handoff", "job", "packet"),
-    "jev": ("jev",), "graph": ("graph",), "doctor": ("doctor",), "brief": ("brief",),
+    "decisions": ("decisions",), "responses": ("responses",), "api_route": ("api",),
+    "graph": ("graph",), "doctor": ("doctor",), "brief": ("brief",),
     "session_show": ("session",),
 }
 COMPONENTS = tuple(COMPONENT_COMMANDS)
-brain = brief = doctor = graph = health = install = jev = mcp_server = memory = None
+brain = brief = doctor = graph = health = install = decisions = responses = api_route = mcp_server = memory = None
 orchestrate = rules = session_show = tasks = None
 for _name in COMPONENTS:
     globals()[_name] = _LazyModule(_name)
@@ -237,16 +238,10 @@ def cmd_search(args: argparse.Namespace) -> int:
     problem = mcp_server.preflight(vault.resolve(), args.method)
     if problem:
         return search_error(problem)
-    # --jev asks the optional advisor (docs/jev.md). Without a usable configuration, in
-    # mode off or with a kill switch, the plan is None and this is the plain search below,
-    # byte for byte; the provider client is never imported on that path.
-    advisor = jev.search_plan(vault.resolve(), args.method, args.rest) \
-        if args.jev and not args.no_jev else None
     # eval/retrieve.py runs in this process (no second interpreter); its output and exit
     # code are what `python3 eval/retrieve.py ARGV` gives. The prompt is handed over as a
     # string, never as an argument, so `--prompt=--help` is a prompt, not an option.
-    argv = ["--vault", str(vault), "--method", args.method, *args.rest,
-            *(advisor.retrieve_args() if advisor else [])]
+    argv = ["--vault", str(vault), "--method", args.method, *args.rest]
     trace(["eval/retrieve.py", *argv, "<prompt>"])
     returncode, text, _ = mcp_server.run_in_process(argv, args.prompt)
     try:
@@ -259,9 +254,6 @@ def cmd_search(args: argparse.Namespace) -> int:
         print(json.dumps(packet, ensure_ascii=False))
         print(f"context-layer search: {packet.get('error')}", file=sys.stderr)
         return returncode or 1
-    if advisor is not None and isinstance(packet, dict):
-        packet = jev.advise_search(vault.resolve(), args.prompt, args.method, packet, advisor)
-        text = json.dumps(packet, ensure_ascii=False, separators=(",", ":")) + "\n"
     if args.github and not args.no_github and returncode == 0 and isinstance(packet, dict):
         augmented = mcp_server.github_fallback(vault.resolve(), args.prompt, packet)
         if augmented is not packet:
@@ -410,11 +402,6 @@ def build_parser(command: "str | None" = None) -> argparse.ArgumentParser:
     p_search.add_argument("--prompt", required=True)
     p_search.add_argument("--method", choices=["grep", "fts", "fts-canonical", "router", "synaptic"],
                           default="fts")
-    p_search.add_argument("--jev", action="store_true",
-                          help="Ask the optional advisor about this packet (docs/jev.md; fts and "
-                               "default synaptic). Unconfigured, off or killed: the plain search.")
-    p_search.add_argument("--no-jev", action="store_true",
-                          help="Never ask the advisor for this call (wins over --jev).")
     p_search.add_argument("--github", action="store_true",
                           help="On a clean local NOT_FOUND, fetch configured public GitHub "
                                "sources as external_context (docs/github-context.md).")

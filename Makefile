@@ -55,12 +55,12 @@ test:  ## Run all router, scanner, integrity, hardening and evaluation regressio
 	$(PYTHON) tests/test_brief.py
 	$(PYTHON) tests/test_session_evidence.py
 	$(PYTHON) tests/test_session_show.py
-	$(PYTHON) tests/test_jev_contracts.py
-	$(PYTHON) tests/test_jev_client.py
-	$(PYTHON) tests/test_jev.py
-	$(PYTHON) tests/test_jev_answer.py
-	$(PYTHON) tests/test_jev_memory.py
-	$(PYTHON) tests/test_dev_jev.py
+	$(PYTHON) tests/test_claim_checks.py
+	$(PYTHON) tests/test_decisions_client.py
+	$(PYTHON) tests/test_decisions.py
+	$(PYTHON) tests/test_responses.py
+	$(PYTHON) tests/test_api_route.py
+	$(PYTHON) tests/test_network_surface.py
 	$(PYTHON) tests/test_synapse.py
 	$(PYTHON) tests/test_coactivation.py
 	$(PYTHON) tests/test_github_client.py
@@ -95,7 +95,7 @@ lint:  ## Byte-compile every Python file and run pyflakes (required in CI, optio
 	  echo "For the full check: pip install pyflakes && make lint"; \
 	fi
 
-network-guard:  ## Check the two explicit network transports and the advisor process boundary
+network-guard:  ## Check explicit network transports and the Decisions process boundary
 	$(PYTHON) scripts/check_network_surface.py
 
 plugin:  ## Build the Obsidian plugin (plain JS, no npm) from obsidian-plugin/

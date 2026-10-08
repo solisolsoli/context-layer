@@ -27,7 +27,6 @@ const REGION_DIM = 0.25;                  // notes outside a focused region
 const { OVERLAY_NODE_DIM } = Activation;   // notes outside an active retrieval
 const OVERLAY_EDGE_DIM = 0.3;             // links outside an active retrieval
 const OVERLAY_EDGE_ALPHA = 0.22, OVERLAY_EDGE_PULSE = 0.55, OVERLAY_EDGE_STATIC = 0.45, OVERLAY_EDGE_HALF_WIDTH = 1.1;
-const MARK_SIZE = 2.4;                    // advisor ring size relative to its note
 const DYNAMIC_CAPACITY = 640;             // transient points: fires and pulses
 const TONE_EXPOSURE_HDR = 1.25, TONE_EXPOSURE_LDR = 2.0;
 const FIT_RADIUS = 1.13;                  // world radius framed at zoom 1
@@ -103,7 +102,6 @@ class BrainView extends ItemView {
       this.hudEl.createDiv({ cls: 'nb-title', text: 'CONTEXT LAYER BRAIN VIEW', attr: { lang: 'en' } });
       this.countersEl = this.hudEl.createDiv({ cls: 'nb-counters' });
       this.activationEl = this.hudEl.createDiv({ cls: 'nb-activation nb-hidden' });
-      this.advisorEl = this.hudEl.createDiv({ cls: 'nb-advisor nb-hidden' });
       this.overlayKeyEl = this.hudEl.createDiv({ cls: 'nb-overlay-key nb-hidden' });
       this.devEl = this.hudEl.createDiv({ cls: 'nb-dev nb-hidden' });
       this.legendEl = root.createDiv({ cls: 'nb-legend nb-hidden', attr: { role: 'group', 'aria-label': 'Regions' } });
@@ -111,11 +109,6 @@ class BrainView extends ItemView {
       this.summaryEl.createEl('summary', { text: 'Retrieval summary' });
       this.summaryStatusEl = this.summaryEl.createDiv({ cls: 'nb-summary-status' });
       this.summaryListEl = this.summaryEl.createEl('ul', { cls: 'nb-summary-list', attr: { 'aria-label': 'Notes in the last retrieval' } });
-      // Advisor layer: a read-only panel and its toggle, hidden by default.
-      this.advisorLayerEl = root.createDiv({ cls: 'nb-advisor-layer' });
-      this.advisorPanelEl = this.advisorLayerEl.createDiv({ cls: 'nb-advisor-panel nb-hidden', attr: { role: 'region', 'aria-label': 'Advisor layer' } });
-      this.advisorToggleEl = this.advisorLayerEl.createEl('button', { cls: 'nb-advisor-toggle', text: 'Show advisor layer', attr: { type: 'button', 'aria-pressed': 'false' } });
-      this.advisorToggleEl.onclick = () => { this.toggleAdvisorLayer().catch(err => this.logError('advisor layer', err)); };
       this.liveEl = root.createDiv({ cls: 'nb-sr-only', attr: { role: 'status', 'aria-live': 'polite' } });
       this.tooltipEl = root.createDiv({ cls: 'nb-tooltip nb-hidden' });
       this.renderOverlayKey();
@@ -223,7 +216,6 @@ class BrainView extends ItemView {
     this.devEl.toggleClass('nb-hidden', !s.developerDiagnostics);
     if (!s.activationOverlay) { this.setOverlay(null); this.traceMatch = null; this.updateActivationHud(Date.now()); }
     else { this.syncOverlay(true); this.pollActivation(true); }
-    this.updateAdvisorLayer();
   }
 
   // -- setup ------------------------------------------------------------------
@@ -247,7 +239,7 @@ class BrainView extends ItemView {
     if (!this.instExt) this.logError('initGL', new Error('ANGLE_instanced_arrays unavailable: links are not drawn'));
     const attrib = (p, n) => gl.getAttribLocation(p, n), uniform = (p, n) => gl.getUniformLocation(p, n);
     const pp = this.pointProgram, lp = this.lineProgram;
-    this.pointAttribs = { position: attrib(pp, 'aPosition'), color: attrib(pp, 'aColor'), size: attrib(pp, 'aSize'), shell: attrib(pp, 'aShell'), ring: attrib(pp, 'aRing') };
+    this.pointAttribs = { position: attrib(pp, 'aPosition'), color: attrib(pp, 'aColor'), size: attrib(pp, 'aSize'), shell: attrib(pp, 'aShell') };
     this.pointUniforms = { projection: uniform(pp, 'uProjection'), view: uniform(pp, 'uView'), alphaMult: uniform(pp, 'uAlphaMult'),
       time: uniform(pp, 'uTime'), eyePos: uniform(pp, 'uEyePos'), viewport: uniform(pp, 'uViewport') };
     this.lineAttribs = { ts: attrib(lp, 'aTS'), p0: attrib(lp, 'aP0'), p1: attrib(lp, 'aP1'), p2: attrib(lp, 'aP2'), p3: attrib(lp, 'aP3'),
@@ -256,7 +248,7 @@ class BrainView extends ItemView {
       dpr: uniform(lp, 'uDPR'), widthMult: uniform(lp, 'uWidthMult'), time: uniform(lp, 'uTime') };
     this.buffers = {};
     for (const name of ['nodePos', 'nodeColor', 'nodeSize', 'nodeShell', 'edgeTemplate', 'edgeCtrl', 'edgeStyle',
-      'hlCtrl', 'hlStyle', 'ovCtrl', 'ovStyle', 'dynPos', 'dynColor', 'dynSize', 'markPos', 'markColor', 'markSize', 'markRing']) this.buffers[name] = gl.createBuffer();
+      'hlCtrl', 'hlStyle', 'ovCtrl', 'ovStyle', 'dynPos', 'dynColor', 'dynSize']) this.buffers[name] = gl.createBuffer();
     this.projMat = new Float32Array(16); this.viewMat = new Float32Array(16);
     const tmpl = new Float32Array((EDGE_SEGMENTS + 1) * 4);
     for (let k = 0; k <= EDGE_SEGMENTS; k++) {
@@ -266,7 +258,7 @@ class BrainView extends ItemView {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.edgeTemplate);
     gl.bufferData(gl.ARRAY_BUFFER, tmpl, gl.STATIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, null);
-    this.edgeCount = 0; this.hlCount = 0; this.ovCount = 0; this.dynCount = 0; this.nodeCount = 0; this.markCount = 0;
+    this.edgeCount = 0; this.hlCount = 0; this.ovCount = 0; this.dynCount = 0; this.nodeCount = 0;
     this.bloomOk = false;
     if (this.settings.bloom) this.initBloom();
     return true;
@@ -399,7 +391,7 @@ class BrainView extends ItemView {
       const token = this._glInitToken = (this._glInitToken || 0) + 1;
       try {
         if (!await this.initGL(token) || this._closed) return;
-        this._contextLost = false; this.model.buffersDirty = true; this._edgePlan = null; this._ovDirty = true; this._marksDirty = true;
+        this._contextLost = false; this.model.buffersDirty = true; this._edgePlan = null; this._ovDirty = true;
         this.handleVisibility();
       } catch (err) { if (!this._closed) this.logError('context restore', err); }
     });
@@ -581,28 +573,6 @@ class BrainView extends ItemView {
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, null);
     m.buffersDirty = false;
-    this._marksDirty = true;
-  }
-
-  // Advisor marks: one ring sprite per judged note of the shown retrieval.
-  rebuildMarkBuffers() {
-    this._marksDirty = false;
-    const ov = this.overlay, gl = this.gl;
-    const entries = ov ? Array.from(ov.nodes.values()).filter(e => e.mark && e.node === this.model.nodes.get(e.path)) : [];
-    this.markCount = entries.length;
-    if (!entries.length) return;
-    const n = entries.length, pos = new Float32Array(n * 3), color = new Float32Array(n * 4), size = new Float32Array(n), ring = new Float32Array(n);
-    entries.forEach((e, i) => {
-      pos.set(e.node.pos, i * 3);
-      color[i * 4] = e.mark.rgb[0]; color[i * 4 + 1] = e.mark.rgb[1]; color[i * 4 + 2] = e.mark.rgb[2]; color[i * 4 + 3] = e.mark.alpha;
-      size[i] = (this._degreePalette?.get(e.node) || Palette.styleForDegree(e.node.degree)).size * e.sizeMult * MARK_SIZE;
-      ring[i] = e.mark.ring;
-    });
-    for (const [name, arr] of [['markPos', pos], ['markColor', color], ['markSize', size], ['markRing', ring]]) {
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers[name]);
-      gl.bufferData(gl.ARRAY_BUFFER, arr, gl.DYNAMIC_DRAW);
-    }
-    gl.bindBuffer(gl.ARRAY_BUFFER, null);
   }
 
   // Degree changes fade over Palette.DURATION_MS. Only transitioning notes
@@ -892,11 +862,11 @@ class BrainView extends ItemView {
   syncOverlay(traceChanged) {
     if (!this.model) return;
     if (!this.traceWanted()) { this.traceMatch = null; if (this.overlay) this.setOverlay(null); return; }
-    const t = this.activationTrace, shadow = !!this.settings.showAdvisorShadow;
-    const stale = !this.traceMatch || this.traceMatch.key !== t.key || this._overlayRevision !== this.model.viewRevision || this._overlayShadow !== shadow;
+    const t = this.activationTrace;
+    const stale = !this.traceMatch || this.traceMatch.key !== t.key || this._overlayRevision !== this.model.viewRevision;
     if (!traceChanged && !stale) return;
-    const mapped = Activation.mapOverlay(t, path => this.model.lookup(path), { showAdvisorShadow: shadow });
-    this.traceMatch = mapped; this._overlayShadow = shadow;
+    const mapped = Activation.mapOverlay(t, path => this.model.lookup(path));
+    this.traceMatch = mapped;
     this._overlayRevision = this.model.viewRevision;
     this.setOverlay(mapped.nodes.size ? mapped : null);
   }
@@ -909,7 +879,7 @@ class BrainView extends ItemView {
       this._overlayRevision = this.model ? this.model.viewRevision : 0;
     }
     this.overlay = overlay;
-    this._ovDirty = true; this._ovStyleDirty = true; this._edgeStyleDirty = true; this._marksDirty = true; this._nodeListKey = null;
+    this._ovDirty = true; this._ovStyleDirty = true; this._edgeStyleDirty = true; this._nodeListKey = null;
     if (this.model) this.model.buffersDirty = true;
     this._lastHud = -Infinity; this._summaryKey = null;
     this.renderOverlayKey();
@@ -981,68 +951,7 @@ class BrainView extends ItemView {
     if (status) this.activationEl.setText(status.text);
     const shown = !!status && status.state === 'shown';
     this.overlayKeyEl.toggleClass('nb-hidden', !shown);
-    const advisor = shown ? Activation.formatAdvisor(this.overlay.advisor) : '';
-    this.advisorEl.toggleClass('nb-hidden', !advisor);
-    this.advisorEl.setText(advisor);
     this.updateSummary(status);
-    this.updateAdvisorLayer();
-  }
-
-  // The advisor layer: what the optional advisor did in the last retrieval,
-  // from the trace only. Hidden until the toggle (or the setting) turns it on;
-  // with no advisor data it says so instead of staying silent.
-  async toggleAdvisorLayer() {
-    this.settings.showAdvisorLayer = !this.settings.showAdvisorLayer;
-    if (typeof this.plugin.saveSettings === 'function') await this.plugin.saveSettings();
-    this.updateAdvisorLayer();
-  }
-
-  advisorLayerSource(now = Date.now()) {
-    const t = this.activationTrace;
-    if (!this.settings.activationOverlay) return { trace: null, absent: 'disabled' };
-    if (!t) return { trace: null, absent: 'none' };
-    if (t.key === this.dismissedKey) return { trace: null, absent: 'cleared' };
-    if (!Activation.isFresh(t, now, this.settings.activationWindowMinutes * 60000)) return { trace: null, absent: 'stale' };
-    return { trace: t, absent: null };
-  }
-
-  updateAdvisorLayer() {
-    if (!this.advisorPanelEl) return;
-    const open = !!this.settings.showAdvisorLayer;
-    this.advisorToggleEl.setText(open ? 'Hide advisor layer' : 'Show advisor layer');
-    this.advisorToggleEl.setAttr('aria-pressed', open ? 'true' : 'false');
-    this.advisorPanelEl.toggleClass('nb-hidden', !open);
-    if (!open) { this._advisorKey = null; return; }
-    const { trace, absent } = this.advisorLayerSource();
-    const key = (trace ? trace.key : 'none:' + absent) + '|' + (this.model ? this.model.viewRevision : 0);
-    if (key === this._advisorKey) return;
-    this._advisorKey = key;
-    const m = Activation.advisorLayerModel(trace, absent), el = this.advisorPanelEl;
-    el.empty();
-    el.createDiv({ cls: 'nb-advisor-heading', text: 'Advisor layer (read only)' });
-    if (m.message) el.createDiv({ cls: 'nb-advisor-message', text: m.message });
-    if (m.facts.length) {
-      const list = el.createEl('ul', { cls: 'nb-advisor-facts' });
-      for (const fact of m.facts) list.createEl('li', { text: fact });
-    }
-    const section = (title, entries, empty) => {
-      el.createDiv({ cls: 'nb-advisor-subheading', text: title });
-      if (!entries.length) { el.createDiv({ cls: 'nb-advisor-message', text: empty }); return; }
-      const list = el.createEl('ul', { cls: 'nb-advisor-notes' });
-      for (const e of entries) {
-        const node = this.model ? this.model.lookup(e.path) : null;
-        const label = e.path + ' \u00b7 hop ' + e.hop;
-        const item = list.createEl('li');
-        if (!node) { item.createSpan({ cls: 'nb-advisor-note-missing', text: label + ' \u00b7 not in this vault' }); continue; }
-        const button = item.createEl('button', { cls: 'nb-advisor-note', text: label, attr: { type: 'button' } });
-        button.onclick = evt => this.openNote(node, evt);
-      }
-    };
-    if (m.state === 'data') {
-      if (m.rescued.length || !m.candidates.length) section('Notes the advisor rescued', m.rescued, 'None: the advisor added no note to this packet.');
-      if (m.candidates.length) section('Judged on topic, not in the packet', m.candidates, 'None.');
-    }
-    el.createDiv({ cls: 'nb-advisor-note-text', text: m.note });
   }
 
   // The key under the HUD line: what the colours and outlines mean.
@@ -1050,18 +959,11 @@ class BrainView extends ItemView {
     const el = this.overlayKeyEl; if (!el) return;
     el.empty();
     const items = [['nb-key-seed', 'seed'], ['nb-key-hop', 'reached by link, in packet'], ['nb-key-reached', 'reached only']];
-    const adv = this.overlay && this.overlay.advisor;
-    if (adv && adv.marks) {
-      const would = adv.applied ? '' : ' nb-key-would';
-      items.push(['nb-key-rescued' + would, adv.applied ? 'rescued by advisor' : 'advisor would rescue (shadow)']);
-      items.push(['nb-key-flagged' + would, adv.applied ? 'flagged off-topic by advisor' : 'advisor would flag (shadow)']);
-    }
     for (const [cls, label] of items) {
       const item = el.createSpan({ cls: 'nb-key-item' });
       item.createSpan({ cls: 'nb-key-dot ' + cls });
       item.createSpan({ text: label });
     }
-    if (adv) el.createSpan({ cls: 'nb-key-item nb-key-note', text: Activation.ADVISOR_NOTE });
     const mode = this.activationTrace && this.overlay ? Activation.MODE_NOTES[this.activationTrace.mode] : null;
     if (mode) el.createSpan({ cls: 'nb-key-item nb-key-note', text: mode });
   }
@@ -1072,7 +974,7 @@ class BrainView extends ItemView {
   updateSummary(status) {
     if (!this.summaryEl) return;
     const ov = this.overlay;
-    const key = status ? status.state + '|' + this.activationTrace.key + '|' + (ov ? ov.matched + '#' + this._overlayRevision + '#' + !!this._overlayShadow : '') : '';
+    const key = status ? status.state + '|' + this.activationTrace.key + '|' + (ov ? ov.matched + '#' + this._overlayRevision : '') : '';
     if (key === this._summaryKey) return;
     this._summaryKey = key;
     this.summaryEl.toggleClass('nb-hidden', !status);
@@ -1080,8 +982,6 @@ class BrainView extends ItemView {
     if (!status) { this.liveEl.setText(''); return; }
     const t = this.activationTrace;
     const lines = [status.text.replace(/ \u00b7 (just now|\d+ (s|min|h) ago)/, '')];
-    const advisor = ov ? Activation.formatAdvisor(ov.advisor) : '';
-    if (advisor) lines.push(advisor + ' (' + Activation.ADVISOR_NOTE + ')');
     if (ov && Activation.MODE_NOTES[t.mode]) lines.push(Activation.MODE_NOTES[t.mode]);
     this.summaryStatusEl.setText(lines.join('\n'));
     this.liveEl.setText(lines.join('. '));
@@ -1089,7 +989,6 @@ class BrainView extends ItemView {
     const entries = Array.from(ov.nodes.values()).sort((a, b) => a.hop - b.hop || b.activation - a.activation || (a.path < b.path ? -1 : 1));
     for (const e of entries) {
       const parts = ['hop ' + e.hop, e.role === 'seed' ? 'seed' : 'reached by link', e.selected ? 'in packet' : 'reached only'];
-      if (e.verdict) parts.push((ov.advisor.applied ? 'advisor: ' : 'advisor would: ') + e.verdict.replace('_', ' '));
       const button = this.summaryListEl.createEl('li').createEl('button', { cls: 'nb-summary-note', text: parts.join(' \u00b7 ') + ' \u00b7 ' + e.path, attr: { type: 'button' } });
       button.onclick = evt => this.openNote(e.node, evt);
     }
@@ -1216,7 +1115,6 @@ class BrainView extends ItemView {
     const entry = this.overlay?.nodes.get(node.path);
     if (entry) {
       lines.push('last retrieval: ' + entry.role + ', hop ' + entry.hop + ', activation score ' + entry.activation.toFixed(2) + (entry.selected ? ', in packet' : ', reached only'));
-      if (entry.verdict) lines.push((this.overlay.advisor.applied ? 'advisor: ' : 'advisor would (shadow): ') + entry.verdict.replace('_', ' ') + ' (' + Activation.ADVISOR_NOTE + ')');
     }
     return lines.join('\n');
   }
@@ -1304,9 +1202,8 @@ class BrainView extends ItemView {
       this.updateCamera(dt);
       this.updateAmbientAndSignals(now);
       const moved = this.model.advance(dt, this.reducedMotion);
-      if (moved) { this._ovDirty = true; this._marksDirty = true; }
+      if (moved) this._ovDirty = true;
       if (this.model.buffersDirty) this.rebuildNodeBuffers();
-      if (this._marksDirty) this.rebuildMarkBuffers();
       this.updateEdges(now, moved);
       // Re-pick a stationary pointer: the field and camera move underneath it.
       if (this._pendingHoverClient && !this.drag.dragging && now - (this._lastPick || 0) > 32) { this._lastPick = now; this.handleHover(this._pendingHoverClient); }
@@ -1346,7 +1243,7 @@ class BrainView extends ItemView {
     gl.activeTexture(gl.TEXTURE0);
   }
 
-  // Draws notes, links, overlay links, advisor marks and transient points
+  // Draws notes, links, overlay links and transient points
   // into the bound framebuffer (screen or bloom source).
   renderCoreScene() {
     const gl = this.gl, t = this._motionTime || 0, eye = this.eyePos || [0, 0, 2.5];
@@ -1379,22 +1276,20 @@ class BrainView extends ItemView {
       if (this.ovCount) this.drawEdgeInstances(this.buffers.ovCtrl, this.buffers.ovStyle, this.ovCount, Math.max(1, width));
     }
 
-    if (this.markCount || this.dynCount) gl.useProgram(this.pointProgram);
-    if (this.markCount) this.drawPoints(this.buffers.markPos, this.buffers.markColor, this.buffers.markSize, null, this.markCount, this.buffers.markRing);
+    if (this.dynCount) gl.useProgram(this.pointProgram);
     if (this.dynCount) this.drawPoints(this.buffers.dynPos, this.buffers.dynColor, this.buffers.dynSize, null, this.dynCount);
     gl.depthMask(true);
     gl.disable(gl.BLEND);
   }
 
-  drawPoints(posBuf, colorBuf, sizeBuf, shellBuf, count, ringBuf = null) {
+  drawPoints(posBuf, colorBuf, sizeBuf, shellBuf, count) {
     const gl = this.gl, a = this.pointAttribs;
     gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.enableVertexAttribArray(a.position); gl.vertexAttribPointer(a.position, 3, gl.FLOAT, false, 0, 0);
     gl.bindBuffer(gl.ARRAY_BUFFER, colorBuf); gl.enableVertexAttribArray(a.color); gl.vertexAttribPointer(a.color, 4, gl.FLOAT, false, 0, 0);
     gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuf); gl.enableVertexAttribArray(a.size); gl.vertexAttribPointer(a.size, 1, gl.FLOAT, false, 0, 0);
-    for (const [loc, buf] of [[a.shell, shellBuf], [a.ring, ringBuf]]) {
-      if (loc < 0) continue;
-      if (buf) { gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 1, gl.FLOAT, false, 0, 0); }
-      else { gl.disableVertexAttribArray(loc); gl.vertexAttrib1f(loc, 0); }
+    if (a.shell >= 0) {
+      if (shellBuf) { gl.bindBuffer(gl.ARRAY_BUFFER, shellBuf); gl.enableVertexAttribArray(a.shell); gl.vertexAttribPointer(a.shell, 1, gl.FLOAT, false, 0, 0); }
+      else { gl.disableVertexAttribArray(a.shell); gl.vertexAttrib1f(a.shell, 0); }
     }
     gl.drawArrays(gl.POINTS, 0, count);
   }

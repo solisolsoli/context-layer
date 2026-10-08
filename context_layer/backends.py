@@ -1,8 +1,7 @@
 """context_layer.backends — the local command lines a sub-agent task can run.
 
-A backend is a command, not an API client: the task backends never call a
-model API and never open a network connection (the optional advisor's model
-calls live only in jev_client.py). It spawns a binary the user
+A backend is a command, not an API client: the task backend code does not call a
+model API or open a network connection. It spawns a binary the user
 already has, hands it one prompt on stdin (or a prompt file) and reads back
 what the attempt reported: the answer text, whether it failed, and the usage
 and cost the host printed.

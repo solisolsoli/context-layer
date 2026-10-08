@@ -4,7 +4,7 @@ Two ways to give an AI host the vault's evidence without pasting it by hand:
 
 - **MCP server** (`context-layer mcp`) — the host calls tools when it decides it
   needs them: `search_vault`, `read_source`, `vault_status`, `memory_record`
-  (drafts only), `memory_resume`, `graph_neighbors`, `read_packet`, `jev_status`,
+  (drafts only), `memory_resume`, `graph_neighbors`, `read_packet`,
   `check_claims`, `github_context`. Any MCP client
   that speaks stdio can use it. It speaks MCP revision 2026-07-28 and the
   `initialize`-era revisions 2025-11-25, 2025-06-18, 2025-03-26 and 2024-11-05
@@ -35,7 +35,7 @@ is "no".
 For an owner-enabled public documentation fallback, use `search_vault` with
 `github: true`, or `github_context` when local evidence is insufficient.
 External passages have immutable URL/commit/hash citations and stay outside
-the local evidence ledger and Jev. See [GitHub context](github-context.md).
+the local evidence ledger. See [GitHub context](github-context.md).
 
 ## Install, with nothing written by surprise
 
@@ -186,16 +186,9 @@ packet plus link extras within `--extra-tokens` (default 600). `--budget-tokens
 N` sizes only the compact packer, so it is accepted only together with
 `--compact` (`--compact --budget-tokens 1200`); see `docs/synapse.md`.
 
-**The optional advisor in the hook.** With the advisor configured *and* its
-`auto_context` feature enabled by name (`context-layer jev shadow|on <vault>
---enable auto_context`; never by `install`), the hook asks the configured model
-provider on every prompt whether the prompt is about the vault and whether
-each delivered or link-reached note helps, within `hook_timeout_s` (default
-2 s) and inside the host's 30 s. In `shadow` the output is byte for byte the
-one above; in `on` rescued notes follow the unchanged items as further
-`<<evidence ...>>` blocks whose first line names the advisor and says
-"advisory, not a check of correctness". Any failure leaves the output
-unchanged; the exit code never changes. See `docs/jev.md`.
+The hook uses local retrieval. The manual [Decisions](decisions.md) and
+[Responses](responses.md) commands do not run from a hook or send vault
+passages automatically.
 
 **Size.** The Claude Code hooks reference (code.claude.com/docs/en/hooks, read
 2026-09-28) says: "A hook's `additionalContext`, `systemMessage`, and
@@ -445,22 +438,20 @@ batch always does.
 
 | Tool | What it returns |
 | --- | --- |
-| `search_vault` | The `evidence-delivery-v1` packet from `eval/retrieve.py`: verbatim passages with `source_path` and `source_sha256`. `method` defaults to `fts`; `top_k`, `budget` and `per_source` override the server's defaults up to the [limits](#limits). Annotated not read-only: `method: synaptic` writes `.context/activation.json`, and the opt-in [session evidence ledger](#session-evidence-ledger) records paths and hashes. `jev: true` asks the optional advisor when the vault owner enabled it ([jev.md](jev.md)); without a `jev` key in the packet the advisor did not run.
+| `search_vault` | The `evidence-delivery-v1` packet from `eval/retrieve.py`: verbatim passages with `source_path` and `source_sha256`. `method` defaults to `fts`; `top_k`, `budget` and `per_source` override the server's defaults up to the [limits](#limits). Annotated not read-only: `method: synaptic` writes `.context/activation.json`, and the opt-in [session evidence ledger](#session-evidence-ledger) records paths and hashes. Decisions assessment and Responses generation are separate manual CLI commands. |
 | `read_source` | One vault file verbatim, with its current SHA-256 and total length in characters. `start` offsets, `max_chars` defaults to 2000 and is at most 6000. Pass `sha256` to assert a version. Files over 64 MiB and non-UTF-8 files are refused. |
 | `vault_status` | The `source-health-v1` report (see [source-lifecycle.md](source-lifecycle.md)): whether the index exists, when it was built, how many sources are in scope and whether any went stale. |
 | `memory_record` | Appends one shared memory record (`decision`, `task`, `result` or `note`) with the sources it rests on, through the same store as `context-layer memory add` (see [memory.md](memory.md)). A repeated record is reported as a duplicate, not appended twice. A `result` names the tasks it completes in `closes`. |
 | `memory_resume` | Recent shared memory records, the ones whose sources changed since they were written, and open tasks — the same packet as `context-layer memory resume`. |
 | `graph_neighbors` | The explicit-link neighbours of one note (`path`, vault-relative): the notes it links to and the notes that link to it (wikilinks, embeds, Markdown links, frontmatter relations), each with the link kind and line. Paths only, no note text. `limit` caps each direction (default 25, at most 100). Links from a note that changed since the last `index` are withheld. Needs the link graph that `context-layer index` builds. |
 | `read_packet` | A shared evidence packet by its `id` (the SHA-256 printed by `context-layer packet build`, see [subagents.md](subagents.md)). Every source is re-checked first; if any changed, vanished or became excluded, the whole packet is withheld (`status: WITHHELD`, with reasons). |
-| `jev_status` | The optional advisor's status from its files only ([jev.md](jev.md)): configured and valid or not, the mode in force and why it is off, the enabled features and what each would send, the provider kind and model (never a key), whether a calibration receipt makes `on` usable. Sends nothing. |
-| `check_claims` | Checks claims against the passages they cite. Each claim is `{text, citations}` (optionally `id`), 1 to 20 claims, each with 1 to 8 citations `{source_path, source_sha256, line_start, line_end, span}` (the `jev-claims/v1` shape). Every citation is checked mechanically: the source is inside the boundaries and still has the cited hash, and the span is verbatim at the cited lines; that never asks a model and does not make a claim true. With `jev: true` (default false), when the vault owner enabled the optional advisor's `answer` feature in its `on` mode ([jev.md](jev.md#answer-checks)), each citation that passed also gets an advisory `jev` note (`supported`, `contradicted`, `insufficient` or `uncertain`) and each claim an aggregate one; a note can only add to the mechanical result. This may send the claim, the quote and its section to the provider the owner configured. No `jev` key in the result means the advisor did not run or was only counted (`shadow`). Annotated not read-only: with `jev: true` it may add counters and cached answers under `.context`; it writes no note or memory record. |
+| `check_claims` | Checks claims against the passages they cite. Each claim is `{text, citations}` (optionally `id`), with citations `{source_path, source_sha256, line_start, line_end, span}`. The check verifies local boundaries, source hash and verbatim span; it does not call a model or prove the claim true. |
 
 Every tool has a `title` and `annotations`: `readOnlyHint` is true for all but
-`search_vault`, `memory_record` and `check_claims`, `openWorldHint` is false for
-all (the vault is local; the optional advisor's provider call is opt-in per call
-and described in the tool text), and the three tools that are
-not read-only say `destructiveHint: false` (they append, or overwrite only their
-own derived files, or add counters and cached answers). Annotations are hints a client should
+`search_vault` and `memory_record`, `openWorldHint` is false for
+all (the vault is local), and the tools that are
+not read-only say `destructiveHint: false` (they append or overwrite only their
+own derived files). Annotations are hints a client should
 not trust (MCP tools spec). The `initialize` and `server/discover` results carry
 `instructions`: the data-not-instructions rule, how to cite, and the limits.
 
@@ -640,7 +631,7 @@ macOS (Darwin 25.6.0), CPython 3.12.4, by `tests/test_mcp_install.py`,
   config refused rather than overwritten;
 - the hook: evidence with path and hash, `NOT_FOUND` printing nothing at exit 0,
   every command-line error and every runtime failure exiting 1 with an empty
-  stdout and one stderr line, `--method jev` falling back to fts, prompts
+  stdout and one stderr line, prompts
   `--help` and `-x` searched, an empty prompt answered with exit 0 and no output, a 2.1 MB prompt bounded,
   whole-item packing under three limits, escaped file-name headers, the withheld
   notice in the context, the session evidence ledger (hook and server, an unsafe

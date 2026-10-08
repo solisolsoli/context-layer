@@ -41,15 +41,18 @@ or answer-quality evidence.
 Components (host integration, memory, tasks, lifecycle, graph/synapse, rules,
 brain, orchestrate, the Obsidian plugin) own one module and one test file each, registered as a stub
 before any phase fills it so parallel work stays disjoint: fill your own module,
-do not edit another phase's. The optional advisor is the one exception: three
-modules and five test files (jev_contracts, jev_client, jev, jev_answer,
-jev_memory), so that
-jev_client.py stays the only code that can open a network connection or start a
-model CLI for the advisor, one auditable file that scripts/check_network_surface.py checks.
+do not edit another phase's. `api plan` is an offline route suggestion that
+reads no task text. Decisions and Responses are explicit, advisory commands
+for caller-asserted public/synthetic text only. They never verify source truth
+or authorize actions; they must not be called automatically by search, hooks or
+MCP. A network call requires `--send`. Only decisions_client.py and
+responses_client.py may contact their respective OpenAI endpoints; neither
+transport accepts a task backend or process-spawning capability. The static
+network guard checks that boundary.
 GitHub evidence is separate: only github_client.py may fetch allowlisted public
 files for github_context.py. It uses pinned commits, no credentials, no prompt
 upload, and no code execution. Keep external evidence outside local source
-validation and Jev; preserve local NOT_FOUND, withheld and ERROR states.
+validation and these API commands; preserve local NOT_FOUND, withheld and ERROR states.
 Source management previews changes before --apply. Cache use is separately
 opt-in; offline misses and corruption stay explicit, and pins never auto-update.
 Use platform_support for runtime locks, private files and managed process trees;

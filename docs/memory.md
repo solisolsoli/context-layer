@@ -325,8 +325,8 @@ and whether the file holds the recorded bytes now (`STALE now: changed` or
 
 To see more than memory did in a session, `context-layer session show VAULT ID`
 joins this record with the memory records written under the id, the evidence
-delivered to the host, the tasks and their ledger status, and the advisor's
-counters, read-only and with a file and line for every row
+delivered to the host and the tasks and their ledger status, read-only and with
+a file and line for every row
 ([cli.md](cli.md#session-show-one-sessions-joined-report)).
 
 ## CLI
@@ -401,6 +401,6 @@ its id stop matching.
   file. That is deliberate for a file a person must be able to read, and it is
   not sized for hundreds of thousands of records.
 
-The optional advisor can review a proposal before it is recorded:
-`context-layer jev review-memory VAULT --proposal FILE` (advisory only; it never
-writes the store). See [jev.md](jev.md).
+The manual [Decisions command](decisions.md) does not review or write memory
+proposals. Review a proposed record against its original sources before adding
+it to the store.

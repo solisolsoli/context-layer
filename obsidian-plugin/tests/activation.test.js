@@ -95,7 +95,7 @@ test('invalid entries are dropped individually; limits and order are enforced', 
   assert.equal(t.nodes[0].activation, 1, 'activation clamped to [0, 1]');
   assert.equal(t.nodes.filter(n => n.path === 'clamped.md').length, 1, 'duplicate paths keep the first entry');
   const derived = A.parseActivation(text(trace({ nodes: [nodes[8]] }))).nodes[0];
-  assert.deepEqual(derived, { path: 'derived.md', activation: 0, hop: 2, role: 'hop', selected: false, jev: null });
+  assert.deepEqual(derived, { path: 'derived.md', activation: 0, hop: 2, role: 'hop', selected: false });
   assert.ok(!t.nodes.some(n => n.path.includes('..') || n.path.startsWith('/')));
   for (let i = 1; i < t.nodes.length; i++) assert.ok(t.nodes[i - 1].activation >= t.nodes[i].activation, 'highest activation first');
   assert.equal(t.edges.length, A.MAX_EDGES);
@@ -244,7 +244,7 @@ test('the trace file setting only accepts .context/activation*.json', () => {
   for (const ok of ['.context/activation.json', '.context/activation-2.json', 'sub/.context/activation.json', './.context/activation.json']) {
     assert.ok(A.sanitizeTracePath(ok), ok);
   }
-  for (const bad of ['.context/routes.json', '.context/jev-calls.jsonl', '.context/jev.json', 'notes/activation.json', 'activation.json',
+  for (const bad of ['.context/routes.json', '.context/not-activation.json', 'notes/activation.json', 'activation.json',
     '.context/x/activation.json', '../.context/activation.json', '.context/activation.json/x', '']) {
     assert.equal(A.sanitizeTracePath(bad), null, bad);
   }
@@ -259,59 +259,15 @@ test('an optional per-edge depth is read; invalid depths are ignored', () => {
   assert.deepEqual(t.edges.map(e => e.depth), [2, null, null]);
 });
 
-test('advisor block: enums, booleans and counters only; version stays 1', () => {
-  const block = { mode: 'on', applied: true, superset: true, provider_kind: 'host_cli', gate_passed: true, kept: 5, flagged: 2, rescued: 1, degraded: false };
-  const t = A.parseActivation(text(trace({ jev: block })));
-  assert.deepEqual(t.advisor, { mode: 'on', applied: true, superset: true, providerKind: 'host_cli', gatePassed: true, kept: 5, flagged: 2, rescued: 1, wouldRescue: null, degraded: false });
-  assert.equal(A.parseActivation(text(trace({ jev: Object.assign({}, block, { mode: 'shadow' }) }))).advisor.applied, false, 'shadow verdicts are never applied');
-  assert.equal(A.parseActivation(text(trace({ jev: Object.assign({}, block, { applied: 'yes' }) }))).advisor.applied, false);
-  for (const bad of [null, 'on', [], { mode: 'maybe' }, { applied: true }]) assert.equal(A.parseActivation(text(trace({ jev: bad }))).advisor, null);
-  const odd = A.parseActivation(text(trace({ jev: { mode: 'shadow', provider_kind: 'my-server.example', kept: -1, flagged: 1.5, rescued: '3', degraded: 4 } }))).advisor;
-  assert.deepEqual(odd, { mode: 'shadow', applied: false, superset: null, providerKind: null, gatePassed: null, kept: null, flagged: null, rescued: null, wouldRescue: null, degraded: true });
-  assert.equal(A.parseActivation(text(trace({ jev: block, version: 2 }))), null, 'a version bump is still rejected');
-});
-
-test('advisor privacy: no text from the block or the nodes is carried', () => {
-  const secret = ['a private prompt', 'the model said so', 'https://advisor.example', 'claude-model-x', 'because of line 12', 'key-123'];
+test('legacy advisor fields are ignored as untrusted trace data', () => {
   const t = A.parseActivation(text(trace({
-    jev: { mode: 'on', applied: true, provider_kind: 'host_cli', rescued: 1, rationale: secret[0], answer: secret[1], endpoint: secret[2],
-      model_reported: secret[3], codes: [secret[4]], key: secret[5], counts: { judged: 3 }, latency_ms: 812 },
-    nodes: [{ path: 'projects/apollo.md', activation: 1, hop: 0, role: 'seed', selected: true, jev: 'rescued', jev_reason: secret[4], jev_score: 0.93 }],
+    jev: { mode: 'on', rationale: 'SECRET' },
+    nodes: [{ path: 'projects/apollo.md', activation: 1, hop: 0, role: 'seed', jev: 'rescued', jev_reason: 'SECRET' }],
   })));
-  const json = JSON.stringify(t);
-  for (const s of secret) assert.equal(json.includes(s), false, 'must not carry: ' + s);
-  assert.equal(json.includes('0.93'), false, 'no raw scores');
-  assert.equal(json.includes('812'), false, 'no latency');
-  assert.equal(t.nodes[0].jev, 'rescued');
-  assert.equal(A.parseActivation(text(trace({ nodes: [{ path: 'a.md', activation: 1, hop: 0, jev: 'probably fine' }] }))).nodes[0].jev, null, 'unknown verdicts are dropped');
-});
-
-test('shadow advisor: would_rescue is read as a counter and shown as "would rescue N"; without it the old field is used', () => {
-  const shadow = jev => A.parseActivation(text(trace({ jev: Object.assign({ mode: 'shadow', applied: false, rescued: 0, flagged: 2 }, jev) })));
-  const withField = shadow({ would_rescue: 3 });
-  assert.equal(withField.advisor.wouldRescue, 3);
-  assert.equal(A.formatAdvisor(A.advisorView(withField, true)), 'advisor shadow, not applied' + DOT + 'would rescue 3' + DOT + 'would flag 2');
-  assert.ok(A.advisorLayerModel(withField).facts.includes('Would rescue: 3'));
-  const without = shadow({});
-  assert.equal(without.advisor.wouldRescue, null);
-  assert.equal(A.formatAdvisor(A.advisorView(without, true)), 'advisor shadow, not applied' + DOT + 'would rescue 0' + DOT + 'would flag 2', 'older traces keep the previous line');
-  assert.ok(!A.advisorLayerModel(without).facts.some(f => /^Would rescue:/.test(f)));
-  for (const bad of [-1, 1.5, '2', null]) assert.equal(shadow({ would_rescue: bad }).advisor.wouldRescue, null, 'only a non-negative integer counts');
-  assert.ok(!A.advisorLayerModel(A.parseActivation(text(trace({ jev: { mode: 'on', applied: true, rescued: 1, would_rescue: 1 } })))).facts.some(f => /^Would rescue:/.test(f)), 'an applied run says rescued, not would rescue');
-});
-
-test('advisor HUD line: applied counts, shadow only with the setting, labelled would', () => {
-  const on = A.parseActivation(text(trace({ jev: { mode: 'on', applied: true, rescued: 1, flagged: 2, kept: 5 } })));
-  assert.equal(A.formatAdvisor(A.advisorView(on, false)), 'advisor on' + DOT + 'rescued 1' + DOT + 'flagged 2' + DOT + 'kept 5');
-  const shadow = A.parseActivation(text(trace({ jev: { mode: 'shadow', applied: false, rescued: 1, flagged: 2, kept: 5, degraded: true } })));
-  assert.equal(A.formatAdvisor(A.advisorView(shadow, false)), '', 'shadow stays invisible without the setting');
-  assert.equal(A.formatAdvisor(A.advisorView(shadow, true)), 'advisor shadow, not applied' + DOT + 'would rescue 1' + DOT + 'would flag 2' + DOT + 'degraded');
-  const fellBack = A.parseActivation(text(trace({ jev: { mode: 'on', applied: false, degraded: true } })));
-  assert.equal(A.formatAdvisor(A.advisorView(fellBack, false)), 'advisor on, not applied' + DOT + 'degraded');
-  const lossy = A.parseActivation(text(trace({ jev: { mode: 'on', applied: true, superset: false, gate_passed: false } })));
-  assert.equal(A.formatAdvisor(A.advisorView(lossy, false)), 'advisor on' + DOT + 'topic gate not passed' + DOT + 'not a superset of fts');
-  assert.equal(A.advisorView(A.parseActivation(text(trace({ jev: { mode: 'off', applied: true } }))), true), null, 'mode off shows nothing');
-  assert.equal(A.advisorView(A.parseActivation(text(trace())), true), null, 'no block shows nothing');
+  assert.ok(t);
+  assert.equal('advisor' in t, false);
+  assert.equal('jev' in t.nodes[0], false);
+  assert.equal(JSON.stringify(t).includes('SECRET'), false);
 });
 
 run('activation');

@@ -2,8 +2,16 @@
 
 ## Unreleased addition
 
+The manual [Decisions](docs/decisions.md) and [Responses](docs/responses.md)
+commands accept only caller-asserted public or synthetic text. They preview
+locally by default and call OpenAI only with `--send`. The offline
+[API planner](docs/api-routing.md) reads no task text. These commands are
+separate from retrieval, MCP, hooks and memory. The former
+Jev advisor has been removed from the active interface; the 0.4 section below
+records historical scope, not current commands.
+
 Optional GitHub context adds commit-pinned, allowlisted public evidence through
-the CLI and a tenth MCP tool. Source-management commands preview configuration
+the CLI and a ninth MCP tool in the current interface. Source-management commands preview configuration
 changes, a separately enabled verified cache supports offline reads, and
 upstream checks preview changes without updating a pin. Pin updates require
 the expected old commit and an explicit new commit. Retrieval is off by default
@@ -14,16 +22,16 @@ passed all 12 required jobs, including native Windows full tests and the
 installed-distribution walk. This establishes the tested platform coverage
 below, not live host integration or model answer quality.
 
-## 0.4 scope (2026-09-29)
+## Historical 0.4 scope (2026-09-29)
 
-0.4 keeps the 0.3 scope below and adds: an optional, default-off advisor (Jev,
+The 0.4 release kept the 0.3 scope below and added an optional, default-off advisor (Jev,
 [docs/jev.md](docs/jev.md)) that removes no evidence unless the named lossy
 lever is set;
 incremental indexing and opt-in note-name fields; usage-derived link
 suggestions (`graph suggest`); the session brief and an opt-in delivery ledger
 with a citation check; `check_claims` as the ninth MCP tool; and the fixes the
-0.3 audit and a later independent audit found (CHANGELOG.md lists them). The
-same definition of done applies. The support matrix below is the current one;
+0.3 audit and a later independent audit found (CHANGELOG.md lists them). This
+paragraph describes that historical release. The support matrix below is the current one;
 a live host and a live model have not been run for this release candidate.
 The hosted CI result is recorded above; the README links here for current support.
 
@@ -55,10 +63,10 @@ freedom. Concretely, every 0.2 component must satisfy:
 
 1. **Local and plain.** State lives in the vault as JSONL/JSON/Markdown a person
    can open, diff, edit and delete without this tool. No database a person cannot
-   read, no cloud, no model API call in the core. The optional advisor
-   ([docs/jev.md](docs/jev.md)) is the only component that can call a model; it is
-   off by default, sends only what its gates allow, and without a configuration
-   its provider client is never loaded.
+   read, no cloud, no model API call in the core. The current manual
+   [Decisions](docs/decisions.md) and [Responses](docs/responses.md) commands
+   are outside the core and call OpenAI only after an explicit `--send` with
+   public or synthetic text.
 2. **Host-agnostic.** Any MCP stdio client can connect; nothing depends on one
    vendor's private feature. Host-specific installers are conveniences over a
    generic printed config, never the only path.

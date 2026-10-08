@@ -21,8 +21,7 @@ Token counts are estimates: ceil(chars / 4).
 After every synaptic retrieval `<vault>/.context/activation.json` is written
 atomically (unless `write_activation: false`). It carries a random run id, not
 a hash of the query, and the query text only when the user opted in. It is
-never read back into ranking (the Obsidian plugin displays it; the advisor's side channel
-reads only its run id); its paths
+never read back into ranking (the Obsidian plugin displays it); its paths
 are NFC-normalised, as Obsidian lists them.
 
 Python 3.10+; standard library only. No network, no model call.
@@ -301,7 +300,6 @@ class Options:
     record_query: bool = False
     extra_tokens: int = EXTRA_TOKENS
     compact: bool = False          # set by retrieve() (compact) and extend() (superset)
-    jev_candidates: int = 0   # side channel for the optional advisor; see "Jev candidates"
     focus: bool = False       # --delivery focus: reserve only linked notes activated at
                               # least RESERVE_REL_RATIO x the strongest one
 
@@ -1317,93 +1315,8 @@ def _extend(vault, prompt, query, rows, base, allowed, sources, graph, options) 
         synapse["trace_error"] = trace_error
     if notes:
         synapse["notes"] = notes
-    if options.jev_candidates > 0:     # optional advisor's side channel; evidence is final here
-        synapse["jev_candidates"] = jev_candidates(vault, state, all_seeds, evidence, sources,
-                                                   graph, options, query, allowed, trace_path)
     return {"schema": "evidence-delivery-v1", "operation_status": "ok", "status": status,
             "evidence": evidence, "synapse": synapse}
-
-
-# ---------------------------------------------------------------------------
-# Jev candidates: a side channel for the optional advisor (context_layer/jev.py)
-# ---------------------------------------------------------------------------
-# Additive block. `_extend` calls it only when Options.jev_candidates > 0
-# (eval/retrieve.py --jev-candidates N), after the evidence, the stops and the
-# trace are final, so it cannot change them. Deterministic and model-free.
-
-JEV_CANDIDATES_SCHEMA = "jev-candidates-v1"
-RUN_ID = re.compile(r"[0-9a-f]{32}")
-
-
-def jev_candidates(vault, state: Spread, seeds: dict, evidence: list[dict], sources: Sources,
-                   graph, options: Options, query: list[str], allowed: set[str],
-                   trace_path: str | None = None) -> dict:
-    """Linked notes the activation reached that received no passage in the packet: the hop
-    notes the lexical link rule left out (link relevance below RESERVE_REL_RATIO x best, or
-    no best at all), or whose reserved share did not fit. Hubs, stale notes and notes whose
-    bytes no longer match the index are left out, as retrieval leaves them out.
-
-    Each candidate carries the passages it would be given if it were reserved (the linking
-    line in the note that links to it, and `reserved_passages(..., RESERVE_TOKENS)`), in
-    the packet's item format, plus its hop, activation and `via` chain. Nothing here is
-    evidence: the caller decides, and the candidates never enter `evidence`."""
-    delivered = {item["source_path"] for item in evidence}
-    items: list[dict] = []
-    limit = max(0, int(options.jev_candidates))
-    if graph is not None and limit:
-        anchors, targets = _anchor_maps(state.used)
-        hop_notes = sorted((n for n in state.activation
-                            if n not in seeds and state.via.get(n) and n not in delivered),
-                           key=lambda n: (-state.activation[n], state.hop.get(n, 0), n))
-        for name in hop_notes:
-            if len(items) >= limit:
-                break
-            if name not in allowed or name in state.stale or not graph.fresh(name) \
-                    or graph.degree(name) > options.adjacency_cap:
-                continue
-            loaded = sources.get(name)
-            if loaded is None:
-                continue
-            step = state.via[name][-1]
-            anchor = step["anchor"]
-            link = None
-            linking = sources.get(anchor["path"]) if anchor["path"] != name else None
-            if linking is not None:
-                block = line_block(linking[0], anchor["line"])
-                if block is not None:
-                    line = Passage(anchor["path"], linking[1], linking[0], block,
-                                   reason="the link line that connects a linked note")
-                    line.rel, line.matched = relevance(line.content, [], query)
-                    line.score = state.activation.get(anchor["path"], 0.0)
-                    _add_anchor(line, {"to": name, "kind": step["kind"], "line": anchor["line"]})
-                    link = _item(line, state)
-            context = tokens(LINK_SPAN.sub(" ", sources.line(anchor["path"], anchor["line"])))
-            own = [_item(p, state) for p in reserved_passages(
-                name, loaded[0], loaded[1], state.activation[name], query,
-                targets.get(name, []), anchors.get(name, []), context | set(query),
-                RESERVE_TOKENS)]
-            if not own:
-                continue
-            items.append({"source_path": name, "source_sha256": loaded[1], "kind": "link",
-                          "hop": state.hop.get(name, 0),
-                          "activation": round(state.activation[name], 4),
-                          "via": [_label(s) for s in state.via[name]],
-                          "link_line": link, "passages": own})
-    return {"schema": JEV_CANDIDATES_SCHEMA, "limit": limit, "items": items,
-            "trace_run_id": _trace_run_id(vault, trace_path)}
-
-
-def _trace_run_id(vault, trace_path: str | None) -> str | None:
-    """The run id of the trace this retrieval just wrote, so the advisor can label that
-    run and no other. Read only for that pairing; never used for ranking."""
-    if not trace_path:
-        return None
-    try:
-        data = json.loads((Path(vault) / trace_path).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    run = data.get("run_id") if isinstance(data, dict) else None
-    return run if isinstance(run, str) and RUN_ID.fullmatch(run) else None
 
 
 # ---------------------------------------------------------------------------

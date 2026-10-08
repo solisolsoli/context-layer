@@ -756,8 +756,6 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(json.dumps(summary, ensure_ascii=False, indent=2))
     else:
         print(render(summary))
-        from . import jev      # the optional advisor: one line, from its config file only
-        print(jev.status_line(Path(args.vault)))
     return summary["exit_code"]
 
 

@@ -70,12 +70,7 @@ class ComparisonTests(unittest.TestCase):
                  ('grep',['--extra-tokens','80'],'--extra-tokens applies only to --method synaptic'),
                  ('fts-canonical',['--record-query'],'--record-query applies only to --method synaptic'),
                  ('synaptic',['--budget-tokens','400'],'--budget-tokens sizes only the --compact synaptic packet'),
-                 ('synaptic',['--compact','--extra-tokens','80'],'--extra-tokens sizes the default synaptic packet'),
-                 # F2-07: the advisor's side channel exists for fts and the default synaptic packet only
-                 ('grep',['--jev-candidates','3'],'--jev-candidates applies to --method fts and the default synaptic'),
-                 ('fts-canonical',['--jev-candidates','3'],'--jev-candidates applies to --method fts and the default synaptic'),
-                 ('router',['--jev-candidates','3'],'--jev-candidates applies to --method fts and the default synaptic'),
-                 ('synaptic',['--compact','--jev-candidates','3'],'--jev-candidates applies to --method fts and the default synaptic')]
+                 ('synaptic',['--compact','--extra-tokens','80'],'--extra-tokens sizes the default synaptic packet')]
         for method,flags,says in refused:
             with self.subTest(method=method,flags=flags):
                 run=self.adapter(method,*flags)
@@ -87,11 +82,12 @@ class ComparisonTests(unittest.TestCase):
             '--budget-tokens','400','--compact','--prompt','alpha marker'],cwd=fixture.REPO,capture_output=True)
         self.assertEqual(cli.returncode,2)
         self.assertIn(b'--compact applies only to --method synaptic',cli.stderr)
-        for flags in (['--compact','--budget-tokens','400'],['--extra-tokens','80','--max-hops','2','--record-query'],
-                      ['--jev-candidates','3']):
+        for flags in (['--compact','--budget-tokens','400'],['--extra-tokens','80','--max-hops','2','--record-query']):
             with self.subTest(flags=flags):
                 self.assertEqual(self.adapter('synaptic',*flags).returncode,0)
-        self.assertEqual(self.adapter('fts','--jev-candidates','3').returncode,0)
+        removed = self.adapter('fts', '--jev-candidates', '3')
+        self.assertEqual(removed.returncode, 2)
+        self.assertIn(b'unrecognized arguments: --jev-candidates', removed.stderr)
 
     def test_prompt_file_and_stdin_match_the_argument(self):
         expected=json.loads(self.adapter('fts').stdout)

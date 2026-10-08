@@ -22,10 +22,8 @@ notifications/cancelled at once; tools/call runs on one worker thread, in arriva
 (the next search starts a new one), and a cancelled request gets no response.
 
 Python 3.10+; standard library only. This server opens no network connection and calls no
-model by default. The optional advisor is off unless the vault owner turns it on
-(.context/jev.json); when it is on, a call with `jev: true` to search_vault or check_claims
-may send short excerpts to the provider the owner configured, and only through
-jev_client.py (the one module that may reach a provider; see docs/jev.md).
+model. Decisions API questions are a separate, explicit public/synthetic CLI command;
+MCP retrieval and citation checks remain local.
 A separate, owner-enabled github_context tool can fetch public commit-pinned
 documentation through github_client.py without sending prompts or local notes.
 """
@@ -50,7 +48,6 @@ import sqlite3
 import subprocess
 import sys
 import threading
-import time
 
 from . import __version__
 from .platform_support import managed_process_tree
@@ -96,7 +93,7 @@ BUDGET_CAP = 24000                   # search_vault: evidence characters per pac
 PER_SOURCE_CAP = 6000                # search_vault: characters from one source
 RESUME_LIMIT_CAP = 200               # memory_resume: records per call
 PROMPT_CAP = 16000                   # characters of prompt handed to retrieval
-# check_claims (kept equal to context_layer.jev.CLAIMS_MAX etc. by a test): claims per call,
+# check_claims: claims per call,
 # citations per claim, characters of one claim and of one quoted span.
 CLAIMS_CAP = 20
 CITATIONS_CAP = 8
@@ -310,7 +307,7 @@ def retrieval_args(state: Server, method: str, top_k: int, budget: int, per_sour
         else:
             command += ["--extra-tokens", str(state.extra_tokens if extra_tokens is None
                                               else extra_tokens)]
-    command += [str(part) for part in extra_args]        # e.g. the advisor's side channel
+    command += [str(part) for part in extra_args]        # e.g. hook delivery options
     return command
 
 
@@ -775,6 +772,8 @@ def tool_github_context(state: Server, arguments: dict) -> dict:
 
 
 def tool_search_vault(state: Server, arguments: dict) -> dict:
+    if "jev" in arguments:
+        raise InvalidParams("jev option was removed; use the explicit decisions command for public or synthetic text")
     prompt = text_arg(arguments, "prompt", cap=PROMPT_CAP)
     method = arguments.get("method") or "fts"
     if not isinstance(method, str) or method not in METHODS:
@@ -799,26 +798,12 @@ def tool_search_vault(state: Server, arguments: dict) -> dict:
     compact = arguments.get("compact", state.compact)
     if not isinstance(compact, bool):
         raise InvalidParams("compact must be a boolean")
-    ask_advisor = arguments.get("jev", False)
-    if not isinstance(ask_advisor, bool):
-        raise InvalidParams("jev must be a boolean")
     ask_github = arguments.get("github", False)
     if not isinstance(ask_github, bool):
         raise InvalidParams("github must be a boolean")
-    plan = None
-    if ask_advisor:
-        # The optional advisor: the plan reads .context/jev.json only and is None (a plain
-        # search, no `jev` key in the packet) unless the vault owner enabled the feature.
-        from . import jev as advisor
-        plan = advisor.search_plan(state.vault, method, ["--compact"] if compact else [],
-                                   quiet=True)
     text, packet, code = search(state, prompt, method, top_k, budget, per_source, budget_tokens,
-                                extra_tokens, compact,
-                                extra_args=plan.retrieve_args() if plan is not None else ())
+                                extra_tokens, compact)
     failed_search = packet is None or code != 0 or packet.get("operation_status") != "ok"
-    if plan is not None and not failed_search:
-        packet = advisor.advise_search(state.vault, prompt, method, packet, plan)
-        text = json.dumps(packet, ensure_ascii=False, separators=(",", ":"))
     if ask_github and not failed_search:
         augmented = github_fallback(state.vault, prompt, packet)
         if augmented is not packet:
@@ -833,16 +818,13 @@ def tool_search_vault(state: Server, arguments: dict) -> dict:
 
 
 def tool_check_claims(state: Server, arguments: dict) -> dict:
-    """Check claims against the passages they cite: the mechanical check always, the
-    optional advisor's verdicts only with `jev: true`, when the vault owner enabled the
-    `answer` feature in mode on (a shadow call is counted, not shown)."""
-    from . import jev as advisor
+    """Check each citation's current source hash, line range, and exact span locally."""
+    if "jev" in arguments:
+        raise InvalidParams("jev option was removed; use the explicit decisions command for public or synthetic text")
+    from . import claim_checks
     claims = list_arg(arguments, "claims")
     if claims is None:
         raise InvalidParams("claims is required: a list of {text, citations}")
-    ask_advisor = arguments.get("jev", False)
-    if not isinstance(ask_advisor, bool):
-        raise InvalidParams("jev must be a boolean")
     over = []
     if len(claims) > CLAIMS_CAP:
         over.append(f"claims has {len(claims)} items; the cap is {CLAIMS_CAP}: send fewer")
@@ -864,20 +846,14 @@ def tool_check_claims(state: Server, arguments: dict) -> dict:
     if over:
         raise CapExceeded("; ".join(over[:8]))
     try:
-        parsed = advisor.parse_claims({"claims": claims})
-    except advisor.Refused as exc:
+        parsed = claim_checks.parse_claims({"claims": claims})
+    except claim_checks.Refused as exc:
         raise InvalidParams(str(exc)) from None
     try:
-        report = advisor.claims_report(state.vault, parsed, surface="mcp", ask=ask_advisor)
-    except advisor.Refused as exc:
+        report = claim_checks.claims_report(state.vault, parsed)
+    except claim_checks.Refused as exc:
         return tool_result(str(exc), True)
     return tool_result(json.dumps(report, ensure_ascii=False, separators=(",", ":")))
-
-
-def tool_jev_status(state: Server, arguments: dict) -> dict:  # noqa: ARG001
-    """The optional advisor's status from its files only (jev status --json)."""
-    from . import jev as advisor
-    return tool_result(json.dumps(advisor.status(state.vault), ensure_ascii=False, separators=(",", ":")))
 
 
 def tool_graph_neighbors(state: Server, arguments: dict) -> dict:
@@ -1026,12 +1002,7 @@ TOOLS = [
          "github": {"type": "boolean",
                     "description": "On a clean local NOT_FOUND, add owner-allowlisted public "
                                    "GitHub files as external_context (needs .context/"
-                                   "github.json; the prompt stays local)."},
-         "jev": {"type": "boolean",
-                 "description": "Ask the optional advisor if the owner enabled it (docs/jev.md): "
-                                "shadow adds a `jev` block; on may append rescued linked "
-                                "passages marked origin \"jev\". May send the question and "
-                                "short excerpts to the owner's provider. Advisory only."}}}},
+                                   "github.json; the prompt stays local)."}}}},
     {"name": "read_source",
      "title": "Read one vault source",
      "description": "Read one vault file verbatim with its current SHA-256 and length. "
@@ -1093,24 +1064,12 @@ TOOLS = [
      "annotations": annotations(read_only=True),
      "inputSchema": {"type": "object", "required": ["id"], "properties": {
          "id": {"type": "string", "description": "64 hex."}}}},
-    {"name": "jev_status",
-     "title": "Status of the optional advisor",
-     "description": "What the optional advisor (docs/jev.md) would do, from its files only: "
-                    "configured, mode and why, features and what each sends, provider kind "
-                    "and model (never a key), calibration. Sends nothing.",
-     "annotations": annotations(read_only=True),
-     "inputSchema": {"type": "object", "properties": {}}},
     {"name": "check_claims",
      "title": "Check claims against their citations",
      "description": "Mechanically check each citation: inside the vault's boundaries, still the "
                     "cited hash, span verbatim at the cited lines. Says nothing about truth. "
-                    "With jev: true and the owner's advisor answer feature on, passed "
-                    "citations are also judged (supported, contradicted, insufficient, "
-                    "uncertain): advisory, it never turns a failed check into a pass, and may "
-                    "send the claim, quote and section to the owner's provider; only then "
-                    "may it write advisor counters and cache under .context. "
-                    + DATA_NOT_INSTRUCTIONS,
-     "annotations": annotations(read_only=False),
+                    "No model call or network access. " + DATA_NOT_INSTRUCTIONS,
+     "annotations": annotations(read_only=True),
      "inputSchema": {"type": "object", "required": ["claims"], "properties": {
          "claims": {"type": "array", "minItems": 1, "maxItems": CLAIMS_CAP,
                     "items": {"type": "object", "required": ["text", "citations"],
@@ -1131,8 +1090,7 @@ TOOLS = [
                                           "span": {"type": "string",
                                                    "maxLength": CLAIM_SPAN_CAP,
                                                    "description": "Verbatim quote at those "
-                                                                  "lines."}}}}}}},
-         "jev": {"type": "boolean", "description": "Ask the advisor (see above)."}}}},
+                                                                  "lines."}}}}}}}}}},
     {"name": "github_context",
      "title": "Get GitHub context for a knowledge gap",
      "description": "When local evidence does not answer, fetch passages from public GitHub "
@@ -1154,7 +1112,7 @@ TOOLS = [
 HANDLERS = {"search_vault": tool_search_vault, "read_source": tool_read_source,
             "vault_status": tool_vault_status, "memory_record": tool_memory_record,
             "memory_resume": tool_memory_resume, "graph_neighbors": tool_graph_neighbors,
-            "read_packet": tool_read_packet, "jev_status": tool_jev_status,
+            "read_packet": tool_read_packet,
             "check_claims": tool_check_claims, "github_context": tool_github_context}
 
 
@@ -1669,10 +1627,9 @@ def evidence_block(number: int, nonce: str, item: dict, method: str) -> str:
     path = marker_value(item.get("source_path"))
     sha = marker_value(str(item.get("source_sha256") or "")[:12])
     content = item.get("content") or ""
-    advised = item.get("origin") == "jev"
     excerpt = " excerpt" if item.get("truncated") \
         and item.get("reason") != "linked note (whole)" else ""
-    if method != "synaptic" and not advised:
+    if method != "synaptic":
         lines = ""
         if isinstance(item.get("line_start"), int) and isinstance(item.get("line_end"), int):
             lines = (f" lines={marker_value(item['line_start'])}-"
@@ -1683,19 +1640,11 @@ def evidence_block(number: int, nonce: str, item: dict, method: str) -> str:
                f"lines={marker_value(item.get('line_start'))}-"
                f"{marker_value(item.get('line_end'))} "
                f"sha256={sha} hop={marker_value(item.get('hop', 0))}{excerpt}>>")
-    # One short line says why a link-reached or advised item is here: the reason (only
-    # when the link chain does not already say it) and the chain. fts items have none.
+    # One short line says why a linked item is here and gives its chain.
     reason = item.get("reason", "query terms")
-    reason = SHORT_REASONS.get(reason, reason) if not advised else reason
+    reason = SHORT_REASONS.get(reason, reason)
     chain = via_text(item.get("via"))
     parts = [part for part in (reason, f"via {chain}" if chain else "") if part]
-    if advised:
-        advice = item.get("jev") if isinstance(item.get("jev"), dict) else {}
-        p_yes = advice.get("p_yes")
-        judged = (f"p_yes {p_yes:.2f}" if isinstance(p_yes, (int, float))
-                  and not isinstance(p_yes, bool) else "label yes")
-        parts.append(f"advisor {judged} ({advice.get('provider_kind') or 'advisor'}); "
-                     "advisory, not a check of correctness")
     if not parts:
         return f"{opening}\n{content}\n<<end {number} {nonce}>>"
     return f"{opening}\n{one_line('; '.join(parts))}\n{content}\n<<end {number} {nonce}>>"
@@ -1921,18 +1870,6 @@ def run_hook(args: argparse.Namespace) -> int:
                      f"{original}-character prompt were searched.")
     state = Server(vault, args.top_k, args.budget, args.per_source, args.budget_tokens,
                    args.extra_tokens, args.compact)
-    started = time.monotonic()
-    # The optional advisor's hook feature (`auto_context`, off unless enabled by name):
-    # the plan reads .context/jev.json only; None means today's hook, byte for byte.
-    # Without .context/jev.json the plan is None (not configured), so the advisor module is
-    # not even imported on that path.
-    advisor, plan = None, None
-    if os.path.lexists(vault / ".context" / "jev.json"):
-        try:
-            from . import jev as advisor
-            plan = advisor.hook_plan(vault, method, state.compact)
-        except Exception:                      # the advisor never breaks the hook
-            advisor, plan = None, None
     floor = getattr(args, "relevance_floor", 0.0) or 0.0
     floor_args = ["--relevance-floor", repr(floor)] if floor and not state.compact else []
     delivery = getattr(args, "delivery", None) or HOOK_DELIVERY
@@ -1940,36 +1877,13 @@ def run_hook(args: argparse.Namespace) -> int:
         floor_args += ["--delivery", delivery]
     text, packet, code = search(state, prompt, method, state.top_k, state.budget,
                                 state.per_source, state.budget_tokens, timeout=HOOK_TIMEOUT,
-                                extra_args=floor_args + (plan.retrieve_args() if plan is not None
-                                                         else []))
+                                extra_args=floor_args)
     if packet is None or code != 0 or packet.get("operation_status") != "ok":
         detail = (packet or {}).get("error") or text
         # Exit 1, never 2: Claude Code treats 2 from UserPromptSubmit as "block and
         # erase the prompt"; any other non-zero code is a visible, non-blocking error.
         print(f"context-layer hook: retrieval failed: {one_line(detail)}", file=sys.stderr)
         return 1
-    skip_context = False
-    if plan is not None:
-        remaining = advisor.hook_deadline(plan, time.monotonic() - started)
-        if remaining < advisor.HOOK_MIN_REMAINING_S:
-            advisor.hook_skipped(plan, "skipped_deadline")
-        else:
-            try:
-                packet = advisor.advise_hook(vault, prompt, method, packet, plan,
-                                             deadline_s=remaining)
-            except Exception as exc:           # advise_hook falls back itself; belt and braces
-                print(f"context-layer hook: advisor error ignored: {type(exc).__name__}",
-                      file=sys.stderr)
-            else:
-                block = packet.get("jev") if isinstance(packet.get("jev"), dict) else {}
-                skip_context = bool(block.get("skip"))
-        packet.pop("jev_candidates", None)
-    if skip_context:
-        # The lossy gate_skip lever, set by the vault owner: the advisor judged the prompt
-        # off topic for the vault, so no evidence is added at all (exit 0, nothing printed).
-        print("context-layer hook: advisor gate below threshold; nothing added (gate_skip)",
-              file=sys.stderr)
-        return 0
     note = withheld_note(packet, limit=WITHHELD_NOTE_CAP)
     user_notice = None
     if note:
@@ -2032,7 +1946,7 @@ def register(sub: argparse._SubParsersAction) -> None:
                     "JSON-RPC on stdout. Protocol revisions: 2026-07-28 (per-request _meta, "
                     "server/discover), and 2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05 "
                     "through initialize. Tools: search_vault, read_source, vault_status, "
-                    "memory_record, memory_resume, graph_neighbors, read_packet, jev_status, "
+                    "memory_record, memory_resume, graph_neighbors, read_packet, "
                     "check_claims. Set "
                     f"{LEDGER_ENV}=1 to record delivered paths and hashes in "
                     ".context/session-evidence/ when that folder exists. Run it from a host "

@@ -2,14 +2,11 @@
 """Create a small fictional vault for trying Context Layer Brain View.
 
     python3 make-demo-vault.py DEMO_DIR [--notes 400] [--seed 7] [--no-trace]
-                                        [--advisor none|shadow|on]
 
 Writes Markdown notes with wikilinks and tags into DEMO_DIR (all names are
 generated), a sample `.context/activation.json` stamped with the current time
 so the overlay shows immediately, and installs nothing. The sample trace has
-the fields context-layer writes (status PARTIAL, mode superset); with
---advisor it also carries a sample advisor block (enums and counters only),
-so the advisor overlay can be tried without any advisor installed. Open
+the fields context-layer writes (status PARTIAL, mode superset). Open
 DEMO_DIR as a vault in Obsidian, copy the plugin files into
 DEMO_DIR/.obsidian/plugins/context-layer-brain/, and enable the plugin.
 
@@ -35,7 +32,7 @@ def title(rng, i):
     return f"{rng.choice(WORDS).title()} {rng.choice(WORDS)} {i}"
 
 
-def build(target, count, seed, with_trace, advisor="none"):
+def build(target, count, seed, with_trace):
     rng = random.Random(seed)
     notes = []
     for i in range(count):
@@ -88,15 +85,6 @@ def build(target, count, seed, with_trace, advisor="none"):
         "edges": edges,
         "packet": {"passages": 1 + min(2, len(hops)), "est_tokens": 640, "status": "PARTIAL"},
     }
-    if advisor != "none" and len(nodes) > 3:
-        # A sample verdict per note: one rescued, one judged off-topic, the rest on topic.
-        applied = advisor == "on"
-        for k, node in enumerate(nodes):
-            node["jev"] = "rescued" if k == 3 else ("off_topic" if k == 2 else "on_topic")
-        if applied:
-            nodes[3]["selected"] = True
-        trace["jev"] = {"mode": advisor, "applied": applied, "superset": True, "provider_kind": "recorded",
-                        "gate_passed": True, "kept": len(nodes) - 2, "flagged": 1, "rescued": 1, "degraded": False}
     (target / ".context").mkdir(exist_ok=True)
     (target / ".context" / "activation.json").write_text(json.dumps(trace, indent=2) + "\n", encoding="utf-8")
 
@@ -107,8 +95,6 @@ def main():
     parser.add_argument("--notes", type=int, default=400)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--no-trace", action="store_true", help="do not write .context/activation.json")
-    parser.add_argument("--advisor", choices=["none", "shadow", "on"], default="none",
-                        help="add a sample advisor block to the trace (default: none)")
     args = parser.parse_args()
     target = args.target.expanduser().resolve()
     if target.exists() and any(target.iterdir()) and not (target / MARKER).exists():
@@ -116,7 +102,7 @@ def main():
     if not 10 <= args.notes <= 20000:
         sys.exit("--notes must be between 10 and 20000")
     target.mkdir(parents=True, exist_ok=True)
-    build(target, args.notes, args.seed, not args.no_trace, args.advisor)
+    build(target, args.notes, args.seed, not args.no_trace)
     print(f"demo vault written to {target} ({args.notes} notes)")
 
 

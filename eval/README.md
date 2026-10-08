@@ -127,7 +127,6 @@ exit codes.
 | `--max-hops 1\|2` | 1 | synaptic | link hops activation may spread |
 | `--record-query` | off | synaptic | store the query text in `.context/activation.json` (not stored by default) |
 | `--relevance-floor R` | 0 (off) | fts, fts-canonical, synaptic (its fts part) | of the top-k notes, leave out one whose best bm25 is weaker than R times the strongest (0 <= R < 1); canonical pins and name-only hits stay; nothing is back-filled; the left-out paths are listed under `relevance_floor`. Fewer tokens, may drop evidence. Dev measurement: [docs/validation.md](../docs/validation.md#opt-in-relevance-floor) |
-| `--jev-candidates N` | 0 | fts and default synaptic | add a `jev_candidates` side channel with up to N undelivered notes for the optional advisor ([docs/jev.md](../docs/jev.md)); the evidence is unchanged |
 | `--prompt-file PATH` | none | `eval/retrieve.py` only (`context-layer search` requires `--prompt`) | read the prompt from a UTF-8 file (`-` reads standard input) instead of the last argument |
 
 `bench/run_offline.py` refuses to forward a flag to a method that would not

@@ -48,12 +48,11 @@ CI set `PYTHONUTF8=1`; under a Latin-1 locale without it, some suites fail (`tes
 | `tests/test_doctor.py` | `doctor`: offline read-only host and vault checks |
 | `tests/test_brief.py` | `brief`: the evidence-pinned session briefing |
 | `tests/test_session_evidence.py` | The delivered-evidence ledger and the citation check |
-| `tests/test_jev_contracts.py` | The advisor's templates, answer validation and confidence formula (no I/O) |
-| `tests/test_jev_client.py` | The advisor's providers and transport bounds, against loopback fakes and a fake CLI |
-| `tests/test_jev.py` | The advisor's invariants: inert when off, shadow changes nothing, `on` only appends, fail to local, privacy gates |
-| `tests/test_jev_answer.py` | The advisor's answer checks: `jev answer`, `handback check --jev` (notes only, never a pass), MCP `check_claims` |
-| `tests/test_jev_memory.py` | The advisor's memory review (store only read) and the loopback-only `jev status --check` probe |
-| `tests/test_dev_jev.py` | The advisor's development set: deterministic, self-checked, pinned by hash; `JEV_DEV_E2E=1` also runs the oracle recording chain (record, replay, calibrate, `on`) |
+| `tests/test_decisions_client.py` | The fixed Decisions transport, typed response validation and offline mocked HTTP failures |
+| `tests/test_decisions.py` | The manual public or synthetic questionnaire and preview behavior |
+| `tests/test_responses.py` | Manual Responses preview, public/synthetic boundary and mocked transport behavior |
+| `tests/test_api_route.py` | Offline route selection without task text or network access |
+| `tests/test_network_surface.py` | Static network and process-spawn boundary for API clients |
 | `tests/test_synapse.py` | Synaptic retrieval: link extraction, activation, packing, trace, host tools |
 | `tests/test_incremental_index.py` | Incremental indexing equals a full rebuild after randomized edits; golden digests of the default packets |
 | `tests/test_name_fields.py` | The opt-in name, alias and heading fields (`index --name-fields`, `search --name-fields`) |
@@ -102,7 +101,7 @@ benchmark, and `make dist` builds the wheel and a reproducible sdist.
 `PYTHON` may be a command on `PATH` or a path to an interpreter, relative or
 absolute (`make test PYTHON=.venv/bin/python`).
 
-Hosted CI (`.github/workflows/tests.yml`, actions pinned by commit) runs 12
+Hosted CI (`.github/workflows/tests.yml`, actions pinned by commit) runs 11
 required jobs. The Ubuntu matrix (Python 3.10–3.13) and macOS job (Python 3.12)
 run `make test`, `make demo`, lint, the network boundary check, build and the
 distribution check. The Windows job (Python 3.12) runs the fixture router checks,
@@ -110,7 +109,7 @@ build, installed-distribution walk and a native task-state sharing regression
 before all unit suites, benchmark checks,
 lint and the network boundary check. Ubuntu jobs also cover the plugin's build
 and Node tests (Node 24), the sealed benchmark, `bench-reproduce` (fresh benchmark
-and documented benchmark numbers), `doc-claims`, the Jev recording-to-calibration chain, and
+and documented benchmark numbers), `doc-claims`, and
 `reproducible build` (two builds, one SHA-256).
 The [accepted runtime run for `4dc60a9`](https://github.com/solisolsoli/context-layer/actions/runs/36773269705)
 passed all 12 jobs. This is package and platform verification; a live AI host
@@ -219,7 +218,7 @@ CI pass; say which one you ran.
   manifest, README and tests; the placeholder paths quoted by `scripts/audit_history.py`
   and its fixtures in `tests/test_release_tooling.py`. The e-mail audit's expected hits are
   placeholder addresses in test fixtures only (`@example.com`, `@example.org`, `.test`
-  domains, and URL userinfo cases in `tests/test_jev.py` and `tests/test_jev_client.py`). Anything
+  domains). Anything
   else is a leak.
 
 - Keep `AGENTS.md` and `CLAUDE.md` byte-identical: `diff AGENTS.md CLAUDE.md`

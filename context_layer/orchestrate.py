@@ -3,9 +3,7 @@
 A coordinator (the "root") that delegates pays twice: once for the worker and
 again for everything it must re-read to trust the result. This module keeps
 both small and makes the second one mechanical. Everything here is
-deterministic; no model is called, except by the optional `handback check --jev`
-(default off; see context_layer/jev.py), which may add an advisory note next to a
-deterministic result and never changes one.
+deterministic; no model is called.
 
     .context/packets/<sha256>.json          shared, content-addressed evidence packet
     .context/jobs/worker_core.md            the lean worker rule core (vault copy)
@@ -40,11 +38,6 @@ deterministic result and never changes one.
    multi-word name) is in the span. A fabricated quote fails, and so does a
    genuine short quote under an invented number. `--sample K` draws K checked
    records for the root to read in full, from a seed drawn at check time.
-   `--jev` (optional advisor, feature `answer`, only in its `on` mode) adds a `jev`
-   note to each record that passed: whether a model judges the quote, read within
-   its section, to support the observation. It only adds; `ok`, `problems`,
-   `mechanically_checked`, the digest, the ledger line and the exit code are the
-   deterministic ones, and the advisor is never asked about a record that failed.
 5. `job estimate` is the break-even arithmetic for "delegate or do it yourself".
 6. `handoff write` produces the minimal control file for the next agent.
 7. The verification ledger (`.context/tasks/LEDGER.jsonl`) records each
@@ -54,8 +47,7 @@ One line model for the whole package: a line ends at "\\n" (a "\\r" before it
 belongs to the line ending); form feed, U+2028, U+2029 and U+0085 never end a
 line. That is what `grep -n` numbers.
 
-Python 3.10+; standard library only. No network and no model call of its own (the
-optional advisor's call is in jev.py, through jev_client.py).
+Python 3.10+; standard library only. No network or model call.
 """
 
 from __future__ import annotations
@@ -1360,15 +1352,13 @@ def _read_capped(path: Path, cap: int, label: str, problems: list) -> bytes | No
 
 def check_handback(directory: Path, *, job_file: Path | None = None, vault: Path | None = None,
                    allowed_roots: list | None = None, k: int | str = 0,
-                   seed: str | None = None, record: bool = False, jev: bool = False) -> dict:
+                   seed: str | None = None, record: bool = False) -> dict:
     """Mechanically check a worker's return directory. Never runs anything it wrote.
 
     Without `seed` the sample is drawn from fresh randomness at check time, so the
     bytes the worker controls cannot steer which records the root reads; the seed
     and the SHA-256 of evidence.jsonl are in the report, and `seed=` replays the
-    draw. With `record=True` the check is appended to the verification ledger. With
-    `jev=True` the optional advisor may add advisory notes (`attach_advice`); the
-    deterministic fields, the digest and the ledger line are the same either way.
+    draw. With `record=True` the check is appended to the verification ledger.
     """
     directory = Path(directory).expanduser().resolve()
     job = None
@@ -1472,8 +1462,6 @@ def check_handback(directory: Path, *, job_file: Path | None = None, vault: Path
                          "current file, inside the allowed roots, long enough, carrying every "
                          "hard token of the observation. It does not make the observation "
                          "true; critical claims still need root reproduction."}
-    if jev:
-        attach_advice(vault, records, results, report)
     if record:
         report["ledger"] = ledger_append(vault, {
             "event": "handback", "task_id": (job or {}).get("task_id"),
@@ -1485,67 +1473,16 @@ def check_handback(directory: Path, *, job_file: Path | None = None, vault: Path
     return report
 
 
-JEV_MEANING = (" jev = an advisor's note (a model's judgement of whether the quote, read "
-               "within its section, supports the observation): advisory, never a "
-               "verification, and it never changes ok, problems or mechanically_checked.")
-
-
-def _say_jev(message: str) -> None:
-    print(f"context-layer handback check: --jev: {message}", file=sys.stderr)
-
-
-def attach_advice(vault: Path, records: list, results: list, report: dict) -> None:
-    """`handback check --jev`: ask the optional advisor (feature `answer`) about every
-    record that passed the mechanical check, and add what it says to the report. Only in
-    the advisor's `on` mode (with a calibration receipt) does the report change: each such
-    result gains `jev` and the report gains `jev_summary`. In `shadow` the answers are
-    counted and nothing is added; off, killed, disabled or failed, the report is the
-    deterministic one. A failed record is never asked about, and nothing here can change
-    `ok`, `problems`, `mechanically_checked` or the exit code."""
-    try:
-        from . import jev
-        plan, why = jev.answer_plan(vault)
-        if plan is None:
-            _say_jev(f"{jev.ANSWER_OFF_MESSAGES.get(why, why)}; the report is the "
-                     "deterministic check alone")
-            return
-        items, where = [], []
-        for index, (record, result) in enumerate(zip(records, results)):
-            if result.get("mechanically_checked") and isinstance(record, dict):
-                items.append({"claim": record["observation"], "path": record["source_path"],
-                              "sha256": record["source_sha256"],
-                              "line_start": record["line_start"],
-                              "line_end": record["line_end"], "span": record["span"]})
-                where.append(index)
-        if not items:
-            return
-        advice = jev.advise_claims(vault, items, plan)
-    except Exception:            # advice never costs the deterministic check
-        _say_jev("the advisor could not be used; the report is the deterministic check alone")
-        return
-    block = advice["jev"]
-    if block["mode"] != "on":
-        _say_jev("shadow mode: the answers were counted (`context-layer jev report`), not "
-                 "added to the report")
-        return
-    for index, verdict in zip(where, advice["verdicts"]):
-        results[index]["jev"] = verdict
-    report["jev_summary"] = block
-    report["meaning"] += JEV_MEANING
-
-
 def check_digest(report: dict) -> str:
     """SHA-256 over what a check found: directory, evidence hash, problems, per-record
     results, the sample (k, seed, ids) and the verdict. Wording such as `seed_source`
-    and the ledger citation added afterwards, and the advisory `jev` notes, are left out,
+    and the ledger citation added afterwards are left out,
     so the same bytes, scope and seed give the same digest on replay."""
     sample = report.get("sample") or {}
     return sha256_bytes(canonical({
         "schema": report.get("schema"), "directory": report.get("directory"),
         "evidence_sha256": report.get("evidence_sha256"), "problems": report.get("problems"),
-        # advisory `jev` notes are not part of what the deterministic check found
-        "results": [{k: v for k, v in r.items() if k != "jev"} if isinstance(r, dict) else r
-                    for r in report.get("results") or []],
+        "results": report.get("results") or [],
         "ok": report.get("ok"),
         "sample": {"k": sample.get("k"), "seed": sample.get("seed"),
                    "ids": sample.get("ids")}}))
@@ -1564,16 +1501,6 @@ def render_check(report: dict) -> str:
     for result in report["results"]:
         if not result["mechanically_checked"]:
             lines.append(f"  FAIL {result['id']}: {'; '.join(result['reasons'])}")
-    summary = report.get("jev_summary")
-    if summary:
-        lines.append(f"advisor ({summary['provider_kind']}, {summary['mode']}): advisory "
-                     "notes only, never a verification")
-        for result in report["results"]:
-            note = result.get("jev")
-            if note:
-                extra = "" if note["p_yes"] is None else f", p_yes {note['p_yes']}"
-                code = f" ({note['code']})" if note["code"] else ""
-                lines.append(f"  ADVISORY {result['id']}: {note['verdict']}{extra}{code}")
     if report.get("observation_unanchored"):
         lines.append(f"  {report['observation_unanchored']} checked record(s) assert no hard "
                      "token; their observations were not compared with their spans")
@@ -2170,7 +2097,7 @@ def cmd_handback_check(args: argparse.Namespace) -> int:
     report = check_handback(Path(args.dir), job_file=Path(args.job) if args.job else None,
                             vault=Path(args.vault) if args.vault else None,
                             allowed_roots=args.allowed_root or None, k=k, seed=args.seed,
-                            record=args.record, jev=args.jev)
+                            record=args.record)
     if args.out:
         atomic_write(Path(args.out).expanduser(),
                      json.dumps(report, indent=1, ensure_ascii=False) + "\n")
@@ -2328,12 +2255,6 @@ def register(sub: argparse._SubParsersAction) -> None:
                               "verification ledger .context/tasks/LEDGER.jsonl.")
     p_check.add_argument("--out", default=None, help="Also write the JSON report here.")
     p_check.add_argument("--json", action="store_true")
-    p_check.add_argument("--jev", action="store_true",
-                         help="Ask the optional advisor (docs/jev.md, off by default) whether "
-                              "each quote supports its observation. Only its `on` mode adds "
-                              "advisory `jev` notes; `shadow` counts and shows nothing; it "
-                              "never changes ok, problems, mechanically_checked or the exit "
-                              "code, and never turns a failed record into a pass.")
     p_check.set_defaults(func=_guarded(cmd_handback_check), forward_to=None)
 
     p_handoff = sub.add_parser("handoff", help="Write the minimal handoff control file.")

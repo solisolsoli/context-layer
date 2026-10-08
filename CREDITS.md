@@ -38,14 +38,14 @@ in the starter brain.** Every note, hub, template and example in
 `templates/starter-brain/` was written for this project. context-layer is a
 separate tool with a compatible layout, not a fork of Avenox Beyin.
 
-## The optional advisor (Jev)
+## Historical Jev advisor credit
 
-The optional advisor (`context-layer jev`, [docs/jev.md](docs/jev.md)) follows
+The former optional advisor (`context-layer jev`, [migration note](docs/jev.md)) followed
 the design of the optional Jev advisor in **Avenox Beyin** (v3.1.0-v3.5.1, MIT
 licence, Copyright (c) 2026 Avenox), whose Jev integration was contributed by
 **Forn** and adapts Forn's hafiza-os (MIT licence).
 
-What follows that design: an advisor that is off by default and optional to
+The former design used an advisor that was off by default and optional to
 install; the `off` / `shadow` / `on` modes; per-feature switches; a kill switch;
 a call log that holds counters only; privacy gates with a secret scan before
 anything is sent; a freshness re-check of the judged sources after every call;

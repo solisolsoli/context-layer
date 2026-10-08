@@ -4,8 +4,7 @@
 // retrieval (<vault>/.context/activation.json, format version 1) and turns it
 // into display state for the overlay. Everything here is defensive: a
 // missing, partial, oversized, stale or malformed file is ignored without
-// throwing. Fields added to version 1 later (such as `mode` or the optional
-// advisor block `jev`) are read when present and otherwise ignored. This
+// throwing. Unknown fields added to version 1 later are ignored. This
 // module never writes files and never touches the network.
 
 const DEFAULT_PATH = '.context/activation.json';
@@ -13,7 +12,6 @@ const MAX_BYTES = 512 * 1024;
 const MAX_NODES = 200;
 const MAX_EDGES = 400;
 const MAX_HOP = 64;
-const MAX_COUNT = 1000000;
 const CLOCK_SKEW_MS = 60 * 1000;
 const EDGE_KINDS = Object.freeze(['wikilink', 'embed', 'mdlink', 'frontmatter', 'backlink']);
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
@@ -29,25 +27,6 @@ const MODE_NOTES = Object.freeze({ compact: 'compact packet: it can leave out ev
 // which the passage count already says; OK is written by older traces.
 const STATUS_TEXT = Object.freeze({ PARTIAL: '', OK: '', NOT_FOUND: 'no evidence found', ERROR: 'retrieval error' });
 
-// Optional advisor block. Only enums, booleans and counters are read; any
-// other field (text, scores, model names, reasons) is ignored.
-const ADVISOR_MODES = Object.freeze(['off', 'shadow', 'on']);
-const ADVISOR_PROVIDERS = Object.freeze(['systemone', 'openai_compat', 'host_cli', 'cmd', 'recorded', 'fake']);
-const ADVISOR_VERDICTS = Object.freeze(['rescued', 'on_topic', 'off_topic', 'local_only', 'not_judged']);
-const ADVISOR_NOTE = 'advisor judgement, not evidence';
-// The wording of the advisor layer: the advisor is a second opinion, not a
-// check of correctness (docs/jev.md).
-const ADVISOR_LAYER_NOTE = 'Advisory only: the advisor\'s judgement is not evidence and not a check of correctness.';
-const ADVISOR_LAYER_EMPTY = Object.freeze({
-  none: 'No retrieval trace found yet, so there is nothing to show about the advisor.',
-  disabled: 'The activation overlay is turned off in the plugin settings, so no trace is read.',
-  cleared: 'The last retrieval was cleared. A newer retrieval shows again.',
-  stale: 'The last retrieval is older than the freshness window, so it is not shown.',
-});
-const ADVISOR_LAYER_NO_DATA = 'The last retrieval carries no advisor data. The advisor is off (its default), or that search was not a synaptic search with tracing on. Nothing was recorded, so nothing is shown.';
-const ADVISOR_LAYER_OFF = 'The advisor was off for the last retrieval. Nothing was judged.';
-const VERDICT_LABELS = Object.freeze({ rescued: 'rescued', on_topic: 'on topic', off_topic: 'off topic', local_only: 'local only', not_judged: 'not judged' });
-
 // Overlay look. Seeds (full-text matches) are warm amber; notes reached by
 // following links are cool cyan that whitens with the activation score.
 // Notes that were reached but did not contribute a passage to the packet
@@ -61,18 +40,6 @@ const REACHED_MIX = 0.6;
 // Opacity factor for every note outside an active retrieval, so the notes of
 // the retrieval stand out against the degree palette.
 const OVERLAY_NODE_DIM = 0.22;
-// Advisor marks are outlines around the note: a solid ring for a rescued
-// note, a dashed ring for a note judged off-topic. Applied verdicts are
-// bright; shadow ("would") verdicts are faint. A flagged note is also dimmed
-// only when the verdict was applied.
-const RESCUED_RGB = Object.freeze([0.55, 1.0, 0.72]);
-const FLAGGED_RGB = Object.freeze([0.95, 0.94, 0.91]);
-const FLAGGED_DIM = 0.45;
-const MARKS = Object.freeze({
-  rescued: Object.freeze({ ring: 1, rgb: RESCUED_RGB }),
-  off_topic: Object.freeze({ ring: 2, rgb: FLAGGED_RGB }),
-});
-
 // Pulse timing: each hop level starts PULSE_STEP_MS after the previous one;
 // a pulse needs PULSE_TRAVEL_MS to cross its link; the cycle then rests.
 const PULSE_STEP_MS = 700;
@@ -84,7 +51,6 @@ function clamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
 function compareStrings(a, b) { return a < b ? -1 : (a > b ? 1 : 0); }
 function finiteNumber(v) { return typeof v === 'number' && Number.isFinite(v) ? v : null; }
 function nonNegativeInt(v) { return Number.isInteger(v) && v >= 0 ? v : null; }
-function counter(v) { return Number.isInteger(v) && v >= 0 && v <= MAX_COUNT ? v : null; }
 function nfc(s) { return typeof s.normalize === 'function' ? s.normalize('NFC') : s; }
 
 // A vault-relative POSIX path without '.', '..' or empty segments, in
@@ -110,25 +76,6 @@ function parseTimestamp(value) {
   return Number.isFinite(ms) ? ms : null;
 }
 
-// The advisor block, reduced to enums, booleans and counters. Returns null
-// when absent or invalid.
-function normalizeAdvisor(raw) {
-  if (!isPlainObject(raw) || !ADVISOR_MODES.includes(raw.mode)) return null;
-  const degraded = raw.degraded === true || (Number.isInteger(raw.degraded) && raw.degraded > 0);
-  return {
-    mode: raw.mode,
-    // Verdicts count as applied only in mode "on" with applied: true.
-    applied: raw.mode === 'on' && raw.applied === true,
-    superset: typeof raw.superset === 'boolean' ? raw.superset : null,
-    providerKind: ADVISOR_PROVIDERS.includes(raw.provider_kind) ? raw.provider_kind : null,
-    gatePassed: typeof raw.gate_passed === 'boolean' ? raw.gate_passed : null,
-    kept: counter(raw.kept), flagged: counter(raw.flagged), rescued: counter(raw.rescued),
-    // Notes a shadow run judged relevant that mode on would have added; absent in older traces.
-    wouldRescue: counter(raw.would_rescue),
-    degraded,
-  };
-}
-
 // Validates an already-parsed JSON value. Returns a normalized trace or null.
 // The optional `query` and `query_sha256` fields are deliberately not copied:
 // the view never displays or compares query text, even when the user opted
@@ -147,8 +94,7 @@ function normalizeTrace(raw) {
     const hop = Number.isInteger(n.hop) && n.hop >= 0 && n.hop <= MAX_HOP ? n.hop : null;
     if (!path || seen.has(path) || activation === null || hop === null) continue;
     const role = n.role === 'seed' || n.role === 'hop' ? n.role : (hop === 0 ? 'seed' : 'hop');
-    const jev = ADVISOR_VERDICTS.includes(n.jev) ? n.jev : null;
-    nodes.push({ path, activation: clamp01(activation), hop, role, selected: n.selected === true, jev });
+    nodes.push({ path, activation: clamp01(activation), hop, role, selected: n.selected === true });
     seen.add(path);
   }
   nodes.sort((a, b) => b.activation - a.activation || a.hop - b.hop || compareStrings(a.path, b.path));
@@ -191,7 +137,6 @@ function normalizeTrace(raw) {
     nodes,
     edges,
     packet: { passages: nonNegativeInt(packet.passages), estTokens: nonNegativeInt(packet.est_tokens), status },
-    advisor: normalizeAdvisor(raw.jev),
   };
 }
 
@@ -247,102 +192,18 @@ function formatHud(trace, nowMs, match) {
   return parts.join(' \u00b7 ');
 }
 
-// What the view may show of the advisor block. Applied verdicts are always
-// shown; shadow verdicts (and verdicts that were not applied) only when the
-// "Show advisor (shadow)" setting is on, labelled "would".
-function advisorView(trace, showShadow) {
-  const a = trace && trace.advisor;
-  if (!a || a.mode === 'off') return null;
-  return { mode: a.mode, applied: a.applied, marks: a.applied || !!showShadow, would: !a.applied, advisor: a };
-}
-
-// HUD line for the advisor, or '' when nothing is to be shown.
-function formatAdvisor(view) {
-  if (!view) return '';
-  const a = view.advisor, parts = [];
-  if (view.applied) {
-    parts.push('advisor on');
-    if (a.rescued !== null) parts.push('rescued ' + a.rescued);
-    if (a.flagged !== null) parts.push('flagged ' + a.flagged);
-    if (a.kept !== null) parts.push('kept ' + a.kept);
-  } else if (view.marks) {
-    parts.push('advisor ' + a.mode + ', not applied');
-    const would = a.wouldRescue !== null ? a.wouldRescue : a.rescued;
-    if (would !== null) parts.push('would rescue ' + would);
-    if (a.flagged !== null) parts.push('would flag ' + a.flagged);
-  } else if (a.mode === 'on') {
-    parts.push('advisor on, not applied');
-  } else {
-    return '';
-  }
-  if (a.gatePassed === false) parts.push('topic gate not passed');
-  if (a.superset === false) parts.push('not a superset of fts');
-  if (a.degraded) parts.push('degraded');
-  return parts.join(' \u00b7 ');
-}
-
-// What the advisor layer shows: plain data, no DOM. `trace` is the trace the
-// view would draw (fresh, not cleared), or null with `absent` naming why
-// ('none', 'disabled', 'cleared' or 'stale'). Only fields the writer records
-// are used: the advisor block's enums and counters and one verdict per node.
-// The lists cover the notes the trace lists (at most MAX_NODES).
-function advisorLayerModel(trace, absent = 'none') {
-  const base = { state: 'data', message: '', facts: [], rescued: [], candidates: [], counts: null, note: ADVISOR_LAYER_NOTE };
-  if (!trace) return Object.assign(base, { state: 'no-trace', message: ADVISOR_LAYER_EMPTY[absent] || ADVISOR_LAYER_EMPTY.none });
-  const a = trace.advisor;
-  if (!a) return Object.assign(base, { state: 'no-advisor', message: ADVISOR_LAYER_NO_DATA });
-  if (a.mode === 'off') return Object.assign(base, { state: 'off', message: ADVISOR_LAYER_OFF });
-  const counts = { rescued: 0, on_topic: 0, off_topic: 0, local_only: 0, not_judged: 0 };
-  for (const n of trace.nodes) if (n.jev) counts[n.jev]++;
-  const facts = [];
-  if (a.applied) facts.push('Mode: on, applied to the packet');
-  else if (a.mode === 'on') facts.push('Mode: on, but not applied to this packet');
-  else facts.push('Mode: shadow, not applied (the packet was not changed)');
-  if (a.providerKind) facts.push('Provider kind: ' + a.providerKind);
-  if (a.applied) {
-    if (a.rescued !== null) facts.push('Rescued: ' + a.rescued);
-    if (a.flagged !== null) facts.push('Flagged off topic: ' + a.flagged);
-    if (a.kept !== null) facts.push('Kept: ' + a.kept);
-  } else {
-    if (a.wouldRescue !== null) facts.push('Would rescue: ' + a.wouldRescue);
-    if (a.flagged !== null) facts.push('Would flag off topic: ' + a.flagged);
-    if (a.kept !== null) facts.push('Kept: ' + a.kept);
-  }
-  if (a.gatePassed === true) facts.push('Topic gate: passed');
-  else if (a.gatePassed === false) facts.push('Topic gate: not passed');
-  if (a.superset === false) facts.push('Not a superset of the fts packet');
-  if (a.degraded) facts.push('Degraded: yes');
-  facts.push('Notes listed in the trace, by verdict: ' + Object.keys(VERDICT_LABELS).map(k => VERDICT_LABELS[k] + ' ' + counts[k]).join(', '));
-  const listed = verdict => trace.nodes.filter(n => n.jev === verdict);
-  // Applied: the notes the advisor added to the packet. Not applied: notes it
-  // judged on topic that the packet did not carry (what mode on could add,
-  // within its token budget).
-  const rescued = a.applied ? listed('rescued') : [];
-  const candidates = a.applied ? [] : listed('on_topic').filter(n => !n.selected);
-  const pick = n => ({ path: n.path, hop: n.hop, activation: n.activation });
-  return Object.assign(base, { state: 'data', facts, counts, rescued: rescued.map(pick), candidates: candidates.map(pick) });
-}
-
 function mixRgb(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
 
 // Colour, size multiplier and alpha of one activated note. Three things are
 // visible at a glance: seed vs hop (hue), activation score (size and
 // brightness), and in the packet vs reached only (saturation and alpha).
-// An applied off-topic verdict dims the note further.
-function overlayNodeStyle(entry, appliedVerdict = null) {
+function overlayNodeStyle(entry) {
   const a = clamp01(entry.activation);
   const seed = entry.role === 'seed';
   let color = seed ? SEED_RGB.slice() : mixRgb(HOP_RGB_LOW, HOP_RGB_HIGH, a);
   if (!entry.selected) color = mixRgb(color, REACHED_RGB, REACHED_MIX);
   let alpha = entry.selected ? 0.98 : 0.45 + 0.25 * a;
-  if (appliedVerdict === 'off_topic') alpha *= FLAGGED_DIM;
   return { color, sizeMult: 1.35 + 1.4 * a + (seed ? 0.3 : 0), alpha };
-}
-
-// Outline for an advisor verdict, or null.
-function advisorMark(verdict, applied) {
-  const m = MARKS[verdict];
-  return m ? { ring: m.ring, rgb: m.rgb, alpha: applied ? 0.95 : 0.5, would: !applied } : null;
 }
 
 // Maps a trace onto the notes currently in the graph. `lookupNode(path)`
@@ -350,17 +211,15 @@ function advisorMark(verdict, applied) {
 // result is keyed by the model's own paths. Links are merged per note pair:
 // one ribbon per pair, at the earliest traversal step that used it, pulsing
 // in that direction. Returns null for no trace.
-function mapOverlay(trace, lookupNode, options = {}) {
+function mapOverlay(trace, lookupNode) {
   if (!trace) return null;
-  const advisor = advisorView(trace, options.showAdvisorShadow);
   const nodes = new Map(), byTracePath = new Map(); let maxHop = 0;
   for (const entry of trace.nodes) {
     const node = lookupNode(entry.path);
     if (!node || nodes.has(node.path)) continue;
-    const verdict = advisor && advisor.marks ? entry.jev : null;
-    const style = overlayNodeStyle(entry, advisor && advisor.applied ? verdict : null);
+    const style = overlayNodeStyle(entry);
     const mapped = { node, path: node.path, tracePath: entry.path, activation: entry.activation, hop: entry.hop, role: entry.role,
-      selected: entry.selected, verdict, mark: verdict ? advisorMark(verdict, advisor.applied) : null, ...style };
+      selected: entry.selected, ...style };
     nodes.set(node.path, mapped); byTracePath.set(entry.path, mapped);
     if (entry.hop > maxHop) maxHop = entry.hop;
   }
@@ -390,7 +249,7 @@ function mapOverlay(trace, lookupNode, options = {}) {
   edges.sort((x, y) => x.hop - y.hop || y.weight - x.weight || compareStrings(x.from, y.from) || compareStrings(x.to, y.to));
   const total = trace.nodes.length;
   return { key: trace.key, generatedAt: trace.generatedAt, nodes, edges, maxHop, maxEdgeHop,
-    total, matched: nodes.size, droppedNodes: total - nodes.size, droppedEdges, advisor };
+    total, matched: nodes.size, droppedNodes: total - nodes.size, droppedEdges };
 }
 
 function pulseCycleMs(maxEdgeHop) { return Math.max(1, maxEdgeHop) * PULSE_STEP_MS + PULSE_TRAVEL_MS + PULSE_REST_MS; }
@@ -474,10 +333,9 @@ function createWatcher(options) {
 
 module.exports = {
   DEFAULT_PATH, MAX_BYTES, MAX_NODES, MAX_EDGES, EDGE_KINDS, MODES, MODE_NOTES, STATUS_TEXT,
-  ADVISOR_MODES, ADVISOR_PROVIDERS, ADVISOR_VERDICTS, ADVISOR_NOTE, ADVISOR_LAYER_NOTE, ADVISOR_LAYER_EMPTY, ADVISOR_LAYER_NO_DATA, ADVISOR_LAYER_OFF,
-  SEED_RGB, HOP_RGB_LOW, HOP_RGB_HIGH, REACHED_RGB, RESCUED_RGB, FLAGGED_RGB, FLAGGED_DIM, OVERLAY_NODE_DIM,
+  SEED_RGB, HOP_RGB_LOW, HOP_RGB_HIGH, REACHED_RGB, OVERLAY_NODE_DIM,
   PULSE_STEP_MS, PULSE_TRAVEL_MS, PULSE_REST_MS,
-  sanitizeVaultPath, sanitizeTracePath, parseTimestamp, normalizeTrace, normalizeAdvisor, parseActivation, isFresh, formatAge,
-  statusText, methodLabel, formatHud, advisorView, formatAdvisor, advisorLayerModel, overlayNodeStyle, advisorMark, mapOverlay,
+  sanitizeVaultPath, sanitizeTracePath, parseTimestamp, normalizeTrace, parseActivation, isFresh, formatAge,
+  statusText, methodLabel, formatHud, overlayNodeStyle, mapOverlay,
   pulseCycleMs, pulseAt, frameNodes, createWatcher,
 };

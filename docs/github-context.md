@@ -100,7 +100,7 @@ or refresh option. When caching is enabled it uses cached bytes first, then
 the network on a cache miss. Use `github-context --offline` or MCP
 `github_context` with `offline: true` when network access must be avoided.
 
-The prompt hook, brief, ordinary local search and Jev never implicitly enable
+The prompt hook, brief, ordinary local search and manual Decisions command never implicitly enable
 this reader. The default agent rules describe when to use the MCP tool. A host
 still needs the tool connected and permitted; a rule file cannot force it to
 call a tool.

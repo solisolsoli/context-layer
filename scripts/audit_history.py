@@ -107,7 +107,11 @@ def trace_digests(text: str) -> dict[str, int]:
     found: dict[str, int] = {}
     previous = None
     for number, line in enumerate(text.splitlines(), 1):
-        for word in WORD_RE.findall(line.casefold()):
+        # The public Decisions model name contains a word that also occurs in
+        # the private-trace set. Exempt only the exact product identifier.
+        public_line = re.sub(r"\b" + re.escape("gpt-6-luna") + r"\b",
+                             "gpt-6-model", line.casefold())
+        for word in WORD_RE.findall(public_line):
             for gram in (word, f"{previous} {word}" if previous else None):
                 if gram:
                     digest = hashlib.sha256((TRACE_SALT + gram).encode("utf-8")).hexdigest()

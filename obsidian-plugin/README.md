@@ -62,8 +62,7 @@ retrieval touched, not whether that was the right evidence for your question.
   zoom, Home resets it, Escape leaves a focused region. In region mode, the
   legend entries are buttons: click one (or press Enter on it) to turn toward
   that region and dim the rest.
-- **Retrieval overlay**, **advisor overlay** and, off by default, the
-  **advisor layer** panel (described below).
+- **Retrieval overlay** showing the last synaptic trace.
 
 ## Install
 
@@ -113,8 +112,6 @@ see the [support boundaries](../SCOPE.md).
 | Show activation overlay | on | Show the last retrieval (see below). |
 | Activation file | `.context/activation.json` | Vault-relative path of the trace. Only an `activation*.json` file directly inside a `.context` folder is accepted. |
 | Freshness window | 10 min | Older traces are not drawn. From 1 to 120 minutes; a larger value in `data.json` is clamped to 120. |
-| Show advisor (shadow) | off | Draw advisor verdicts that were not applied, labelled "would" (see below). |
-| Show advisor layer | off | A read-only panel about what the advisor did in the last retrieval (see "The advisor layer"). Also switched by the button at the bottom right of the view. |
 | Remember layout | on | Save the settled positions of linked notes in the plugin's data file. The next time the view opens, a note whose links did not change is drawn where it was, and nothing is solved when no links changed. |
 | Developer diagnostics | off | Show frame rate, frame time and layout state in the corner. Local only. |
 
@@ -195,81 +192,13 @@ ignored without an error. Overlay links come from the trace, so a traversed
 link that Obsidian itself does not resolve (for example some frontmatter
 relations) is still drawn between its two notes.
 
-## The advisor overlay
-
-`context-layer` has an optional advisor (off by default) that can judge
-retrieved notes. When the trace carries an advisor block (`jev`), the plugin
-reads only its enums, booleans and counters: `mode` (`off`, `shadow`, `on`),
-`applied`, `superset`, `provider_kind`, `gate_passed`, `kept`, `flagged`,
-`rescued`, `degraded`, and per note one verdict (`rescued`, `on_topic`,
-`off_topic`, `local_only` or `not_judged`). Any other field, text or number is
-ignored.
-
-- **Applied verdicts** (mode `on`, applied): a rescued note gets a solid ring;
-  a note judged off-topic is dimmed and gets a dashed ring. The HUD adds
-  `advisor on . rescued <n> . flagged <n> . kept <n>`.
-- **Verdicts that were not applied** (mode `shadow`, or `on` without
-  `applied`): nothing is drawn unless **Show advisor (shadow)** is on. Then the
-  rings are faint, never change a note's colour, the HUD says
-  `advisor shadow, not applied . would rescue <n> . would flag <n>`, and the
-  key, tooltips and summary say "would".
-- The key says "advisor judgement, not evidence".
-- A trace without the block, or with mode `off`, is drawn exactly as without
-  an advisor.
-
-The plugin never calls the advisor or any model and makes no network request;
-it only draws what the trace records.
-
-## The advisor layer
-
-A read-only panel, hidden by default, that says what the optional advisor did
-in the last retrieval. Turn it on with the **Show advisor layer** button at the
-bottom right of the view or with the setting of the same name; the choice is
-kept in the plugin's data file. It is separate from the overlay marks above and
-changes nothing that the overlay draws.
-
-It uses only what the activation trace records (the advisor block's enums,
-booleans and counters, and one verdict per listed note), so it shows:
-
-- the mode, and whether it was applied to the packet: `on, applied`, `on, but
-  not applied`, or `shadow, not applied (the packet was not changed)`;
-- the provider kind, the counters the writer records (rescued, flagged off
-  topic, kept; for a run that was not applied, "would rescue" and "would flag
-  off topic"; a trace from an older writer has no "would rescue" counter and the
-  line is then left out), the
-  topic-gate result, "not a superset of the fts packet" and "degraded" when the
-  trace says so, and how many of the listed notes carry each verdict (only the
-  notes in the trace, which is capped at 200);
-- **Notes the advisor rescued**: the notes it added to the packet, each a button
-  that opens the note. A note that is not in this vault is listed without a
-  button;
-- for a run that was not applied, **Judged on topic, not in the packet**: notes
-  the advisor judged on topic that the packet did not carry. This is derived
-  from two trace fields (verdict `on_topic`, `selected: false`) and is capped
-  with the trace; the "Would rescue" line above is the writer's own counter
-  (`would_rescue` in the trace's advisor block), not a count of this list.
-
-It always ends with "Advisory only: the advisor's judgement is not evidence and
-not a check of correctness."
-
-When there is nothing to show it says why instead of staying blank: no trace
-yet, the activation overlay turned off, the trace cleared or older than the
-freshness window, a trace with no advisor data (the advisor is off, which is the
-default, or that search was not a synaptic search with tracing on), or an
-advisor block with mode `off`.
-
-The layer reads the same single trace file as the overlay. It does not read the
-advisor's call log or configuration, calls no advisor or model, never reads a
-key and makes no network request. To try it without an advisor installed, use
-the `--advisor` option of the demo script below.
-
 ## Accessibility
 
 - **Keyboard.** The canvas, the legend entries and the retrieval summary are
   reachable with Tab. See "What you see" for the canvas keys.
 - **Retrieval summary.** A collapsible panel lists the last retrieval as text:
   its status line and every activated note with its hop, role, packet
-  membership and any advisor verdict. Each entry is a button that opens the
+  membership. Each entry is a button that opens the
   note. The status is also written to a polite live region, which announces a
   change of state (not the ticking age).
 - **Colour.** Every pair of region colours, "Other" included, stays at least
@@ -277,7 +206,7 @@ the `--advisor` option of the demo script below.
   tritanopia (Machado et al. 2009, full severity), both as drawn on the black
   stage and as legend dots (`tests/palette-cvd.test.js`). Colour is never the
   only cue: the legend names every region and can isolate it, overlay styles
-  also differ in size and brightness, and advisor marks differ in shape.
+  also differ in size and brightness.
 - **Motion.** Reduced motion is respected (see Settings).
 - **Theme.** The 3D stage is dark by design: the renderer draws light on
   black. The text layers on top of it (HUD, legend, summary, tooltip) use CSS
@@ -300,10 +229,8 @@ What the plugin reads:
   does not index dot folders, so the file is not reachable as a normal note.
   From the file the plugin uses `version`, `generated_at`, `run_id`, `method`,
   `mode`, the node fields `path`, `activation`, `hop`, `role`, `selected` and
-  `jev`, the edge fields `from`, `to`, `kind`, `weight` and `hop` (or
-  `depth`),
-  `packet.passages`, `packet.est_tokens`, `packet.status`, and the enum and
-  counter fields of the advisor block listed above. `budget_tokens` is parsed
+  the edge fields `from`, `to`, `kind`, `weight` and `hop` (or `depth`),
+  `packet.passages`, `packet.est_tokens` and `packet.status`. `budget_tokens` is parsed
   but not shown.
 - Query text: `context-layer` writes `"query": null` by default, so the file
   does not contain your prompt unless you opted in to recording it. Even when a
@@ -396,8 +323,7 @@ python3 demo/make-demo-vault.py /path/to/new/empty/folder --notes 400
 This writes generated notes with links and tags plus a fresh sample
 `.context/activation.json`. Open the folder as a vault, install the plugin as
 above, and open the view; the sample trace is fresh for 10 minutes (run the
-script again on the same folder to refresh it). Add `--advisor on` or
-`--advisor shadow` to include a sample advisor block.
+script again on the same folder to refresh it).
 
 ## Development
 
@@ -413,17 +339,10 @@ node tests/run-all.js       # all tests, non-zero exit on failure
 writer on the fictional development vault. From the repository root,
 `python3 obsidian-plugin/tests/fixtures/make_writer_traces.py` regenerates
 them, and `--check` fails when the writer's trace format has changed.
-`tests/advisor-layer.test.js` does the same for advisor-annotated traces
-(`writer-trace-jev-on.json`, `writer-trace-jev-shadow.json`), produced by the
-real advisor code with a scripted provider by
-`python3 obsidian-plugin/tests/fixtures/make_jev_writer_traces.py` (also with
-`--check`); no model or network is involved.
-
 Source layout: `src/main.js` (plugin entry), `src/view.js` (view and renderer),
 `src/graph.js` (link graph model), `src/layout.js` (layout solver and worker),
 `src/edges.js`, `src/shaders.js`, `src/field.js`, `src/palette.js` (the degree scale and the resting opacities),
-`src/regions.js`, `src/activation.js` (trace parsing, overlay state and the
-advisor layer's data),
+`src/regions.js`, `src/activation.js` (trace parsing and overlay state),
 `src/settings.js`, `src/math.js`, `src/metrics.js`, `src/gl-program.js`.
 
 ## License

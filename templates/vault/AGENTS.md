@@ -151,7 +151,7 @@ changed it. If an older note and LOG.md disagree, LOG.md wins.
   SHA-256. Add `--method synaptic` to follow the vault's own links.
 - MCP tools when connected: `search_vault`, `read_source`, `vault_status`,
   `memory_record`, `memory_resume`, `graph_neighbors`, `read_packet`,
-  `jev_status`, `check_claims`, `github_context`.
+  `check_claims`, `github_context`.
 - `context-layer rules check .` / `rules record .`: parity and records.
 - `context-layer brief .`: the vault state at a glance, each line quoted from
   a named file with its hash prefix.

@@ -120,14 +120,14 @@ git push origin HEAD:main
 
 Do not use `--all`, `--mirror`, a force push, or push private local refs. Verify
 that remote `main` resolves to the intended commit and its files match the
-reviewed bytes. Wait for the `tests` workflow on that exact commit. It has 12
+reviewed bytes. Wait for the `tests` workflow on that exact commit. It has 11
 required jobs:
 
 - `python 3.10 on ubuntu-latest`, `python 3.11 on ubuntu-latest`,
   `python 3.12 on ubuntu-latest`, `python 3.13 on ubuntu-latest`;
 - `python 3.12 on macos-latest`, `python 3.12 on windows-latest`;
 - `obsidian plugin (node 24)`, `sealed benchmark (offline)`, `bench-reproduce`;
-- `doc-claims`, `jev recording chain`, `reproducible build`.
+- `doc-claims`, `reproducible build`.
 
 A failure is investigated and fixed, not hidden behind a platform-wide skip or
 `continue-on-error`. Local checks do not replace hosted results. Keep static

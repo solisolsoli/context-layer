@@ -21,8 +21,6 @@ const DEFAULT_SETTINGS = Object.freeze({
   activationOverlay: true,
   activationPath: Activation.DEFAULT_PATH,
   activationWindowMinutes: 10,
-  showAdvisorShadow: false,
-  showAdvisorLayer: false,
   rememberLayout: true,
   developerDiagnostics: false,
 });
@@ -121,14 +119,6 @@ class BrainSettingTab extends PluginSettingTab {
       .setDesc('Traces older than this are not shown.')
       .addSlider(sl => sl.setLimits(1, 120, 1).setValue(Math.min(120, s.activationWindowMinutes)).setDynamicTooltip()
         .onChange(v => save('activationWindowMinutes', v)));
-
-    new Setting(containerEl).setName('Show advisor (shadow)')
-      .setDesc('When the trace carries advisor verdicts that were not applied (shadow mode), draw what the advisor would have done, labelled "would". Advisor judgement, not evidence.')
-      .addToggle(t => t.setValue(s.showAdvisorShadow).onChange(v => save('showAdvisorShadow', v)));
-
-    new Setting(containerEl).setName('Show advisor layer')
-      .setDesc('A read-only panel in the view: what the optional advisor did in the last retrieval (mode, counts, the notes it rescued). Hidden by default. It reads only what the trace records; if there is no advisor data it says so. Advisory only, not a check of correctness.')
-      .addToggle(t => t.setValue(s.showAdvisorLayer).onChange(v => save('showAdvisorLayer', v)));
 
     new Setting(containerEl).setName('Advanced').setHeading();
 

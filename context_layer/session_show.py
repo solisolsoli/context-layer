@@ -23,9 +23,9 @@ Sources (formats are owned by the modules named here; nothing is invented):
   packets          `.context/packets/<64 hex>.json` (orchestrate.py): whether a
                    delivered packet id still names a packet file, and which tasks
                    were dispatched from it (`task.json` `shared_packet_id`).
-  advisor          `.context/jev-calls.jsonl` (jev.py): counters only, and the log
+  historical advisor log `.context/jev-calls.jsonl`: counters only, and the log
                    has no session field, so rows are matched by time window and
-                   labelled that way.
+                   labelled that way. This reader does not make advisor calls.
 
 The two id spaces differ by design: the evidence ledger's session id comes from
 the host (CLAUDE_CODE_SESSION_ID or the hook input), the others from
@@ -439,13 +439,17 @@ def _advisor(root: Path, window: tuple) -> dict:
            "rows": 0, "features": {}}
     if not os.path.lexists(root / JEV_LOG):
         return out
-    from . import jev
-    try:
-        rows = jev.read_log(root)
-    except (jev.Refused, OSError, ValueError) as exc:
-        out.update(status="unreadable", problems=[str(exc)])
-        return out
-    out["status"] = "ok"
+    info = _source("advisor", JEV_LOG, root / JEV_LOG)
+    rows = []
+    for number, body, complete in _lines(root / JEV_LOG, info, DEFAULT_MAX_BYTES):
+        row = _json_line(body)
+        if row is None:
+            _bad(info, number, complete)
+        else:
+            rows.append(row)
+    out["status"] = info["status"]
+    out["problems"] = info["problems"]
+    out["size"] = info["size"]
     if window[0] is None:
         out["status"] = "no_window"      # nothing in this session is dated to match against
         return out

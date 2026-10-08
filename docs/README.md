@@ -13,7 +13,9 @@ overview; [QUICKSTART.md](../QUICKSTART.md) is the same ground as commands, and
 | [synapse.md](synapse.md) | 0.3 — synaptic retrieval over explicit links, activation trace | `search --method synaptic`, `graph health`, `graph suggest`, `graph_neighbors` |
 | [subagents.md](subagents.md) | 0.3 — lean sub-agent jobs and hand-back checks | `packet`, `job`, `handback`, `handoff` |
 | [brain-guide.md](brain-guide.md) | 0.3 — building your own brain; rules and hooks | `brain init`, `rules init/check/record`, `brief` |
-| [jev.md](jev.md) | 0.4 — the optional advisor, off by default | `jev status`, `off`, `shadow`, `on`, `report`, `purge`, `record`, `calibrate`, `answer`, `review-memory`, `search --jev` |
+| [decisions.md](decisions.md) | Manual public or synthetic text assessment | `decisions assess` (preview by default; `--send` is explicit) |
+| [responses.md](responses.md) | Manual public or synthetic task generation | `responses run` (preview by default; `--send` is explicit) |
+| [api-routing.md](api-routing.md) | Offline, advisory route preview | `api plan` |
 | [github-context.md](github-context.md) | Optional public GitHub evidence, source management, cache and version checks | `github-context`, `github-sources`, `github-cache`, `search --github`, MCP `github_context` |
 | [cli.md](cli.md) | Every command: exit codes, packet statuses, format versions | all |
 | [privacy.md](privacy.md) | Every artifact the tool writes; retention, deletion, threat model | — |

@@ -14,8 +14,6 @@
   --nb-key-seed: rgb(255, 194, 87);
   --nb-key-hop: rgb(150, 220, 255);
   --nb-key-reached: rgb(115, 133, 163);
-  --nb-key-rescued: rgb(140, 255, 184);
-  --nb-key-flagged: rgb(242, 240, 232);
   /* HUD type: a light, widely spaced title and a monospace counts line. Local
      font stacks only; a theme can replace them. */
   --nb-hud-font: "SF Pro Display", "Helvetica Neue", var(--font-interface, sans-serif), sans-serif;
@@ -83,15 +81,13 @@
   letter-spacing: 0.05em;
   opacity: 0.55;
 }
-.nb-activation,
-.nb-advisor {
+.nb-activation {
   margin-top: 6px;
   font-family: var(--font-monospace);
   font-size: var(--font-ui-smaller);
   color: var(--nb-text-accent, #FFD48A);
   opacity: 0.9;
 }
-.nb-advisor { margin-top: 2px; color: var(--nb-key-rescued); }
 .nb-activation-stale { color: var(--nb-text, #F2EFE9); opacity: 0.5; }
 
 .nb-overlay-key {
@@ -108,9 +104,6 @@
 .nb-key-seed { background: var(--nb-key-seed); }
 .nb-key-hop { background: var(--nb-key-hop); }
 .nb-key-reached { background: var(--nb-key-reached); }
-.nb-key-rescued { width: 9px; height: 9px; border: 1.5px solid var(--nb-key-rescued); }
-.nb-key-flagged { width: 9px; height: 9px; border: 1.5px dashed var(--nb-key-flagged); }
-.nb-key-would { opacity: 0.55; }
 
 .nb-legend {
   position: absolute;
@@ -194,59 +187,6 @@
 }
 .nb-root .nb-summary-note:hover { background: var(--nb-hover); }
 .nb-root .nb-summary-note:focus-visible { outline: 2px solid var(--nb-focus, #FFD48A); }
-
-.nb-advisor-layer {
-  position: absolute;
-  right: 16px;
-  bottom: 18px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
-  max-width: min(380px, 45%);
-  max-height: 55%;
-  font-size: var(--font-ui-smaller);
-}
-.nb-advisor-panel {
-  overflow: auto;
-  padding: 6px 10px;
-  border-radius: var(--radius-m);
-  background: var(--nb-panel);
-  box-shadow: inset 0 0 0 1px var(--nb-panel-border);
-}
-.nb-advisor-heading { font-weight: 600; opacity: 0.9; }
-.nb-advisor-subheading { margin-top: 6px; opacity: 0.8; }
-.nb-advisor-message { margin: 4px 0; opacity: 0.8; }
-.nb-advisor-note-text { margin-top: 6px; font-style: italic; opacity: 0.75; }
-.nb-advisor-facts,
-.nb-advisor-notes { margin: 4px 0 0; padding-left: 0; list-style: none; font-family: var(--font-monospace); }
-.nb-advisor-note-missing { opacity: 0.55; overflow-wrap: anywhere; }
-.nb-root .nb-advisor-toggle,
-.nb-root .nb-advisor-note {
-  height: auto;
-  padding: 2px 8px;
-  border: none;
-  border-radius: var(--radius-m);
-  background: var(--nb-panel);
-  box-shadow: inset 0 0 0 1px var(--nb-panel-border);
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.nb-root .nb-advisor-note {
-  display: block;
-  width: 100%;
-  padding: 1px 4px;
-  background: transparent;
-  box-shadow: none;
-  text-align: left;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-.nb-root .nb-advisor-toggle:hover,
-.nb-root .nb-advisor-note:hover { background: var(--nb-hover); }
-.nb-root .nb-advisor-toggle:focus-visible,
-.nb-root .nb-advisor-note:focus-visible { outline: 2px solid var(--nb-focus, #FFD48A); }
 
 .nb-tooltip {
   position: absolute;

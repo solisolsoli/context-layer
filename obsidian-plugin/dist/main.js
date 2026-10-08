@@ -9,8 +9,7 @@ const __modules = {
 // retrieval (<vault>/.context/activation.json, format version 1) and turns it
 // into display state for the overlay. Everything here is defensive: a
 // missing, partial, oversized, stale or malformed file is ignored without
-// throwing. Fields added to version 1 later (such as `mode` or the optional
-// advisor block `jev`) are read when present and otherwise ignored. This
+// throwing. Unknown fields added to version 1 later are ignored. This
 // module never writes files and never touches the network.
 
 const DEFAULT_PATH = '.context/activation.json';
@@ -18,7 +17,6 @@ const MAX_BYTES = 512 * 1024;
 const MAX_NODES = 200;
 const MAX_EDGES = 400;
 const MAX_HOP = 64;
-const MAX_COUNT = 1000000;
 const CLOCK_SKEW_MS = 60 * 1000;
 const EDGE_KINDS = Object.freeze(['wikilink', 'embed', 'mdlink', 'frontmatter', 'backlink']);
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
@@ -34,25 +32,6 @@ const MODE_NOTES = Object.freeze({ compact: 'compact packet: it can leave out ev
 // which the passage count already says; OK is written by older traces.
 const STATUS_TEXT = Object.freeze({ PARTIAL: '', OK: '', NOT_FOUND: 'no evidence found', ERROR: 'retrieval error' });
 
-// Optional advisor block. Only enums, booleans and counters are read; any
-// other field (text, scores, model names, reasons) is ignored.
-const ADVISOR_MODES = Object.freeze(['off', 'shadow', 'on']);
-const ADVISOR_PROVIDERS = Object.freeze(['systemone', 'openai_compat', 'host_cli', 'cmd', 'recorded', 'fake']);
-const ADVISOR_VERDICTS = Object.freeze(['rescued', 'on_topic', 'off_topic', 'local_only', 'not_judged']);
-const ADVISOR_NOTE = 'advisor judgement, not evidence';
-// The wording of the advisor layer: the advisor is a second opinion, not a
-// check of correctness (docs/jev.md).
-const ADVISOR_LAYER_NOTE = 'Advisory only: the advisor\'s judgement is not evidence and not a check of correctness.';
-const ADVISOR_LAYER_EMPTY = Object.freeze({
-  none: 'No retrieval trace found yet, so there is nothing to show about the advisor.',
-  disabled: 'The activation overlay is turned off in the plugin settings, so no trace is read.',
-  cleared: 'The last retrieval was cleared. A newer retrieval shows again.',
-  stale: 'The last retrieval is older than the freshness window, so it is not shown.',
-});
-const ADVISOR_LAYER_NO_DATA = 'The last retrieval carries no advisor data. The advisor is off (its default), or that search was not a synaptic search with tracing on. Nothing was recorded, so nothing is shown.';
-const ADVISOR_LAYER_OFF = 'The advisor was off for the last retrieval. Nothing was judged.';
-const VERDICT_LABELS = Object.freeze({ rescued: 'rescued', on_topic: 'on topic', off_topic: 'off topic', local_only: 'local only', not_judged: 'not judged' });
-
 // Overlay look. Seeds (full-text matches) are warm amber; notes reached by
 // following links are cool cyan that whitens with the activation score.
 // Notes that were reached but did not contribute a passage to the packet
@@ -66,18 +45,6 @@ const REACHED_MIX = 0.6;
 // Opacity factor for every note outside an active retrieval, so the notes of
 // the retrieval stand out against the degree palette.
 const OVERLAY_NODE_DIM = 0.22;
-// Advisor marks are outlines around the note: a solid ring for a rescued
-// note, a dashed ring for a note judged off-topic. Applied verdicts are
-// bright; shadow ("would") verdicts are faint. A flagged note is also dimmed
-// only when the verdict was applied.
-const RESCUED_RGB = Object.freeze([0.55, 1.0, 0.72]);
-const FLAGGED_RGB = Object.freeze([0.95, 0.94, 0.91]);
-const FLAGGED_DIM = 0.45;
-const MARKS = Object.freeze({
-  rescued: Object.freeze({ ring: 1, rgb: RESCUED_RGB }),
-  off_topic: Object.freeze({ ring: 2, rgb: FLAGGED_RGB }),
-});
-
 // Pulse timing: each hop level starts PULSE_STEP_MS after the previous one;
 // a pulse needs PULSE_TRAVEL_MS to cross its link; the cycle then rests.
 const PULSE_STEP_MS = 700;
@@ -89,7 +56,6 @@ function clamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
 function compareStrings(a, b) { return a < b ? -1 : (a > b ? 1 : 0); }
 function finiteNumber(v) { return typeof v === 'number' && Number.isFinite(v) ? v : null; }
 function nonNegativeInt(v) { return Number.isInteger(v) && v >= 0 ? v : null; }
-function counter(v) { return Number.isInteger(v) && v >= 0 && v <= MAX_COUNT ? v : null; }
 function nfc(s) { return typeof s.normalize === 'function' ? s.normalize('NFC') : s; }
 
 // A vault-relative POSIX path without '.', '..' or empty segments, in
@@ -115,25 +81,6 @@ function parseTimestamp(value) {
   return Number.isFinite(ms) ? ms : null;
 }
 
-// The advisor block, reduced to enums, booleans and counters. Returns null
-// when absent or invalid.
-function normalizeAdvisor(raw) {
-  if (!isPlainObject(raw) || !ADVISOR_MODES.includes(raw.mode)) return null;
-  const degraded = raw.degraded === true || (Number.isInteger(raw.degraded) && raw.degraded > 0);
-  return {
-    mode: raw.mode,
-    // Verdicts count as applied only in mode "on" with applied: true.
-    applied: raw.mode === 'on' && raw.applied === true,
-    superset: typeof raw.superset === 'boolean' ? raw.superset : null,
-    providerKind: ADVISOR_PROVIDERS.includes(raw.provider_kind) ? raw.provider_kind : null,
-    gatePassed: typeof raw.gate_passed === 'boolean' ? raw.gate_passed : null,
-    kept: counter(raw.kept), flagged: counter(raw.flagged), rescued: counter(raw.rescued),
-    // Notes a shadow run judged relevant that mode on would have added; absent in older traces.
-    wouldRescue: counter(raw.would_rescue),
-    degraded,
-  };
-}
-
 // Validates an already-parsed JSON value. Returns a normalized trace or null.
 // The optional `query` and `query_sha256` fields are deliberately not copied:
 // the view never displays or compares query text, even when the user opted
@@ -152,8 +99,7 @@ function normalizeTrace(raw) {
     const hop = Number.isInteger(n.hop) && n.hop >= 0 && n.hop <= MAX_HOP ? n.hop : null;
     if (!path || seen.has(path) || activation === null || hop === null) continue;
     const role = n.role === 'seed' || n.role === 'hop' ? n.role : (hop === 0 ? 'seed' : 'hop');
-    const jev = ADVISOR_VERDICTS.includes(n.jev) ? n.jev : null;
-    nodes.push({ path, activation: clamp01(activation), hop, role, selected: n.selected === true, jev });
+    nodes.push({ path, activation: clamp01(activation), hop, role, selected: n.selected === true });
     seen.add(path);
   }
   nodes.sort((a, b) => b.activation - a.activation || a.hop - b.hop || compareStrings(a.path, b.path));
@@ -196,7 +142,6 @@ function normalizeTrace(raw) {
     nodes,
     edges,
     packet: { passages: nonNegativeInt(packet.passages), estTokens: nonNegativeInt(packet.est_tokens), status },
-    advisor: normalizeAdvisor(raw.jev),
   };
 }
 
@@ -252,102 +197,18 @@ function formatHud(trace, nowMs, match) {
   return parts.join(' \u00b7 ');
 }
 
-// What the view may show of the advisor block. Applied verdicts are always
-// shown; shadow verdicts (and verdicts that were not applied) only when the
-// "Show advisor (shadow)" setting is on, labelled "would".
-function advisorView(trace, showShadow) {
-  const a = trace && trace.advisor;
-  if (!a || a.mode === 'off') return null;
-  return { mode: a.mode, applied: a.applied, marks: a.applied || !!showShadow, would: !a.applied, advisor: a };
-}
-
-// HUD line for the advisor, or '' when nothing is to be shown.
-function formatAdvisor(view) {
-  if (!view) return '';
-  const a = view.advisor, parts = [];
-  if (view.applied) {
-    parts.push('advisor on');
-    if (a.rescued !== null) parts.push('rescued ' + a.rescued);
-    if (a.flagged !== null) parts.push('flagged ' + a.flagged);
-    if (a.kept !== null) parts.push('kept ' + a.kept);
-  } else if (view.marks) {
-    parts.push('advisor ' + a.mode + ', not applied');
-    const would = a.wouldRescue !== null ? a.wouldRescue : a.rescued;
-    if (would !== null) parts.push('would rescue ' + would);
-    if (a.flagged !== null) parts.push('would flag ' + a.flagged);
-  } else if (a.mode === 'on') {
-    parts.push('advisor on, not applied');
-  } else {
-    return '';
-  }
-  if (a.gatePassed === false) parts.push('topic gate not passed');
-  if (a.superset === false) parts.push('not a superset of fts');
-  if (a.degraded) parts.push('degraded');
-  return parts.join(' \u00b7 ');
-}
-
-// What the advisor layer shows: plain data, no DOM. `trace` is the trace the
-// view would draw (fresh, not cleared), or null with `absent` naming why
-// ('none', 'disabled', 'cleared' or 'stale'). Only fields the writer records
-// are used: the advisor block's enums and counters and one verdict per node.
-// The lists cover the notes the trace lists (at most MAX_NODES).
-function advisorLayerModel(trace, absent = 'none') {
-  const base = { state: 'data', message: '', facts: [], rescued: [], candidates: [], counts: null, note: ADVISOR_LAYER_NOTE };
-  if (!trace) return Object.assign(base, { state: 'no-trace', message: ADVISOR_LAYER_EMPTY[absent] || ADVISOR_LAYER_EMPTY.none });
-  const a = trace.advisor;
-  if (!a) return Object.assign(base, { state: 'no-advisor', message: ADVISOR_LAYER_NO_DATA });
-  if (a.mode === 'off') return Object.assign(base, { state: 'off', message: ADVISOR_LAYER_OFF });
-  const counts = { rescued: 0, on_topic: 0, off_topic: 0, local_only: 0, not_judged: 0 };
-  for (const n of trace.nodes) if (n.jev) counts[n.jev]++;
-  const facts = [];
-  if (a.applied) facts.push('Mode: on, applied to the packet');
-  else if (a.mode === 'on') facts.push('Mode: on, but not applied to this packet');
-  else facts.push('Mode: shadow, not applied (the packet was not changed)');
-  if (a.providerKind) facts.push('Provider kind: ' + a.providerKind);
-  if (a.applied) {
-    if (a.rescued !== null) facts.push('Rescued: ' + a.rescued);
-    if (a.flagged !== null) facts.push('Flagged off topic: ' + a.flagged);
-    if (a.kept !== null) facts.push('Kept: ' + a.kept);
-  } else {
-    if (a.wouldRescue !== null) facts.push('Would rescue: ' + a.wouldRescue);
-    if (a.flagged !== null) facts.push('Would flag off topic: ' + a.flagged);
-    if (a.kept !== null) facts.push('Kept: ' + a.kept);
-  }
-  if (a.gatePassed === true) facts.push('Topic gate: passed');
-  else if (a.gatePassed === false) facts.push('Topic gate: not passed');
-  if (a.superset === false) facts.push('Not a superset of the fts packet');
-  if (a.degraded) facts.push('Degraded: yes');
-  facts.push('Notes listed in the trace, by verdict: ' + Object.keys(VERDICT_LABELS).map(k => VERDICT_LABELS[k] + ' ' + counts[k]).join(', '));
-  const listed = verdict => trace.nodes.filter(n => n.jev === verdict);
-  // Applied: the notes the advisor added to the packet. Not applied: notes it
-  // judged on topic that the packet did not carry (what mode on could add,
-  // within its token budget).
-  const rescued = a.applied ? listed('rescued') : [];
-  const candidates = a.applied ? [] : listed('on_topic').filter(n => !n.selected);
-  const pick = n => ({ path: n.path, hop: n.hop, activation: n.activation });
-  return Object.assign(base, { state: 'data', facts, counts, rescued: rescued.map(pick), candidates: candidates.map(pick) });
-}
-
 function mixRgb(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
 
 // Colour, size multiplier and alpha of one activated note. Three things are
 // visible at a glance: seed vs hop (hue), activation score (size and
 // brightness), and in the packet vs reached only (saturation and alpha).
-// An applied off-topic verdict dims the note further.
-function overlayNodeStyle(entry, appliedVerdict = null) {
+function overlayNodeStyle(entry) {
   const a = clamp01(entry.activation);
   const seed = entry.role === 'seed';
   let color = seed ? SEED_RGB.slice() : mixRgb(HOP_RGB_LOW, HOP_RGB_HIGH, a);
   if (!entry.selected) color = mixRgb(color, REACHED_RGB, REACHED_MIX);
   let alpha = entry.selected ? 0.98 : 0.45 + 0.25 * a;
-  if (appliedVerdict === 'off_topic') alpha *= FLAGGED_DIM;
   return { color, sizeMult: 1.35 + 1.4 * a + (seed ? 0.3 : 0), alpha };
-}
-
-// Outline for an advisor verdict, or null.
-function advisorMark(verdict, applied) {
-  const m = MARKS[verdict];
-  return m ? { ring: m.ring, rgb: m.rgb, alpha: applied ? 0.95 : 0.5, would: !applied } : null;
 }
 
 // Maps a trace onto the notes currently in the graph. `lookupNode(path)`
@@ -355,17 +216,15 @@ function advisorMark(verdict, applied) {
 // result is keyed by the model's own paths. Links are merged per note pair:
 // one ribbon per pair, at the earliest traversal step that used it, pulsing
 // in that direction. Returns null for no trace.
-function mapOverlay(trace, lookupNode, options = {}) {
+function mapOverlay(trace, lookupNode) {
   if (!trace) return null;
-  const advisor = advisorView(trace, options.showAdvisorShadow);
   const nodes = new Map(), byTracePath = new Map(); let maxHop = 0;
   for (const entry of trace.nodes) {
     const node = lookupNode(entry.path);
     if (!node || nodes.has(node.path)) continue;
-    const verdict = advisor && advisor.marks ? entry.jev : null;
-    const style = overlayNodeStyle(entry, advisor && advisor.applied ? verdict : null);
+    const style = overlayNodeStyle(entry);
     const mapped = { node, path: node.path, tracePath: entry.path, activation: entry.activation, hop: entry.hop, role: entry.role,
-      selected: entry.selected, verdict, mark: verdict ? advisorMark(verdict, advisor.applied) : null, ...style };
+      selected: entry.selected, ...style };
     nodes.set(node.path, mapped); byTracePath.set(entry.path, mapped);
     if (entry.hop > maxHop) maxHop = entry.hop;
   }
@@ -395,7 +254,7 @@ function mapOverlay(trace, lookupNode, options = {}) {
   edges.sort((x, y) => x.hop - y.hop || y.weight - x.weight || compareStrings(x.from, y.from) || compareStrings(x.to, y.to));
   const total = trace.nodes.length;
   return { key: trace.key, generatedAt: trace.generatedAt, nodes, edges, maxHop, maxEdgeHop,
-    total, matched: nodes.size, droppedNodes: total - nodes.size, droppedEdges, advisor };
+    total, matched: nodes.size, droppedNodes: total - nodes.size, droppedEdges };
 }
 
 function pulseCycleMs(maxEdgeHop) { return Math.max(1, maxEdgeHop) * PULSE_STEP_MS + PULSE_TRAVEL_MS + PULSE_REST_MS; }
@@ -479,11 +338,10 @@ function createWatcher(options) {
 
 module.exports = {
   DEFAULT_PATH, MAX_BYTES, MAX_NODES, MAX_EDGES, EDGE_KINDS, MODES, MODE_NOTES, STATUS_TEXT,
-  ADVISOR_MODES, ADVISOR_PROVIDERS, ADVISOR_VERDICTS, ADVISOR_NOTE, ADVISOR_LAYER_NOTE, ADVISOR_LAYER_EMPTY, ADVISOR_LAYER_NO_DATA, ADVISOR_LAYER_OFF,
-  SEED_RGB, HOP_RGB_LOW, HOP_RGB_HIGH, REACHED_RGB, RESCUED_RGB, FLAGGED_RGB, FLAGGED_DIM, OVERLAY_NODE_DIM,
+  SEED_RGB, HOP_RGB_LOW, HOP_RGB_HIGH, REACHED_RGB, OVERLAY_NODE_DIM,
   PULSE_STEP_MS, PULSE_TRAVEL_MS, PULSE_REST_MS,
-  sanitizeVaultPath, sanitizeTracePath, parseTimestamp, normalizeTrace, normalizeAdvisor, parseActivation, isFresh, formatAge,
-  statusText, methodLabel, formatHud, advisorView, formatAdvisor, advisorLayerModel, overlayNodeStyle, advisorMark, mapOverlay,
+  sanitizeVaultPath, sanitizeTracePath, parseTimestamp, normalizeTrace, parseActivation, isFresh, formatAge,
+  statusText, methodLabel, formatHud, overlayNodeStyle, mapOverlay,
   pulseCycleMs, pulseAt, frameNodes, createWatcher,
 };
 },
@@ -2150,8 +2008,6 @@ const DEFAULT_SETTINGS = Object.freeze({
   activationOverlay: true,
   activationPath: Activation.DEFAULT_PATH,
   activationWindowMinutes: 10,
-  showAdvisorShadow: false,
-  showAdvisorLayer: false,
   rememberLayout: true,
   developerDiagnostics: false,
 });
@@ -2251,14 +2107,6 @@ class BrainSettingTab extends PluginSettingTab {
       .addSlider(sl => sl.setLimits(1, 120, 1).setValue(Math.min(120, s.activationWindowMinutes)).setDynamicTooltip()
         .onChange(v => save('activationWindowMinutes', v)));
 
-    new Setting(containerEl).setName('Show advisor (shadow)')
-      .setDesc('When the trace carries advisor verdicts that were not applied (shadow mode), draw what the advisor would have done, labelled "would". Advisor judgement, not evidence.')
-      .addToggle(t => t.setValue(s.showAdvisorShadow).onChange(v => save('showAdvisorShadow', v)));
-
-    new Setting(containerEl).setName('Show advisor layer')
-      .setDesc('A read-only panel in the view: what the optional advisor did in the last retrieval (mode, counts, the notes it rescued). Hidden by default. It reads only what the trace records; if there is no advisor data it says so. Advisory only, not a check of correctness.')
-      .addToggle(t => t.setValue(s.showAdvisorLayer).onChange(v => save('showAdvisorLayer', v)));
-
     new Setting(containerEl).setName('Advanced').setHeading();
 
     new Setting(containerEl).setName('Remember layout')
@@ -2280,21 +2128,17 @@ module.exports = { DEFAULT_SETTINGS, sanitizeSettings, cleanTracePath, BrainSett
 // "breathing" field from field.js so CPU picking matches what is drawn.
 const Field = require('./field');
 
-// aRing selects the sprite: 0 = a note (core and halo), 1 = a solid ring,
-// 2 = a dashed ring (the advisor marks drawn around a note).
 const POINT_VS = `
 attribute vec3 aPosition;
 attribute vec4 aColor;
 attribute float aSize;
 attribute float aShell;
-attribute float aRing;
 uniform mat4 uProjection, uView;
 uniform vec2 uViewport;
 uniform vec3 uEyePos;
 uniform float uTime;
 varying vec4 vColor;
 varying float vSize;
-varying float vRing;
 ${Field.glsl}
 void main() {
   vec3 p = neuralField(aPosition, uTime);
@@ -2303,7 +2147,6 @@ void main() {
   float dist = max(-v.z, 0.001);
   gl_PointSize = clamp(aSize * uProjection[1][1] * uViewport.y * 0.5 / dist / 0.7, 2.5, 96.0);
   vSize = gl_PointSize;
-  vRing = aRing;
   float front = dot(normalize(p + vec3(0.000001)), normalize(uEyePos));
   float shellDepth = mix(0.22, 0.92, smoothstep(-0.45, 0.7, front));
   float innerDepth = clamp(1.0 - (dist - length(uEyePos) + 1.0) * 0.3, 0.35, 1.0);
@@ -2314,22 +2157,14 @@ const POINT_FS = `
 precision mediump float;
 varying vec4 vColor;
 varying float vSize;
-varying float vRing;
 uniform float uAlphaMult;
 void main() {
   vec2 q = gl_PointCoord - vec2(0.5);
   float d = length(q) * 2.0;
   float aa = min(1.4 / vSize, 0.3);
-  float a;
-  if (vRing > 0.5) {
-    float band = 1.0 - smoothstep(0.09, 0.09 + aa, abs(d - 0.8));
-    if (vRing > 1.5) band *= step(0.0, sin(atan(q.y, q.x) * 8.0));
-    a = band * vColor.a * uAlphaMult;
-  } else {
-    float core = 1.0 - smoothstep(0.70 - aa, 0.70 + aa, d);
-    float halo = 0.13 * exp(-7.0 * d * d) * (1.0 - smoothstep(0.85, 1.0, d));
-    a = (core + halo) * vColor.a * uAlphaMult;
-  }
+  float core = 1.0 - smoothstep(0.70 - aa, 0.70 + aa, d);
+  float halo = 0.13 * exp(-7.0 * d * d) * (1.0 - smoothstep(0.85, 1.0, d));
+  float a = (core + halo) * vColor.a * uAlphaMult;
   gl_FragColor = vec4(vColor.rgb * a, a);
 }`;
 
@@ -2464,7 +2299,6 @@ const REGION_DIM = 0.25;                  // notes outside a focused region
 const { OVERLAY_NODE_DIM } = Activation;   // notes outside an active retrieval
 const OVERLAY_EDGE_DIM = 0.3;             // links outside an active retrieval
 const OVERLAY_EDGE_ALPHA = 0.22, OVERLAY_EDGE_PULSE = 0.55, OVERLAY_EDGE_STATIC = 0.45, OVERLAY_EDGE_HALF_WIDTH = 1.1;
-const MARK_SIZE = 2.4;                    // advisor ring size relative to its note
 const DYNAMIC_CAPACITY = 640;             // transient points: fires and pulses
 const TONE_EXPOSURE_HDR = 1.25, TONE_EXPOSURE_LDR = 2.0;
 const FIT_RADIUS = 1.13;                  // world radius framed at zoom 1
@@ -2540,7 +2374,6 @@ class BrainView extends ItemView {
       this.hudEl.createDiv({ cls: 'nb-title', text: 'CONTEXT LAYER BRAIN VIEW', attr: { lang: 'en' } });
       this.countersEl = this.hudEl.createDiv({ cls: 'nb-counters' });
       this.activationEl = this.hudEl.createDiv({ cls: 'nb-activation nb-hidden' });
-      this.advisorEl = this.hudEl.createDiv({ cls: 'nb-advisor nb-hidden' });
       this.overlayKeyEl = this.hudEl.createDiv({ cls: 'nb-overlay-key nb-hidden' });
       this.devEl = this.hudEl.createDiv({ cls: 'nb-dev nb-hidden' });
       this.legendEl = root.createDiv({ cls: 'nb-legend nb-hidden', attr: { role: 'group', 'aria-label': 'Regions' } });
@@ -2548,11 +2381,6 @@ class BrainView extends ItemView {
       this.summaryEl.createEl('summary', { text: 'Retrieval summary' });
       this.summaryStatusEl = this.summaryEl.createDiv({ cls: 'nb-summary-status' });
       this.summaryListEl = this.summaryEl.createEl('ul', { cls: 'nb-summary-list', attr: { 'aria-label': 'Notes in the last retrieval' } });
-      // Advisor layer: a read-only panel and its toggle, hidden by default.
-      this.advisorLayerEl = root.createDiv({ cls: 'nb-advisor-layer' });
-      this.advisorPanelEl = this.advisorLayerEl.createDiv({ cls: 'nb-advisor-panel nb-hidden', attr: { role: 'region', 'aria-label': 'Advisor layer' } });
-      this.advisorToggleEl = this.advisorLayerEl.createEl('button', { cls: 'nb-advisor-toggle', text: 'Show advisor layer', attr: { type: 'button', 'aria-pressed': 'false' } });
-      this.advisorToggleEl.onclick = () => { this.toggleAdvisorLayer().catch(err => this.logError('advisor layer', err)); };
       this.liveEl = root.createDiv({ cls: 'nb-sr-only', attr: { role: 'status', 'aria-live': 'polite' } });
       this.tooltipEl = root.createDiv({ cls: 'nb-tooltip nb-hidden' });
       this.renderOverlayKey();
@@ -2660,7 +2488,6 @@ class BrainView extends ItemView {
     this.devEl.toggleClass('nb-hidden', !s.developerDiagnostics);
     if (!s.activationOverlay) { this.setOverlay(null); this.traceMatch = null; this.updateActivationHud(Date.now()); }
     else { this.syncOverlay(true); this.pollActivation(true); }
-    this.updateAdvisorLayer();
   }
 
   // -- setup ------------------------------------------------------------------
@@ -2684,7 +2511,7 @@ class BrainView extends ItemView {
     if (!this.instExt) this.logError('initGL', new Error('ANGLE_instanced_arrays unavailable: links are not drawn'));
     const attrib = (p, n) => gl.getAttribLocation(p, n), uniform = (p, n) => gl.getUniformLocation(p, n);
     const pp = this.pointProgram, lp = this.lineProgram;
-    this.pointAttribs = { position: attrib(pp, 'aPosition'), color: attrib(pp, 'aColor'), size: attrib(pp, 'aSize'), shell: attrib(pp, 'aShell'), ring: attrib(pp, 'aRing') };
+    this.pointAttribs = { position: attrib(pp, 'aPosition'), color: attrib(pp, 'aColor'), size: attrib(pp, 'aSize'), shell: attrib(pp, 'aShell') };
     this.pointUniforms = { projection: uniform(pp, 'uProjection'), view: uniform(pp, 'uView'), alphaMult: uniform(pp, 'uAlphaMult'),
       time: uniform(pp, 'uTime'), eyePos: uniform(pp, 'uEyePos'), viewport: uniform(pp, 'uViewport') };
     this.lineAttribs = { ts: attrib(lp, 'aTS'), p0: attrib(lp, 'aP0'), p1: attrib(lp, 'aP1'), p2: attrib(lp, 'aP2'), p3: attrib(lp, 'aP3'),
@@ -2693,7 +2520,7 @@ class BrainView extends ItemView {
       dpr: uniform(lp, 'uDPR'), widthMult: uniform(lp, 'uWidthMult'), time: uniform(lp, 'uTime') };
     this.buffers = {};
     for (const name of ['nodePos', 'nodeColor', 'nodeSize', 'nodeShell', 'edgeTemplate', 'edgeCtrl', 'edgeStyle',
-      'hlCtrl', 'hlStyle', 'ovCtrl', 'ovStyle', 'dynPos', 'dynColor', 'dynSize', 'markPos', 'markColor', 'markSize', 'markRing']) this.buffers[name] = gl.createBuffer();
+      'hlCtrl', 'hlStyle', 'ovCtrl', 'ovStyle', 'dynPos', 'dynColor', 'dynSize']) this.buffers[name] = gl.createBuffer();
     this.projMat = new Float32Array(16); this.viewMat = new Float32Array(16);
     const tmpl = new Float32Array((EDGE_SEGMENTS + 1) * 4);
     for (let k = 0; k <= EDGE_SEGMENTS; k++) {
@@ -2703,7 +2530,7 @@ class BrainView extends ItemView {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.edgeTemplate);
     gl.bufferData(gl.ARRAY_BUFFER, tmpl, gl.STATIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, null);
-    this.edgeCount = 0; this.hlCount = 0; this.ovCount = 0; this.dynCount = 0; this.nodeCount = 0; this.markCount = 0;
+    this.edgeCount = 0; this.hlCount = 0; this.ovCount = 0; this.dynCount = 0; this.nodeCount = 0;
     this.bloomOk = false;
     if (this.settings.bloom) this.initBloom();
     return true;
@@ -2836,7 +2663,7 @@ class BrainView extends ItemView {
       const token = this._glInitToken = (this._glInitToken || 0) + 1;
       try {
         if (!await this.initGL(token) || this._closed) return;
-        this._contextLost = false; this.model.buffersDirty = true; this._edgePlan = null; this._ovDirty = true; this._marksDirty = true;
+        this._contextLost = false; this.model.buffersDirty = true; this._edgePlan = null; this._ovDirty = true;
         this.handleVisibility();
       } catch (err) { if (!this._closed) this.logError('context restore', err); }
     });
@@ -3018,28 +2845,6 @@ class BrainView extends ItemView {
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, null);
     m.buffersDirty = false;
-    this._marksDirty = true;
-  }
-
-  // Advisor marks: one ring sprite per judged note of the shown retrieval.
-  rebuildMarkBuffers() {
-    this._marksDirty = false;
-    const ov = this.overlay, gl = this.gl;
-    const entries = ov ? Array.from(ov.nodes.values()).filter(e => e.mark && e.node === this.model.nodes.get(e.path)) : [];
-    this.markCount = entries.length;
-    if (!entries.length) return;
-    const n = entries.length, pos = new Float32Array(n * 3), color = new Float32Array(n * 4), size = new Float32Array(n), ring = new Float32Array(n);
-    entries.forEach((e, i) => {
-      pos.set(e.node.pos, i * 3);
-      color[i * 4] = e.mark.rgb[0]; color[i * 4 + 1] = e.mark.rgb[1]; color[i * 4 + 2] = e.mark.rgb[2]; color[i * 4 + 3] = e.mark.alpha;
-      size[i] = (this._degreePalette?.get(e.node) || Palette.styleForDegree(e.node.degree)).size * e.sizeMult * MARK_SIZE;
-      ring[i] = e.mark.ring;
-    });
-    for (const [name, arr] of [['markPos', pos], ['markColor', color], ['markSize', size], ['markRing', ring]]) {
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers[name]);
-      gl.bufferData(gl.ARRAY_BUFFER, arr, gl.DYNAMIC_DRAW);
-    }
-    gl.bindBuffer(gl.ARRAY_BUFFER, null);
   }
 
   // Degree changes fade over Palette.DURATION_MS. Only transitioning notes
@@ -3329,11 +3134,11 @@ class BrainView extends ItemView {
   syncOverlay(traceChanged) {
     if (!this.model) return;
     if (!this.traceWanted()) { this.traceMatch = null; if (this.overlay) this.setOverlay(null); return; }
-    const t = this.activationTrace, shadow = !!this.settings.showAdvisorShadow;
-    const stale = !this.traceMatch || this.traceMatch.key !== t.key || this._overlayRevision !== this.model.viewRevision || this._overlayShadow !== shadow;
+    const t = this.activationTrace;
+    const stale = !this.traceMatch || this.traceMatch.key !== t.key || this._overlayRevision !== this.model.viewRevision;
     if (!traceChanged && !stale) return;
-    const mapped = Activation.mapOverlay(t, path => this.model.lookup(path), { showAdvisorShadow: shadow });
-    this.traceMatch = mapped; this._overlayShadow = shadow;
+    const mapped = Activation.mapOverlay(t, path => this.model.lookup(path));
+    this.traceMatch = mapped;
     this._overlayRevision = this.model.viewRevision;
     this.setOverlay(mapped.nodes.size ? mapped : null);
   }
@@ -3346,7 +3151,7 @@ class BrainView extends ItemView {
       this._overlayRevision = this.model ? this.model.viewRevision : 0;
     }
     this.overlay = overlay;
-    this._ovDirty = true; this._ovStyleDirty = true; this._edgeStyleDirty = true; this._marksDirty = true; this._nodeListKey = null;
+    this._ovDirty = true; this._ovStyleDirty = true; this._edgeStyleDirty = true; this._nodeListKey = null;
     if (this.model) this.model.buffersDirty = true;
     this._lastHud = -Infinity; this._summaryKey = null;
     this.renderOverlayKey();
@@ -3418,68 +3223,7 @@ class BrainView extends ItemView {
     if (status) this.activationEl.setText(status.text);
     const shown = !!status && status.state === 'shown';
     this.overlayKeyEl.toggleClass('nb-hidden', !shown);
-    const advisor = shown ? Activation.formatAdvisor(this.overlay.advisor) : '';
-    this.advisorEl.toggleClass('nb-hidden', !advisor);
-    this.advisorEl.setText(advisor);
     this.updateSummary(status);
-    this.updateAdvisorLayer();
-  }
-
-  // The advisor layer: what the optional advisor did in the last retrieval,
-  // from the trace only. Hidden until the toggle (or the setting) turns it on;
-  // with no advisor data it says so instead of staying silent.
-  async toggleAdvisorLayer() {
-    this.settings.showAdvisorLayer = !this.settings.showAdvisorLayer;
-    if (typeof this.plugin.saveSettings === 'function') await this.plugin.saveSettings();
-    this.updateAdvisorLayer();
-  }
-
-  advisorLayerSource(now = Date.now()) {
-    const t = this.activationTrace;
-    if (!this.settings.activationOverlay) return { trace: null, absent: 'disabled' };
-    if (!t) return { trace: null, absent: 'none' };
-    if (t.key === this.dismissedKey) return { trace: null, absent: 'cleared' };
-    if (!Activation.isFresh(t, now, this.settings.activationWindowMinutes * 60000)) return { trace: null, absent: 'stale' };
-    return { trace: t, absent: null };
-  }
-
-  updateAdvisorLayer() {
-    if (!this.advisorPanelEl) return;
-    const open = !!this.settings.showAdvisorLayer;
-    this.advisorToggleEl.setText(open ? 'Hide advisor layer' : 'Show advisor layer');
-    this.advisorToggleEl.setAttr('aria-pressed', open ? 'true' : 'false');
-    this.advisorPanelEl.toggleClass('nb-hidden', !open);
-    if (!open) { this._advisorKey = null; return; }
-    const { trace, absent } = this.advisorLayerSource();
-    const key = (trace ? trace.key : 'none:' + absent) + '|' + (this.model ? this.model.viewRevision : 0);
-    if (key === this._advisorKey) return;
-    this._advisorKey = key;
-    const m = Activation.advisorLayerModel(trace, absent), el = this.advisorPanelEl;
-    el.empty();
-    el.createDiv({ cls: 'nb-advisor-heading', text: 'Advisor layer (read only)' });
-    if (m.message) el.createDiv({ cls: 'nb-advisor-message', text: m.message });
-    if (m.facts.length) {
-      const list = el.createEl('ul', { cls: 'nb-advisor-facts' });
-      for (const fact of m.facts) list.createEl('li', { text: fact });
-    }
-    const section = (title, entries, empty) => {
-      el.createDiv({ cls: 'nb-advisor-subheading', text: title });
-      if (!entries.length) { el.createDiv({ cls: 'nb-advisor-message', text: empty }); return; }
-      const list = el.createEl('ul', { cls: 'nb-advisor-notes' });
-      for (const e of entries) {
-        const node = this.model ? this.model.lookup(e.path) : null;
-        const label = e.path + ' \u00b7 hop ' + e.hop;
-        const item = list.createEl('li');
-        if (!node) { item.createSpan({ cls: 'nb-advisor-note-missing', text: label + ' \u00b7 not in this vault' }); continue; }
-        const button = item.createEl('button', { cls: 'nb-advisor-note', text: label, attr: { type: 'button' } });
-        button.onclick = evt => this.openNote(node, evt);
-      }
-    };
-    if (m.state === 'data') {
-      if (m.rescued.length || !m.candidates.length) section('Notes the advisor rescued', m.rescued, 'None: the advisor added no note to this packet.');
-      if (m.candidates.length) section('Judged on topic, not in the packet', m.candidates, 'None.');
-    }
-    el.createDiv({ cls: 'nb-advisor-note-text', text: m.note });
   }
 
   // The key under the HUD line: what the colours and outlines mean.
@@ -3487,18 +3231,11 @@ class BrainView extends ItemView {
     const el = this.overlayKeyEl; if (!el) return;
     el.empty();
     const items = [['nb-key-seed', 'seed'], ['nb-key-hop', 'reached by link, in packet'], ['nb-key-reached', 'reached only']];
-    const adv = this.overlay && this.overlay.advisor;
-    if (adv && adv.marks) {
-      const would = adv.applied ? '' : ' nb-key-would';
-      items.push(['nb-key-rescued' + would, adv.applied ? 'rescued by advisor' : 'advisor would rescue (shadow)']);
-      items.push(['nb-key-flagged' + would, adv.applied ? 'flagged off-topic by advisor' : 'advisor would flag (shadow)']);
-    }
     for (const [cls, label] of items) {
       const item = el.createSpan({ cls: 'nb-key-item' });
       item.createSpan({ cls: 'nb-key-dot ' + cls });
       item.createSpan({ text: label });
     }
-    if (adv) el.createSpan({ cls: 'nb-key-item nb-key-note', text: Activation.ADVISOR_NOTE });
     const mode = this.activationTrace && this.overlay ? Activation.MODE_NOTES[this.activationTrace.mode] : null;
     if (mode) el.createSpan({ cls: 'nb-key-item nb-key-note', text: mode });
   }
@@ -3509,7 +3246,7 @@ class BrainView extends ItemView {
   updateSummary(status) {
     if (!this.summaryEl) return;
     const ov = this.overlay;
-    const key = status ? status.state + '|' + this.activationTrace.key + '|' + (ov ? ov.matched + '#' + this._overlayRevision + '#' + !!this._overlayShadow : '') : '';
+    const key = status ? status.state + '|' + this.activationTrace.key + '|' + (ov ? ov.matched + '#' + this._overlayRevision : '') : '';
     if (key === this._summaryKey) return;
     this._summaryKey = key;
     this.summaryEl.toggleClass('nb-hidden', !status);
@@ -3517,8 +3254,6 @@ class BrainView extends ItemView {
     if (!status) { this.liveEl.setText(''); return; }
     const t = this.activationTrace;
     const lines = [status.text.replace(/ \u00b7 (just now|\d+ (s|min|h) ago)/, '')];
-    const advisor = ov ? Activation.formatAdvisor(ov.advisor) : '';
-    if (advisor) lines.push(advisor + ' (' + Activation.ADVISOR_NOTE + ')');
     if (ov && Activation.MODE_NOTES[t.mode]) lines.push(Activation.MODE_NOTES[t.mode]);
     this.summaryStatusEl.setText(lines.join('\n'));
     this.liveEl.setText(lines.join('. '));
@@ -3526,7 +3261,6 @@ class BrainView extends ItemView {
     const entries = Array.from(ov.nodes.values()).sort((a, b) => a.hop - b.hop || b.activation - a.activation || (a.path < b.path ? -1 : 1));
     for (const e of entries) {
       const parts = ['hop ' + e.hop, e.role === 'seed' ? 'seed' : 'reached by link', e.selected ? 'in packet' : 'reached only'];
-      if (e.verdict) parts.push((ov.advisor.applied ? 'advisor: ' : 'advisor would: ') + e.verdict.replace('_', ' '));
       const button = this.summaryListEl.createEl('li').createEl('button', { cls: 'nb-summary-note', text: parts.join(' \u00b7 ') + ' \u00b7 ' + e.path, attr: { type: 'button' } });
       button.onclick = evt => this.openNote(e.node, evt);
     }
@@ -3653,7 +3387,6 @@ class BrainView extends ItemView {
     const entry = this.overlay?.nodes.get(node.path);
     if (entry) {
       lines.push('last retrieval: ' + entry.role + ', hop ' + entry.hop + ', activation score ' + entry.activation.toFixed(2) + (entry.selected ? ', in packet' : ', reached only'));
-      if (entry.verdict) lines.push((this.overlay.advisor.applied ? 'advisor: ' : 'advisor would (shadow): ') + entry.verdict.replace('_', ' ') + ' (' + Activation.ADVISOR_NOTE + ')');
     }
     return lines.join('\n');
   }
@@ -3741,9 +3474,8 @@ class BrainView extends ItemView {
       this.updateCamera(dt);
       this.updateAmbientAndSignals(now);
       const moved = this.model.advance(dt, this.reducedMotion);
-      if (moved) { this._ovDirty = true; this._marksDirty = true; }
+      if (moved) this._ovDirty = true;
       if (this.model.buffersDirty) this.rebuildNodeBuffers();
-      if (this._marksDirty) this.rebuildMarkBuffers();
       this.updateEdges(now, moved);
       // Re-pick a stationary pointer: the field and camera move underneath it.
       if (this._pendingHoverClient && !this.drag.dragging && now - (this._lastPick || 0) > 32) { this._lastPick = now; this.handleHover(this._pendingHoverClient); }
@@ -3783,7 +3515,7 @@ class BrainView extends ItemView {
     gl.activeTexture(gl.TEXTURE0);
   }
 
-  // Draws notes, links, overlay links, advisor marks and transient points
+  // Draws notes, links, overlay links and transient points
   // into the bound framebuffer (screen or bloom source).
   renderCoreScene() {
     const gl = this.gl, t = this._motionTime || 0, eye = this.eyePos || [0, 0, 2.5];
@@ -3816,22 +3548,20 @@ class BrainView extends ItemView {
       if (this.ovCount) this.drawEdgeInstances(this.buffers.ovCtrl, this.buffers.ovStyle, this.ovCount, Math.max(1, width));
     }
 
-    if (this.markCount || this.dynCount) gl.useProgram(this.pointProgram);
-    if (this.markCount) this.drawPoints(this.buffers.markPos, this.buffers.markColor, this.buffers.markSize, null, this.markCount, this.buffers.markRing);
+    if (this.dynCount) gl.useProgram(this.pointProgram);
     if (this.dynCount) this.drawPoints(this.buffers.dynPos, this.buffers.dynColor, this.buffers.dynSize, null, this.dynCount);
     gl.depthMask(true);
     gl.disable(gl.BLEND);
   }
 
-  drawPoints(posBuf, colorBuf, sizeBuf, shellBuf, count, ringBuf = null) {
+  drawPoints(posBuf, colorBuf, sizeBuf, shellBuf, count) {
     const gl = this.gl, a = this.pointAttribs;
     gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.enableVertexAttribArray(a.position); gl.vertexAttribPointer(a.position, 3, gl.FLOAT, false, 0, 0);
     gl.bindBuffer(gl.ARRAY_BUFFER, colorBuf); gl.enableVertexAttribArray(a.color); gl.vertexAttribPointer(a.color, 4, gl.FLOAT, false, 0, 0);
     gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuf); gl.enableVertexAttribArray(a.size); gl.vertexAttribPointer(a.size, 1, gl.FLOAT, false, 0, 0);
-    for (const [loc, buf] of [[a.shell, shellBuf], [a.ring, ringBuf]]) {
-      if (loc < 0) continue;
-      if (buf) { gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 1, gl.FLOAT, false, 0, 0); }
-      else { gl.disableVertexAttribArray(loc); gl.vertexAttrib1f(loc, 0); }
+    if (a.shell >= 0) {
+      if (shellBuf) { gl.bindBuffer(gl.ARRAY_BUFFER, shellBuf); gl.enableVertexAttribArray(a.shell); gl.vertexAttribPointer(a.shell, 1, gl.FLOAT, false, 0, 0); }
+      else { gl.disableVertexAttribArray(a.shell); gl.vertexAttrib1f(a.shell, 0); }
     }
     gl.drawArrays(gl.POINTS, 0, count);
   }

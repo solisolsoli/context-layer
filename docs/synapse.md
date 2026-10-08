@@ -377,8 +377,6 @@ writers never collide. The payload has these fields:
   `"record_query_text": true` in `.context/routes.json`.
 - `"write_activation": false` turns the file off.
 - Excluded, stale and withheld notes are never listed.
-- With `--jev-candidates`, the retriever reads back only the `run_id` of the trace it just
-  wrote, so the optional advisor labels that run and no other; it never affects ranking.
 - The file is never read back into ranking, and it is never indexed:
   `.context/` is skipped. The Obsidian plugin reads it only to display it.
 - It records which notes a retrieval activated and selected. It does not
@@ -656,7 +654,7 @@ retrieval that delivers two or more notes appends one line to
   `O_APPEND` writes under an advisory lock; the files are mode `0600`.
 - **Deleting it.** Delete `.context/usage-ledger.jsonl*` (and the empty
   `.usage-ledger.lock`), or set `record_usage` back to `false`.
-- **Never read by retrieval.** Ranking, packing, the trace, the advisor and the
+- **Never read by retrieval.** Ranking, packing, the trace and the
   host tools do not open the ledger; only `graph suggest` does. The retriever
   writes it after the packet is printed, and a write failure is ignored.
   Tests check that packets are byte-identical with the ledger absent, present

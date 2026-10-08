@@ -116,13 +116,12 @@ function viewDouble(nodes, overlay, settings = {}) {
   const view = Object.assign(Object.create(BrainView.prototype), {
     plugin: { settings: Object.assign({ paletteMode: 'degree', showOrphans: true }, settings) },
     gl: { ARRAY_BUFFER: 1, DYNAMIC_DRAW: 2, bindBuffer(_t, b) { bound = b; }, bufferData(_t, data) { if (bound) uploads.set(bound, Array.from(data)); } },
-    buffers: { nodePos: 'pos', nodeColor: 'color', nodeSize: 'size', nodeShell: 'shell', markPos: 'markPos', markColor: 'markColor', markSize: 'markSize', markRing: 'markRing' },
+    buffers: { nodePos: 'pos', nodeColor: 'color', nodeSize: 'size', nodeShell: 'shell' },
     model: { orderedNodes: ordered, nodes, structureVersion: 1, orphanCount: 1 },
     hoverNode: null, focusRegionKey: null, overlay,
     isVisible() { return true; },
   });
   view.rebuildNodeBuffers();
-  view.rebuildMarkBuffers();
   const drawn = view.renderNodeList();
   const at = path => { const i = drawn.findIndex(n => n.path === path); const c = uploads.get('color'); return { rgba: c.slice(i * 4, i * 4 + 4), size: uploads.get('size')[i] }; };
   return { view, at, uploads };
@@ -168,14 +167,14 @@ test('view buffers: hidden orphans are not uploaded', () => {
 // A trace shaped like the writer's two-hop output: A and C are seeds; B was
 // reached from A (depth 1); at depth 2 the writer followed B's links back to A
 // and across to C (backlinks), and on to D.
-function depthTrace(jev, nodeVerdicts = {}) {
+function depthTrace() {
   return A.parseActivation(JSON.stringify({
     version: 1, generated_at: '2026-09-24T12:00:00Z', method: 'synaptic', budget_tokens: 600,
     nodes: [
-      { path: 'a.md', activation: 1, hop: 0, role: 'seed', selected: true, jev: nodeVerdicts['a.md'] },
-      { path: 'c.md', activation: 0.7, hop: 0, role: 'seed', selected: true, jev: nodeVerdicts['c.md'] },
-      { path: 'b.md', activation: 0.4, hop: 1, role: 'hop', selected: true, jev: nodeVerdicts['b.md'] },
-      { path: 'd.md', activation: 0.2, hop: 2, role: 'hop', selected: false, jev: nodeVerdicts['d.md'] },
+      { path: 'a.md', activation: 1, hop: 0, role: 'seed', selected: true },
+      { path: 'c.md', activation: 0.7, hop: 0, role: 'seed', selected: true },
+      { path: 'b.md', activation: 0.4, hop: 1, role: 'hop', selected: true },
+      { path: 'd.md', activation: 0.2, hop: 2, role: 'hop', selected: false },
     ],
     edges: [
       { from: 'a.md', to: 'b.md', kind: 'wikilink', weight: 0.4 },
@@ -184,7 +183,6 @@ function depthTrace(jev, nodeVerdicts = {}) {
       { from: 'b.md', to: 'd.md', kind: 'wikilink', weight: 0.2 },
     ],
     packet: { passages: 3, est_tokens: 300, status: 'PARTIAL' },
-    jev,
   }));
 }
 function depthNodes() {
@@ -215,44 +213,19 @@ test('a link and its reverse are one ribbon, at the earliest depth, with both ki
   assert.equal(ab.a, nodes.get('a.md'), 'the pulse runs in the direction first traversed');
 });
 
-test('advisor verdicts applied: a ring for rescued notes, dimmed and dashed for flagged ones', () => {
+test('legacy advisor annotations cannot alter the retrieval overlay', () => {
   const nodes = depthNodes();
-  const verdicts = { 'b.md': 'rescued', 'd.md': 'off_topic', 'a.md': 'on_topic', 'c.md': 'local_only' };
-  const plain = viewDouble(nodes, A.mapOverlay(depthTrace(), p => nodes.get(p)));
-  const ov = A.mapOverlay(depthTrace({ mode: 'on', applied: true, rescued: 1, flagged: 1, kept: 2 }, verdicts), p => nodes.get(p));
-  const lit = viewDouble(nodes, ov);
-  assert.equal(lit.view.markCount, 2, 'only rescued and off-topic notes get a mark');
-  assert.deepEqual(lit.uploads.get('markRing').slice().sort(), [1, 2]);
-  assert.ok(lit.uploads.get('markColor').filter((_, i) => i % 4 === 3).every(a => a > 0.9), 'applied marks are bright');
-  assert.ok(Math.abs(lit.at('d.md').rgba[3] - plain.at('d.md').rgba[3] * A.FLAGGED_DIM) < 1e-6, 'a flagged note is dimmed');
-  assert.deepEqual(lit.at('b.md').rgba, plain.at('b.md').rgba, 'the ring marks a rescued note; its fill stays the retrieval colour');
-  assert.equal(ov.nodes.get('b.md').selected, true);
-});
-
-test('shadow verdicts are invisible by default and drawn as faint "would" marks only with the setting', () => {
-  const nodes = depthNodes();
-  const verdicts = { 'b.md': 'rescued', 'd.md': 'off_topic' };
-  const jev = { mode: 'shadow', applied: false, rescued: 1, flagged: 1 };
-  const plain = viewDouble(nodes, A.mapOverlay(depthTrace(), p => nodes.get(p)));
-  const hidden = viewDouble(nodes, A.mapOverlay(depthTrace(jev, verdicts), p => nodes.get(p), { showAdvisorShadow: false }));
-  assert.equal(hidden.view.markCount, 0);
-  assert.deepEqual(hidden.uploads.get('color'), plain.uploads.get('color'), 'fills are identical without the setting');
-  const ov = A.mapOverlay(depthTrace(jev, verdicts), p => nodes.get(p), { showAdvisorShadow: true });
-  const shown = viewDouble(nodes, ov);
-  assert.equal(shown.view.markCount, 2);
-  assert.ok(shown.uploads.get('markColor').filter((_, i) => i % 4 === 3).every(a => a <= 0.5), 'would-marks are faint');
-  assert.deepEqual(shown.uploads.get('color'), plain.uploads.get('color'), 'a shadow verdict never changes a note fill');
-  assert.equal(ov.nodes.get('b.md').mark.would, true);
-  assert.equal(ov.nodes.get('d.md').selected, false, 'shadow never changes selected');
-});
-
-test('without an advisor block (or with mode off) rendering is identical to before', () => {
-  const nodes = depthNodes();
-  const none = viewDouble(nodes, A.mapOverlay(depthTrace(), p => nodes.get(p)));
-  const off = viewDouble(nodes, A.mapOverlay(depthTrace({ mode: 'off', applied: false }, { 'b.md': 'rescued' }), p => nodes.get(p), { showAdvisorShadow: true }));
-  for (const key of ['pos', 'color', 'size', 'shell']) assert.deepEqual(off.uploads.get(key), none.uploads.get(key), key);
-  assert.equal(off.view.markCount, 0); assert.equal(none.view.markCount, 0);
-  assert.equal(A.mapOverlay(depthTrace(), p => nodes.get(p)).advisor, null);
+  const plain = A.mapOverlay(depthTrace(), p => nodes.get(p));
+  const raw = JSON.parse(JSON.stringify({
+    version: 1, generated_at: '2026-09-24T12:00:00Z', method: 'synaptic',
+    nodes: [{ path: 'b.md', activation: 0.4, hop: 1, role: 'hop', selected: true, jev: 'rescued' }],
+    edges: [], jev: { mode: 'on', applied: true, rescued: 1 },
+  }));
+  const parsed = A.parseActivation(JSON.stringify(raw));
+  assert.equal('advisor' in parsed, false);
+  assert.equal('jev' in parsed.nodes[0], false);
+  assert.equal('mark' in A.mapOverlay(parsed, p => nodes.get(p)).nodes.get('b.md'), false);
+  assert.equal('advisor' in plain, false);
 });
 
 test('with unlinked notes hidden, a note of the shown retrieval is still drawn', () => {

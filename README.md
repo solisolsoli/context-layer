@@ -158,7 +158,9 @@ covers setup, cache controls and troubleshooting.
 | See which notes a search used | [Obsidian Brain View](obsidian-plugin/README.md) |
 | Carry decisions between sessions | [Source-linked memory](docs/memory.md) |
 | Give sub-agents focused evidence and check their returns | [Sub-agent workflow](docs/subagents.md) |
-| Try model-assisted retrieval | [Jev advisor](docs/jev.md), a separate opt-in with provider-data controls |
+| Assess public or synthetic text manually | [Decisions API](docs/decisions.md), an opt-in advisory command |
+| Draft a public or synthetic task with an explicit model | [Responses API](docs/responses.md), preview first and send only on request |
+| Preview which route fits a bounded need | [Offline API routing](docs/api-routing.md), with no API call |
 | Find a command or diagnose a problem | [Quickstart](QUICKSTART.md), [CLI reference](docs/cli.md), [all guides](docs/README.md) |
 
 ## Support and development

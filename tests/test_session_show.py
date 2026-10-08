@@ -23,7 +23,7 @@ REPO = Path(os.environ.get("TEST_REPO_HOME", Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from context_layer import jev, memory, orchestrate, session_evidence as se  # noqa: E402
+from context_layer import memory, orchestrate, session_evidence as se  # noqa: E402
 from context_layer import session_show as ss  # noqa: E402
 
 PACKET = "ab" * 32                       # a shared packet id (64 hex)
@@ -104,7 +104,7 @@ class Base(unittest.TestCase):
 
     def build_sessions(self):
         garden, beans, harbor = (sha(NOTES[n]) for n in NOTES)
-        # Session A: two deliveries in two packets, memory, a verified task, an advisor row.
+        # Session A: two deliveries in two packets, memory, a verified task, and a legacy advisor row.
         se.record_delivery(self.vault, "sess-a", [("notes/garden.md", garden)],
                            packet_id=PACKET, now=NOW_A)
         se.record_delivery(self.vault, "sess-a", [("notes/beans.md", beans)],
@@ -137,14 +137,15 @@ class Base(unittest.TestCase):
                       job={"path": ".context/jobs/j1/job.md", "sha256": "1" * 64})
         self.task_dir(TASK_2, "verified", packet=PACKET,
                       ledger={"n": 99, "sha256": "2" * 64})
-        # Advisor rows: one inside session A's window (the session spans 2026-01-15 to
-        # today), one long before it.
-        (self.vault / ".context").mkdir(exist_ok=True)
-        jev.append_log(self.vault, {"at": int(NOW_A.timestamp()), "feature": "search",
-                                    "mode": "shadow", "applied": False, "requests": 1,
-                                    "input_tokens": 40, "output_tokens": 5})
-        jev.append_log(self.vault, {"at": 1_500_000_000, "feature": "search", "mode": "on",
-                                    "applied": True, "requests": 9})
+        # Historical Jev logs remain readable without importing the removed advisor.
+        rows = [
+            {"at": int(NOW_A.timestamp()), "feature": "search", "mode": "shadow",
+             "applied": False, "requests": 1, "input_tokens": 40, "output_tokens": 5},
+            {"at": 1_500_000_000, "feature": "search", "mode": "on",
+             "applied": True, "requests": 9},
+        ]
+        (self.vault / ".context" / "jev-calls.jsonl").write_text(
+            "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
 
     def run_cli(self, *argv):
         environment = isolated_home_env(os.environ, self.home)

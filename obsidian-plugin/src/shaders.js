@@ -4,21 +4,17 @@
 // "breathing" field from field.js so CPU picking matches what is drawn.
 const Field = require('./field');
 
-// aRing selects the sprite: 0 = a note (core and halo), 1 = a solid ring,
-// 2 = a dashed ring (the advisor marks drawn around a note).
 const POINT_VS = `
 attribute vec3 aPosition;
 attribute vec4 aColor;
 attribute float aSize;
 attribute float aShell;
-attribute float aRing;
 uniform mat4 uProjection, uView;
 uniform vec2 uViewport;
 uniform vec3 uEyePos;
 uniform float uTime;
 varying vec4 vColor;
 varying float vSize;
-varying float vRing;
 ${Field.glsl}
 void main() {
   vec3 p = neuralField(aPosition, uTime);
@@ -27,7 +23,6 @@ void main() {
   float dist = max(-v.z, 0.001);
   gl_PointSize = clamp(aSize * uProjection[1][1] * uViewport.y * 0.5 / dist / 0.7, 2.5, 96.0);
   vSize = gl_PointSize;
-  vRing = aRing;
   float front = dot(normalize(p + vec3(0.000001)), normalize(uEyePos));
   float shellDepth = mix(0.22, 0.92, smoothstep(-0.45, 0.7, front));
   float innerDepth = clamp(1.0 - (dist - length(uEyePos) + 1.0) * 0.3, 0.35, 1.0);
@@ -38,22 +33,14 @@ const POINT_FS = `
 precision mediump float;
 varying vec4 vColor;
 varying float vSize;
-varying float vRing;
 uniform float uAlphaMult;
 void main() {
   vec2 q = gl_PointCoord - vec2(0.5);
   float d = length(q) * 2.0;
   float aa = min(1.4 / vSize, 0.3);
-  float a;
-  if (vRing > 0.5) {
-    float band = 1.0 - smoothstep(0.09, 0.09 + aa, abs(d - 0.8));
-    if (vRing > 1.5) band *= step(0.0, sin(atan(q.y, q.x) * 8.0));
-    a = band * vColor.a * uAlphaMult;
-  } else {
-    float core = 1.0 - smoothstep(0.70 - aa, 0.70 + aa, d);
-    float halo = 0.13 * exp(-7.0 * d * d) * (1.0 - smoothstep(0.85, 1.0, d));
-    a = (core + halo) * vColor.a * uAlphaMult;
-  }
+  float core = 1.0 - smoothstep(0.70 - aa, 0.70 + aa, d);
+  float halo = 0.13 * exp(-7.0 * d * d) * (1.0 - smoothstep(0.85, 1.0, d));
+  float a = (core + halo) * vColor.a * uAlphaMult;
   gl_FragColor = vec4(vColor.rgb * a, a);
 }`;
 

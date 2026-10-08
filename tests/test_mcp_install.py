@@ -218,7 +218,7 @@ class McpServer(HostFixture):
         self.assertEqual([tool["name"] for tool in tools],
                          ["search_vault", "read_source", "vault_status",
                           "memory_record", "memory_resume", "graph_neighbors",
-                          "read_packet", "jev_status", "check_claims", "github_context"])
+                          "read_packet", "check_claims", "github_context"])
         described = {tool["name"]: tool["description"] for tool in tools}
         self.assertIn("not an answer", described["search_vault"])
         self.assertIn("NOT_FOUND", described["search_vault"])
@@ -370,14 +370,13 @@ class McpCaps(McpServer):
                     self.assertIn("maximum", schema, (tool["name"], key))
         hints = {name: tool["annotations"] for name, tool in tools.items()}
         for name in ("read_source", "vault_status", "memory_resume", "graph_neighbors",
-                     "read_packet", "jev_status"):
+                     "read_packet"):
             self.assertTrue(hints[name]["readOnlyHint"], name)
         # search_vault can write the activation trace and the opted-in ledger.
         self.assertFalse(hints["search_vault"]["readOnlyHint"])
         self.assertFalse(hints["memory_record"]["readOnlyHint"])
-        # check_claims writes no note or record, but with `jev: true` it may add counters and
-        # cached answers under .context, so it is not annotated read-only.
-        self.assertFalse(hints["check_claims"]["readOnlyHint"])
+        # check_claims only validates supplied claims against local passages.
+        self.assertTrue(hints["check_claims"]["readOnlyHint"])
         claims = tools["check_claims"]["inputSchema"]["properties"]["claims"]
         self.assertEqual((claims["maxItems"], claims["items"]["properties"]["citations"]["maxItems"]),
                          (20, 8))
@@ -435,7 +434,7 @@ class McpConformance(HostFixture):
         self.assertEqual(listed["resultType"], "complete")
         self.assertGreater(listed["ttlMs"], 0)
         self.assertIn(listed["cacheScope"], ("public", "private"))
-        self.assertEqual(len(listed["tools"]), 10)
+        self.assertEqual(len(listed["tools"]), 9)
         called = client.request(3, "tools/call", {
             "_meta": META, "name": "search_vault",
             "arguments": {"prompt": "release versioning policy"}})["result"]
@@ -462,7 +461,7 @@ class McpConformance(HostFixture):
     def test_json_rpc_edge_cases(self):
         client = self.client()
         early = client.request(1, "tools/list")            # before initialize: served
-        self.assertEqual(len(early["result"]["tools"]), 10)
+        self.assertEqual(len(early["result"]["tools"]), 9)
         self.assertEqual(client.initialize("2025-06-18", ident=2)["result"]["protocolVersion"],
                          "2025-06-18")
         client.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
@@ -728,6 +727,12 @@ class McpRetrievalWorker(HostFixture):
         result = self.mcp_server.tool_search_vault(self.state, {"prompt": prompt, **arguments})
         self.assertFalse(result["isError"], result)
         return json.loads(result["content"][0]["text"])
+
+    def test_removed_advisor_argument_fails_instead_of_silently_downgrading(self):
+        with self.assertRaisesRegex(self.mcp_server.InvalidParams, "jev option was removed"):
+            self.mcp_server.tool_search_vault(self.state, {"prompt": "release", "jev": True})
+        with self.assertRaisesRegex(self.mcp_server.InvalidParams, "jev option was removed"):
+            self.mcp_server.tool_check_claims(self.state, {"claims": [], "jev": True})
 
     def test_one_worker_serves_many_calls_with_the_cli_packet(self):
         first = self.search("release versioning policy")
@@ -1522,9 +1527,9 @@ class PromptHook(HostFixture):
                 self.assertEqual(done.stdout, "")
                 self.assertEqual(len(done.stderr.strip().splitlines()), 1, done.stderr)
                 self.assertNotIn("Traceback", done.stderr)
-        fallback = self.hook(payload, "--method", "jev")
+        fallback = self.hook(payload, "--method", "unknown")
         self.assertIn("path=notes/release.md", self.context(fallback))
-        self.assertIn("unknown --method 'jev'; using synaptic", fallback.stderr)
+        self.assertIn("unknown --method 'unknown'; using synaptic", fallback.stderr)
 
     def test_prompts_that_look_like_options_empty_or_huge(self):
         # B-12: the prompt is an argument after `--`, bounded, never an option.

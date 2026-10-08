@@ -134,7 +134,7 @@ class Doctor(unittest.TestCase):
                 (lambda c: append_hook_args(c, "--future-flag", "1"), "fail", "unrecognised"),
                 (lambda c: append_hook_args(c, "--max-context-chars", "50"),
                  "fail", "max-context-chars"),
-                (lambda c: append_hook_args(c, "--method", "jev"), "warn", "would run fts")):
+                (lambda c: append_hook_args(c, "--method", "unknown"), "warn", "would run fts")):
             with self.subTest(fragment=fragment):
                 self.install("--hook", "--rules")
                 self.edit_hook("UserPromptSubmit", edit)

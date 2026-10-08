@@ -1,8 +1,9 @@
 # Privacy: what context-layer writes, and how to remove it
 
 context-layer makes no network request of its own unless you explicitly use
-configured [GitHub context](github-context.md) or enable the
-optional advisor ([jev.md](jev.md)). Both are off by default. GitHub context
+configured [GitHub context](github-context.md) or send public or synthetic text
+with the manual [Decisions command](decisions.md) or [Responses command](responses.md).
+All network features are off by default. GitHub context
 sends only configured public repository paths, pinned commits and explicitly
 checked refs, never a prompt, local note or credential. Retrieval writes no
 fetched content unless the separate cache opt-in is enabled; then bounded
@@ -55,22 +56,12 @@ described in the tables. Indexing and retrieval do not rewrite source notes.
 | A custom `tasks --output-dir` | The agent | Whatever the agent wrote. A directory that is not hidden is indexed by the next `index`, so agent output becomes searchable evidence. | You delete it. |
 | `.mcp.json`, `.claude/settings.json` | `context-layer install claude-code --apply` (`--project` defaults to the vault) | The launch command, the absolute vault path, `PYTHONUTF8=1`, possibly a `PYTHONPATH`. | `context-layer uninstall ... --apply`. |
 | `<file>.bak-<UTC time>` | Every `install --apply` / `uninstall --apply` | The previous bytes of the file it changed. | You delete it; backups are never pruned. |
-| `.context/jev.json` | `context-layer jev off/shadow/on` (the optional advisor) | Mode, features, provider kind, endpoint, model id and the **name** of the variable holding its key, limits, thresholds, local-only prefixes. Never a key, never note text. `0600`. | You delete it. |
-| `.context/jev.disabled` | You (the advisor's kill switch) | Nothing needed: its presence switches the advisor off. | You delete it. |
-| `.context/jev-calls.jsonl` | Every advisor call in a configured vault (`search --jev`, the prompt hook with `auto_context` enabled, `jev record`) | One row of counters per call (mode, codes, latency, token and request counts, how many passages were judged, flagged, rescued). No query, no note text, no path. `0600`. | At 512 KiB the older half is dropped; `jev purge --apply --all`. |
-| `.context/jev-cache/`, `.context/jev.salt` | Advisor calls in `shadow` or `on` | Validated yes/no answers with probabilities and counters, in files named by a keyed hash; the salt is 32 random bytes. No question, excerpt or key. | Expire after `cache_ttl_s`; `jev purge --apply`. |
-| `.context/jev-calibration/<kind>-<model>.json` | `context-layer jev calibrate --apply` | The calibration receipt: provider kind and model, thresholds, template revision, `passed` per purpose with its counts and rates on the fictional development set, hashes of the dev set, report and recording. No path, no text. `0600`. | `jev purge --apply --receipts`. |
-| `.context/jev-recordings/<kind>-<model>-<utc>.jsonl` | `context-layer jev record --run` (default `--out`) | One row per recorded question: hashes, template, provider identity, the validated answer or a failure code, counters. Never the question, an excerpt or a key. `0600`. | `jev purge --apply --receipts`, or delete the file. |
 
 The graph and the activation trace are described in [synapse.md](synapse.md).
 `activation.json` records which notes a retrieval selected, not the model's
 reasoning, and holds a random `run_id` rather than any hash of the query (0.3.0
 development builds stored an unsalted SHA-256 of the query; a short query can be
 recovered from such a hash by guessing, so it was removed).
-
-With the advisor enabled, a synaptic `search --jev` also adds labels to
-`activation.json`: an additive `jev` object and one word per note (`rescued`,
-`on_topic`, `off_topic`, `local_only`, `not_judged`). No text.
 
 `context-layer status` and the MCP `vault_status` tool only read and print.
 `context-layer rollback` swaps `index.sqlite`, the manifest and `graph.sqlite`
@@ -100,26 +91,30 @@ with their `.prev` copies, which is its own undo.
   `<vault>/.claude/settings.json` for the length of one hook-arm run, restoring
   the original bytes afterwards.
 
-## What the advisor sends
+## What manual Decisions sends
 
-Nothing, unless you configure it: the advisor is off by default, and without
-`.context/jev.json` its provider client is never loaded. In mode `shadow` or `on`,
-`context-layer search --jev` sends to the provider you named: the question (at
-most 2,000 characters) and, for each judged passage and each note it considers
-adding, the note's file name without its folder (at most 160 characters), the
-line that links to it (at most 300 characters) and the first `excerpt_chars`
-(default 800) characters of the passage that would be delivered. Never folder
-paths, hashes, the vault name or a key. `context-layer jev status` prints the
-same notice for your configuration.
+Nothing is sent by a preview. With `decisions assess --send`, the input JSON's
+public or synthetic text is assembled into a fixed question and sent to OpenAI.
+`--data-scope` is a required user assertion, not a content scanner. The command
+does not read the vault or inherit vault exclusion rules, so inspect every input
+field before sending. `OPENAI_API_KEY` is read at the explicit call and is not
+written to the vault. See [Decisions](decisions.md).
 
-Before anything is sent: notes under `local_only_prefixes`, and notes whose
-frontmatter says `remote_allowed` or `jev` other than exactly `true`,
-`sensitivity` other than `public`/`internal`/`normal`, or `visibility: private`
-(or whose frontmatter cannot be read with certainty), are never sent; a secret
-scan stops the whole call on a match; a question shorter than 12 characters is
-not sent. What you send is then under the provider's terms and retention; the
-key and the optional `env_file`/`blocklist_file` stay outside the vault and are
-never copied into it. Details: [jev.md](jev.md).
+## What manual Responses sends
+
+Nothing is sent by a preview. With `responses run --send`, the reviewed UTF-8
+public or synthetic task text is sent to OpenAI under the explicitly selected
+model. `store: false` is set; this does not imply zero retention. Web search is
+off by default and can be enabled with `--web-search` for at most one tool call.
+The command does not read vault notes automatically, and `--data-scope` is a
+caller assertion rather than a privacy detector. See [Responses](responses.md).
+
+Earlier Jev versions could leave `.context/jev.json`, `.context/jev.disabled`,
+`.context/jev-calls.jsonl`, `.context/jev-cache/`, `.context/jev.salt`,
+`.context/jev-calibration/` and `.context/jev-recordings/` in a vault. The
+current Decisions command does not use these files. Inspect and delete them
+manually if no older installation still needs them; deleting local files cannot
+retract text previously sent to a provider.
 
 ## Sync, backups and version control
 
@@ -162,13 +157,13 @@ local under Obsidian Sync. The visible files this tool can write (`CLAUDE.md`,
 | One task | Delete `.context/tasks/<id>/` and `.context/task-pins/<id>.json`. |
 | Memory | Delete `.context/memory/`, or remove lines from `records.jsonl` and run `context-layer memory verify` to see which records the hash chain no longer covers; delete `.context/sessions/` and `.context/session-evidence/`; remove visible notes with `context-layer memory mirror VAULT --notes <folder> --remove`. |
 | Install backups | Delete the `*.bak-*` files next to the configuration they back up. |
-| The advisor's files | `context-layer jev purge <vault> --apply --all --receipts` (without `--apply` it only lists), then delete `.context/jev.json` and `.context/jev.disabled`. What was already sent stays under the provider's retention. |
+| Legacy Jev files | Inspect and manually delete the `.context/jev*` paths listed above once older installations no longer need them. What was already sent stays under the provider's retention. |
 
 Deleting a file removes it from this vault on this machine. It is not
 forensic erasure (SQLite and file systems can keep freed pages until they are
 overwritten), and it does not reach sync-provider version history, backups,
 Git history or clones. A general `privacy inspect` / `purge` command does not
-exist; `context-layer jev purge` removes only the advisor's own files.
+exist; there is no active Jev purge command.
 
 ## What not to put in the vault or in memory
 

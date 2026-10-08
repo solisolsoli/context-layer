@@ -410,7 +410,7 @@ test('unload leaves nothing behind: listeners, frames, timers and the worker (hy
   assert.equal(view.canvas.listenerCount(), 0, 'canvas listeners removed');
 });
 
-test('no network request at runtime, with or without an advisor block', async () => {
+test('no network request at runtime while polling an activation trace', async () => {
   const calls = [];
   const trap = name => function () { calls.push(name); throw new Error('network is not allowed: ' + name); };
   const saved = {};
@@ -419,16 +419,10 @@ test('no network request at runtime, with or without an advisor block', async ()
     const ctx = await openView({ notes: 200 });
     const { app, view, plugin } = ctx;
     const linked = view.model.orderedNodes.filter(n => n.degree > 0).slice(0, 4).map(n => n.path);
-    const withAdvisor = JSON.parse(traceText(linked));
-    withAdvisor.jev = { mode: 'on', applied: true, provider_kind: 'host_cli', rescued: 1, flagged: 1, kept: 2 };
-    withAdvisor.nodes[1].jev = 'rescued'; withAdvisor.nodes[2].jev = 'off_topic';
-    app.vault.adapter.setFile(TRACE, JSON.stringify(withAdvisor));
+    app.vault.adapter.setFile(TRACE, traceText(linked));
     await view.pollActivation(true);
-    plugin.settings.showAdvisorShadow = true; await plugin.saveSettings();
     view._lastHud = -Infinity; env.frames.flush(3);
-    assert.equal(view.markCount, 2);
-    assert.match(view.advisorEl.text, /^advisor on \u00b7 rescued 1 \u00b7 flagged 1 \u00b7 kept 2$/);
-    assert.ok(view.overlayKeyEl.children.some(el => el.text === 'advisor judgement, not evidence'));
+    assert.ok(view.overlay);
     await closeView(ctx);
   } finally { for (const name of Object.keys(saved)) globalThis[name] = saved[name]; }
   assert.deepEqual(calls, []);
