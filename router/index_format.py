@@ -23,6 +23,7 @@ Python 3.10+; standard library only.
 """
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 
 # Version of the index layout this code writes and reads. Stored twice: as
@@ -38,6 +39,15 @@ REBUILD = "rebuild it with `context-layer index <vault>`"
 
 class IndexFormatError(ValueError):
     """The index cannot be trusted as it is; the message says what to run."""
+
+
+def file_digest(path) -> str:
+    """Fresh SHA-256 of a generation file, streamed without holding it in memory."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def stamp(connection: sqlite3.Connection) -> None:

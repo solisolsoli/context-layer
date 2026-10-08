@@ -37,3 +37,5 @@ measured token savings. A model must match
 `[A-Za-z0-9][A-Za-z0-9._:-]{0,99}`; the planner rejects a model supplied for a
 non-generation need. A Responses route means only that an explicit model was
 provided; it does not establish model availability or account access.
+Omitting a model yields `needs_configuration`; supplying an empty or whitespace
+model is invalid, matching the Responses command's model validation.

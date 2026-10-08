@@ -6,7 +6,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-import re
 import stat
 import sys
 
@@ -15,11 +14,7 @@ from . import responses_client
 
 SCOPES = ("public", "synthetic")
 MAX_INPUT_BYTES = responses_client.MAX_INPUT_BYTES
-SENSITIVE_MARKERS = (
-    re.compile(r"sk-[A-Za-z0-9_-]{20,}"),
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
-    re.compile(r"(?i)OPENAI_API_KEY\s*[:=]\s*['\"]?\S+"),
-)
+SENSITIVE_MARKERS = responses_client.SENSITIVE_MARKERS
 
 
 class InvalidResponseInput(ValueError):
@@ -30,6 +25,8 @@ def build_payload(prompt: str, model: str, max_output_tokens: int = 1024,
                   web_search: bool = False) -> dict:
     if not isinstance(prompt, str) or not prompt.strip():
         raise InvalidResponseInput("input_invalid")
+    if type(web_search) is not bool:
+        raise InvalidResponseInput("web_search_invalid")
     try:
         input_bytes = len(prompt.encode("utf-8"))
     except UnicodeError:
@@ -54,6 +51,8 @@ def run(prompt: str, *, data_scope: str, model: str, max_output_tokens: int = 10
         timeout: float = 10.0, web_search: bool = False, send: bool = False) -> dict:
     if data_scope not in SCOPES:
         raise InvalidResponseInput("data_scope_refused")
+    if type(send) is not bool:
+        raise InvalidResponseInput("send_invalid")
     if type(timeout) not in (int, float) or not 0 < timeout <= 30:
         raise InvalidResponseInput("timeout_invalid")
     payload = build_payload(prompt, model, max_output_tokens, web_search)

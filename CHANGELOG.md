@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+No changes recorded yet.
+
+## 0.5.0
+
+- Added a [0.4 → 0.5 migration guide](docs/migration-0.5.md) and installed-package
+  checks for offline routing, API previews and missing-key failures.
 - Removed Jev's provider, configuration, search/hook/MCP and Obsidian advisor paths.
   Existing local retrieval remains deterministic, and `check_claims` still checks
   cited source hashes, line ranges and exact spans. Its report schema is now
@@ -20,6 +26,11 @@
 - The private-trace audit now exempts only the exact public Decisions model
   identifier; a standalone occurrence of the overlapping private term remains
   detectable.
+
+- Verify stored index and graph content digests before reuse, so corrupted
+  state is rebuilt rather than reused. Legacy indexes without a receipt rebuild
+  once; healthy unchanged indexes preserve their bytes and timestamps. These
+  digests detect corruption, not authenticity against a hostile writer.
 
 - Faster setup. `index` checks each folder's boundaries once instead of once per
   file, overlaps reading and hashing on a few threads (every file is still read and
@@ -84,7 +95,7 @@
   automated checks. Simplify the package description and documentation navigation.
 - Refresh GitHub source/cache guidance, PowerShell examples,
   privacy retention and tested platform documentation. Add package project
-  links and tested Linux/Windows classifiers; keep the package version at 0.4.0.
+  links and tested Linux/Windows classifiers; advance package metadata to 0.5.0.
 - Refresh development, conduct and security guidance, including private
   vulnerability reporting. MIT rights and third-party notices are unchanged.
 
@@ -97,7 +108,6 @@
   portable test fixtures and installed-wheel checks. Windows CI is required.
   Verbatim CRLF evidence is preserved in console and saved packets. Encoded
   hook commands can be inspected and uninstalled without executing them.
-  Advisor expiration waits for private temporary-directory cleanup to finish.
   Atomic replacements and concurrent task-state reads tolerate bounded Windows
   sharing conflicts; persistent errors remain visible. Task output validation
   checks current file identity and hard-link counts.
@@ -106,13 +116,12 @@
   `search --github` and an MCP tool. Owner-enabled allowlists, commit-pinned
   public files, anonymous bounded reads, verified blob hashes and immutable
   citations. Questions and vault notes stay local. External evidence remains
-  separate from local evidence, Jev and the session ledger; local retrieval
+  separate from local evidence, manual API commands and the session ledger; local retrieval
   defaults, errors and withheld-source handling are preserved.
 
-- Record passing hosted CI for all 12 required jobs: Ubuntu (Python 3.10–3.13),
-  macOS and Windows (3.12), installed packages, benchmarks, Jev and the plugin.
-  Windows support includes full tests and installed hook/uninstall verification;
-  package checks run before its longer unit suite to expose install failures early.
+- Retain [prior runtime CI evidence and platform support](SCOPE.md#unreleased-addition).
+  The 0.5.0 matrix has 11 required jobs; its result is recorded only after the
+  actual hosted run. Earlier passing jobs do not establish a 0.5.0 CI pass.
 
 - Brain View: the HUD title and counts line take a lighter typography
   (a light, widely spaced title and a
@@ -134,7 +143,7 @@ guards each area.
 
 **New**
 
-- **The optional advisor (Jev), off by default** ([docs/jev.md](docs/jev.md)).
+- **The optional advisor (Jev), off by default** (the former `docs/jev.md`, removed in 0.5.0).
   `context-layer jev status|off|shadow|on|report|purge` and
   `search --jev` / `--no-jev`. The advisor asks a provider whether each passage,
   and each note the links reached but the packet did not deliver, would help
@@ -301,7 +310,7 @@ guards each area.
   pinned node24 actions, Dependabot, timeouts and concurrency groups, a
   non-blocking Windows smoke job; the Makefile and the bench runner run Python
   in UTF-8 mode (E-05 to E-09, E-16 to E-18, E-22).
-- **Docs.** [docs/jev.md](docs/jev.md); a multi-host table in
+- **Docs.** the former `docs/jev.md` (removed in 0.5.0); a multi-host table in
   [docs/host-integration.md](docs/host-integration.md) (Claude Code, Codex,
   Cursor, Gemini CLI, Antigravity, OMP, OpenCode, Hermes Agent) with caps, exit
   codes, packing and protocol revisions; [discipline/WORKED_EXAMPLE.md](discipline/WORKED_EXAMPLE.md);

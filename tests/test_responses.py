@@ -273,6 +273,61 @@ class ResponsesTests(unittest.TestCase):
         self.assertNotIn(secret, error.getvalue())
         self.assertNotIn(temp, error.getvalue())
 
+    def test_direct_transport_refuses_secret_before_network(self):
+        payload = {"model": MODEL, "input": "OPENAI_API_KEY = fictional-token",
+                   "store": False, "max_output_tokens": 128}
+        with patch.object(responses_client.urllib.request, "build_opener") as network:
+            with self.assertRaisesRegex(responses_client.ResponsesError, "credential_pattern_refused"):
+                responses_client.create_response(payload, data_scope="synthetic")
+            network.assert_not_called()
+
+    def test_refusal_and_malformed_unicode_are_distinct_fixed_errors(self):
+        for part, code in (({"type": "refusal", "refusal": "FICTIONAL_SENSITIVE_REASON"}, "response_refused"),
+                           ({"type": "output_text", "text": "\ud800"}, "response_invalid")):
+            reply = _response(output=[{"type": "message", "role": "assistant", "content": [part]}])
+            with self.assertRaises(responses_client.ResponsesError) as caught:
+                responses_client._extract_result(reply, web_search=False)
+            self.assertEqual(str(caught.exception), code)
+
+    def test_invalid_send_web_flag_timeout_and_key_never_call_network(self):
+        with patch.object(responses_client.urllib.request, "build_opener") as network:
+            for args in ({"send": "false"}, {"web_search": "false"}, {"timeout": 10 ** 400}):
+                with self.assertRaises(responses.InvalidResponseInput):
+                    responses.run("Fictional", data_scope="synthetic", model=MODEL, **args)
+            for key in ("token\x00text", "t\u00e9st-token", "x" * 1025):
+                with patch.object(responses_client.os, "environ", {"OPENAI_API_KEY": key}):
+                    with self.assertRaisesRegex(responses_client.ResponsesError, "key_missing"):
+                        responses_client.create_response(responses.build_payload("Fictional", MODEL),
+                                                         data_scope="synthetic")
+            network.assert_not_called()
+
+    def test_duplicate_keys_and_deep_response_json_fail_closed(self):
+        for raw in (b'{"status":"failed","status":"completed","output":[]}',
+                    b'[' * 2000 + b']' * 2000):
+            with patch.dict(responses_client.os.environ, {"OPENAI_API_KEY": "test-token"}), \
+                 patch.object(responses_client.urllib.request, "build_opener") as opener:
+                opener.return_value.open.return_value = _Reply(raw)
+                with self.assertRaises(responses_client.ResponsesError):
+                    responses_client.create_response(responses.build_payload("Fictional", MODEL),
+                                                     data_scope="synthetic")
+
+    def test_serialized_request_response_and_answer_limits_are_enforced(self):
+        with patch.object(responses_client.urllib.request, "build_opener") as network:
+            with self.assertRaisesRegex(responses.InvalidResponseInput, "request_too_large"):
+                responses.run("\x00" * 7000, data_scope="synthetic", model=MODEL, send=True)
+            network.assert_not_called()
+        with patch.dict(responses_client.os.environ, {"OPENAI_API_KEY": "test-token"}), \
+             patch.object(responses_client.urllib.request, "build_opener") as opener:
+            opener.return_value.open.return_value = _Reply(b" " * (responses_client.MAX_RESPONSE_BYTES + 1))
+            with self.assertRaisesRegex(responses_client.ResponsesError, "response_too_large"):
+                responses_client.create_response(responses.build_payload("Fictional", MODEL),
+                                                 data_scope="synthetic")
+        with self.assertRaisesRegex(responses_client.ResponsesError, "response_invalid"):
+            responses_client._extract_result(_response(output=[{
+                "type": "message", "role": "assistant", "content": [{
+                    "type": "output_text", "text": "x" * (responses_client.MAX_ANSWER_CHARACTERS + 1)
+                }]}]), web_search=False)
+
 
 if __name__ == "__main__":
     unittest.main()

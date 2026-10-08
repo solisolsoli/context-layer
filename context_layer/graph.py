@@ -40,6 +40,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import sqlite3
+import stat
 import string
 import sys
 import tempfile
@@ -908,6 +909,8 @@ def _previous_graph(out: Path) -> tuple[dict[str, str], dict[str, tuple[str, str
             meta = dict(connection.execute("SELECT key, value FROM graph_meta"))
             if meta.get("builder") != _builder_key():
                 return {}, {}
+            if meta.get("content_sha256") != _content_digest(connection):
+                return {}, {}
             cache = {path: (sha, parsed) for path, sha, parsed in
                      connection.execute("SELECT path, sha256, parsed FROM parse_cache")}
         finally:
@@ -920,6 +923,33 @@ def _previous_graph(out: Path) -> tuple[dict[str, str], dict[str, tuple[str, str
 def _digest(value) -> str:
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, separators=(",", ":"))
                           .encode("utf-8")).hexdigest()
+
+
+def _content_digest(connection: sqlite3.Connection) -> str:
+    """Bind cache, resolved links and metadata before any generation is reused.
+
+    Stream rows instead of copying the graph into memory. A source hash only binds
+    the original note bytes; it cannot vouch for a changed cached parse or edge.
+    This detects corruption, not a writer that can also replace the digest.
+    """
+    digest = hashlib.sha256()
+    queries = ["SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY name",
+               "SELECT key, value FROM graph_meta WHERE key != 'content_sha256' ORDER BY key"]
+    queries += [f"SELECT * FROM {table} ORDER BY rowid" for table in
+                ("notes", "edges", "unresolved", "skipped", "frontmatter", "parse_cache")]
+    for query in queries:
+        digest.update(query.encode("ascii"))
+        for row in connection.execute(query):
+            encoded = json.dumps(tuple(row), ensure_ascii=False, separators=(",", ":"))
+            raw = encoded.encode("utf-8")
+            digest.update(len(raw).to_bytes(8, "big"))
+            digest.update(raw)
+    return digest.hexdigest()
+
+
+def _stamp_content(connection: sqlite3.Connection) -> None:
+    connection.execute("INSERT OR REPLACE INTO graph_meta (key, value) VALUES (?,?)",
+                       ("content_sha256", _content_digest(connection)))
 
 
 def _meta_summary(out: Path, meta: dict[str, str], started: float,
@@ -1074,6 +1104,7 @@ def _update_in_place(vault: Path, out: Path, prefixes, policy, excluded, notes: 
                 " in_degree=?, degree=? WHERE path=?", updates)
             connection.executemany("INSERT INTO graph_meta (key, value) VALUES (?,?)",
                                    sorted(meta.items()))
+            _stamp_content(connection)
             connection.commit()
         finally:
             connection.close()
@@ -1292,6 +1323,7 @@ def build(vault: Path, index: Path | None = None, out: Path | None = None,
                  for name, note in sorted(parsed.items())])
             connection.executemany("INSERT INTO graph_meta (key, value) VALUES (?,?)",
                                    sorted(meta.items()))
+            _stamp_content(connection)
             connection.commit()
         finally:
             connection.close()
@@ -1320,6 +1352,39 @@ class GraphUnreadable(ValueError):
     """graph.sqlite exists but cannot be read (damaged, or a layout this code does not
     read). The message is one line naming the command that rebuilds it, never raw
     SQLite text."""
+
+
+def _fresh_digest(file: Path, expected_size: int) -> str | None:
+    """Hash at most the indexed size plus one byte, in bounded chunks.
+
+    Refuse changed sizes and nonregular sources before reading. O_NOFOLLOW is
+    used where available; parent checks remain the shared source policy's job.
+    Short reads do not imply EOF, and growth after the size check is bounded.
+    """
+    before_open = file.stat()
+    if expected_size < 0 or before_open.st_size != expected_size \
+            or not stat.S_ISREG(before_open.st_mode):
+        return None
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    flags |= getattr(os, "O_NONBLOCK", 0)
+    descriptor = os.open(file, flags)
+    with os.fdopen(descriptor, "rb") as handle:
+        before = os.fstat(handle.fileno())
+        if before.st_size != expected_size or not stat.S_ISREG(before.st_mode):
+            return None
+        digest = hashlib.sha256()
+        read = 0
+        while read <= expected_size:
+            block = handle.read(min(1 << 20, expected_size + 1 - read))
+            if not block:
+                break
+            read += len(block)
+            digest.update(block)
+        after = os.fstat(handle.fileno())
+        if read != expected_size or (before.st_size, before.st_mtime_ns, before.st_ctime_ns) \
+                != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+            return None
+        return digest.hexdigest()
 
 
 @dataclass
@@ -1359,6 +1424,7 @@ class Graph:
             raise GraphUnreadable(str(exc)) from None
         self._notes: dict[str, tuple] = {}
         self._fresh: dict[str, bool] = {}
+        self._prefixes = None
         self._tables: set[str] | None = None
 
     def close(self) -> None:
@@ -1403,24 +1469,22 @@ class Graph:
     def fresh(self, path: str) -> bool:
         """Does the file still hold the bytes its edges were extracted from?
 
-        Size and mtime equal to the build's -> fresh without hashing (the same
-        shortcut git uses); otherwise the SHA-256 decides. A note the builder
-        skipped has an empty sha256 and is never fresh.
+        Hash a policy-checked source snapshot once per graph/query. Equal size and
+        mtime cannot establish freshness. A note the builder skipped has an empty
+        sha256 and is never fresh.
         """
         if path in self._fresh:
             return self._fresh[path]
         row = self.note(path)
         result = False
         if row is not None and row[0]:
-            file = self.vault / path
             try:
-                if not file.is_symlink():
-                    stat = file.stat()
-                    if stat.st_size == row[1] and stat.st_mtime_ns == row[2]:
-                        result = True
-                    else:
-                        result = hashlib.sha256(file.read_bytes()).hexdigest() == row[0]
-            except OSError:
+                policy = _policy()
+                if self._prefixes is None:
+                    self._prefixes = policy.load_exclusions(self.vault)
+                file = policy.source_path(self.vault, path, self._prefixes)
+                result = _fresh_digest(file, row[1]) == row[0]
+            except (OSError, ValueError):
                 result = False
         self._fresh[path] = result
         return result

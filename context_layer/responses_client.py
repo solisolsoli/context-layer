@@ -23,6 +23,11 @@ MAX_RESPONSE_BYTES = 256_000
 MAX_ANSWER_CHARACTERS = 64_000
 MAX_CITATIONS = 64
 MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,99}\Z")
+SENSITIVE_MARKERS = (
+    re.compile(r"sk-[A-Za-z0-9_-]{20,}"),
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+    re.compile(r"(?i)OPENAI_API_KEY\s*[:=]\s*['\"]?\S+"),
+)
 
 
 class ResponsesError(ValueError):
@@ -57,6 +62,8 @@ def _request_body(payload: dict) -> bytes:
         raise ResponsesError("input_invalid") from None
     if encoded_input_size > MAX_INPUT_BYTES:
         raise ResponsesError("input_invalid")
+    if any(marker.search(value) for marker in SENSITIVE_MARKERS):
+        raise ResponsesError("credential_pattern_refused")
     if payload.get("store") is not False:
         raise ResponsesError("request_invalid")
     budget = payload.get("max_output_tokens")
@@ -89,6 +96,15 @@ def _usage(value):
                 raise ResponsesError("response_invalid")
             safe[name] = count
     return safe
+
+
+def _unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
 
 
 def _citation(annotation: dict, chunk: str, offset: int) -> dict:
@@ -152,11 +168,17 @@ def _extract_result(response: dict, *, web_search: bool) -> dict:
         if not isinstance(content, list) or not content:
             raise ResponsesError("response_invalid")
         for part in content:
+            if isinstance(part, dict) and part.get("type") == "refusal":
+                raise ResponsesError("response_refused")
             if not isinstance(part, dict) or part.get("type") != "output_text":
                 raise ResponsesError("response_invalid")
             chunk = part.get("text")
             if not isinstance(chunk, str):
                 raise ResponsesError("response_invalid")
+            try:
+                chunk.encode("utf-8")
+            except UnicodeError:
+                raise ResponsesError("response_invalid") from None
             annotations = part.get("annotations", [])
             if not isinstance(annotations, list) or (annotations and not web_search):
                 raise ResponsesError("response_invalid")
@@ -179,11 +201,11 @@ def create_response(payload: dict, *, data_scope: str, timeout: float = 10.0) ->
     """Send exactly one request to OpenAI after an explicit caller opt-in."""
     if data_scope not in ("public", "synthetic"):
         raise ResponsesError("data_scope_refused")
-    if type(timeout) not in (int, float) or not math.isfinite(timeout) or not 0 < timeout <= 30:
+    if type(timeout) not in (int, float) or not 0 < timeout <= 30 or not math.isfinite(timeout):
         raise ResponsesError("timeout_invalid")
     body = _request_body(payload)
     key = os.environ.get("OPENAI_API_KEY")
-    if not isinstance(key, str) or not key or any(char.isspace() for char in key):
+    if not isinstance(key, str) or not 1 <= len(key) <= 1024 or any(not 33 <= ord(char) <= 126 for char in key):
         raise ResponsesError("key_missing")
     request = urllib.request.Request(ENDPOINT, data=body, method="POST", headers={
         "Authorization": "Bearer " + key,
@@ -206,7 +228,7 @@ def create_response(payload: dict, *, data_scope: str, timeout: float = 10.0) ->
     if len(raw) > MAX_RESPONSE_BYTES:
         raise ResponsesError("response_too_large")
     try:
-        response = json.loads(raw)
-    except (ValueError, UnicodeError):
+        response = json.loads(raw, object_pairs_hook=_unique_object)
+    except (ValueError, UnicodeError, RecursionError):
         raise ResponsesError("response_invalid") from None
     return _extract_result(response, web_search="tools" in payload)

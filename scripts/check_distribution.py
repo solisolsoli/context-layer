@@ -3,7 +3,7 @@
 
     python3 scripts/check_distribution.py dist/context_layer-X.Y.Z-py3-none-any.whl [--no-sdist]
 
-Five passes over one throwaway directory; the first failure stops the run with
+Smoke checks over one throwaway directory; the first failure stops the run with
 "FAILED: ..." and a non-zero exit:
 
   contents       the wheel carries the runtime data it needs (the worker rule
@@ -25,6 +25,8 @@ Five passes over one throwaway directory; the first failure stops the run with
                  packet build, job new, and handback check catching a planted
                  fabricated quote; the MCP server's initialize and tools/list
                  over pipes; the Claude Code prompt hook on stdin.
+  API walk       offline planner, metadata-only Decisions/Responses previews,
+                 missing-key failures; sockets and HTTP denied, key removed.
   upgrade        a --force-reinstall of the same wheel, after which the
                  vault's .context state is still readable.
 
@@ -41,7 +43,7 @@ TEST_HOME = None  # set once the temporary directory exists; every child inherit
 PATH_PREFIX = None  # the fresh venv's bin, so children see the installed console script
 RUNNER_TOOLCHAIN_DIRS = {".rustup"}  # created by rustup itself, never by this package
 
-def run(cmd, *, cwd=None, env=None, expect=(0,), path=None, stdin=None):
+def run(cmd, *, cwd=None, env=None, expect=(0,), path=None, stdin=None, include_stderr=False):
     e = dict(env or os.environ)
     e.pop("CONTEXT_LAYER_HOME", None); e.pop("PYTHONPATH", None)
     if TEST_HOME is not None:
@@ -55,7 +57,7 @@ def run(cmd, *, cwd=None, env=None, expect=(0,), path=None, stdin=None):
                        timeout=600)
     if p.returncode not in expect:
         raise SystemExit(f"FAILED ({p.returncode}, wanted {expect}): {' '.join(map(str, cmd))}\n{p.stdout}\n{p.stderr}")
-    return p.stdout
+    return p.stdout + p.stderr if include_stderr else p.stdout
 
 def check(condition, message):
     if not condition: raise SystemExit(f"FAILED: {message}")
@@ -495,6 +497,51 @@ def walk_github(cli, root):
     return "default off; dry runs inert; offline miss explicit; source backup; cache controls"
 
 
+def walk_api(cli, py, root):
+    """Installed API commands: previews and missing-key failures, network denied."""
+    env = dict(os.environ)
+    env.pop("OPENAI_API_KEY", None)
+    source = root / "assessment.json"
+    source.write_text(json.dumps({"claim": "The fictional timer has two programs.",
+                                  "passage": "The fictional guide lists two programs."}),
+                      encoding="utf-8")
+    task = root / "public-task.txt"
+    task.write_text("Draft a sentence about a fictional timer.", encoding="utf-8")
+    # Patch before importing the installed CLI. Even a regression that reaches a
+    # transport must fail locally; no credentials or network are available.
+    guard = ("import socket, urllib.request, sys; "
+             "deny=lambda *a, **k: (_ for _ in ()).throw(RuntimeError('network forbidden')); "
+             "socket.socket=deny; socket.create_connection=deny; urllib.request.urlopen=deny; "
+             "from context_layer.cli import main; sys.exit(main(sys.argv[1:]))")
+    def call(*args, expect=(0,), errors=False):
+        return run([str(py), "-c", guard, *args], cwd=root, env=env,
+                   expect=expect, include_stderr=errors)
+    for args, route in (((), "local"),
+                        (("--need", "claim_support", "--data-scope", "private"), "blocked"),
+                        (("--need", "claim_support", "--data-scope", "synthetic"), "decisions"),
+                        (("--need", "generate", "--data-scope", "public"), "needs_configuration"),
+                        (("--need", "generate", "--data-scope", "public", "--model", "gpt-example-1"), "responses")):
+        result = json.loads(call("api", "plan", *args))
+        check(result["route"] == route and result["network_call"] is False
+              and result["source_status"] == "NOT_CHECKED", f"offline planner changed: {result}")
+    decisions = ("decisions", "assess", "--task", "claim_support", "--data-scope",
+                 "synthetic", "--input", str(source))
+    responses = ("responses", "run", "--data-scope", "synthetic", "--model",
+                 "gpt-example-1", "--input-file", str(task))
+    for args in (decisions, responses):
+        preview = json.loads(call(*args))
+        check(preview["status"] == "preview" and preview["network_call"] is False
+              and preview["advisory_only"] is True, f"API preview changed: {preview}")
+        check("fictional" not in json.dumps(preview), "preview exposed input text")
+        failed = call(*args, "--send", expect=(1,), errors=True)
+        check("key_missing" in failed and "network forbidden" not in failed,
+              "missing key did not fail before a network attempt")
+    # Exercise the installed console entry point too, with the same key-free env.
+    console = json.loads(run([str(cli), "api", "plan"], cwd=root, env=env))
+    check(console["route"] == "local", "installed api plan entry point failed")
+    return "five offline routes; two metadata-only previews; two missing-key failures; network denied"
+
+
 def main(argv=None) -> int:
     global TEST_HOME, PATH_PREFIX
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
@@ -569,6 +616,7 @@ def main(argv=None) -> int:
         walk = release_walk(cli, py, root, vault)
         walk03 = walk_03(cli, root)
         github_walk = walk_github(cli, root)
+        api_walk = walk_api(cli, py, root)
         task_id = walk["task"].split(":")[0]
         upgraded = upgrade(cli, py, wheel, root, vault, task_id)
         # A CI runner's rustup proxies on PATH create ~/.rustup when a toolchain lookup
@@ -580,7 +628,7 @@ def main(argv=None) -> int:
                           "fts_delivered_groups": 25, "installed_outside_checkout": True,
                           "sdist_notices_checked": notices, "wheel_licenses": wheel_licenses,
                           "release_walk": walk, "walk_0_3": walk03,
-                          "github_controls": github_walk,
+                          "github_controls": github_walk, "api_commands": api_walk,
                           "upgrade": {"reinstalled": upgraded, "vault_state": "readable"}}, indent=2))
     return 0
 if __name__ == "__main__": raise SystemExit(main())

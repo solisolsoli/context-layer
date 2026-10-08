@@ -12,6 +12,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -356,8 +357,9 @@ class IndexDigest:
     runs (reading and hashing release the GIL), so the coverage receipt costs no wall time
     it did not cost before. Never cached: every call hashes the bytes it reads."""
 
-    def __init__(self, handle):
+    def __init__(self, handle, expected=None):
         self._handle = handle
+        self._expected = expected
         self._value = None
         self._error = None
         self._thread = threading.Thread(target=self._run, name='index-digest', daemon=True)
@@ -380,11 +382,13 @@ class IndexDigest:
         self.wait()
         if self._error is not None:
             raise self._error
+        if self._expected is not None and self._value != self._expected:
+            raise ValueError(f'the index generation digest does not match; {REINDEX_HINT}')
         return self._value
 
 
 def open_index(index):
-    """Open the index read-only; return (connection, handle on the same file).
+    """Open the index read-only; return (connection, handle, generation digest).
 
     The handle lets the coverage receipt hash exactly the file this connection reads,
     even when `context-layer index` replaces it meanwhile.
@@ -400,8 +404,23 @@ def open_index(index):
         connection = sqlite3.connect(index.as_uri() + '?mode=ro', uri=True)
         try:
             index_format.check_index(connection)
+            expected = None
+            manifest_path = index.with_name('index-manifest.json')
+            try:
+                manifest = json.loads(manifest_path.read_bytes())
+            except FileNotFoundError:
+                manifest = {}             # legacy indexes did not have a manifest
+            except (OSError, ValueError):
+                raise ValueError(f'the index generation manifest is unreadable; {REINDEX_HINT}') from None
+            if isinstance(manifest, dict) and 'index_sha256' in manifest:
+                expected = manifest['index_sha256']
+                if not isinstance(expected, str) or not re.fullmatch('[0-9a-f]{64}', expected):
+                    raise ValueError(f'the index generation digest is invalid; {REINDEX_HINT}')
+                built = connection.execute("SELECT value FROM index_meta WHERE key='built_at'").fetchone()
+                if built is None or built[0] != manifest.get('built_at'):
+                    raise ValueError(f'the index and generation manifest disagree; {REINDEX_HINT}')
             if os.path.samestat(os.fstat(handle.fileno()), os.stat(index)):
-                return connection, handle
+                return connection, handle, expected
         except BaseException:
             connection.close()
             handle.close()
@@ -457,8 +476,8 @@ def retrieve(args):
         if not packet['evidence'] and packet['status'] in {'SUPPORTED', 'USER_STATED'}:
             packet['status'] = 'PARTIAL'
         return packet
-    connection, handle = open_index(vault / '.context/index.sqlite')
-    digest = IndexDigest(handle)
+    connection, handle, expected_digest = open_index(vault / '.context/index.sqlite')
+    digest = IndexDigest(handle, expected_digest)
     try:
         # Exclusions are string rules, checked only on the names a method looks at; the
         # symlink and vault-boundary checks touch the file system, so source_path() runs

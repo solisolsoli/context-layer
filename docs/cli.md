@@ -1,7 +1,7 @@
 # CLI conventions: exit codes, error packets, output and format versions
 
 This page is the reference for how every `context-layer` command reports its
-outcome. It describes the behaviour of 0.4.0; numbers were not renumbered from
+outcome. It describes the behaviour of 0.5.0; numbers were not renumbered from
 0.2, so scripts written against 0.2 keep working.
 
 ## Exit codes

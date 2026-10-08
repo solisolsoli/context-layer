@@ -6,6 +6,7 @@ overview; [QUICKSTART.md](../QUICKSTART.md) is the same ground as commands, and
 
 | Document | Component | Commands it covers |
 | --- | --- | --- |
+| [migration-0.5.md](migration-0.5.md) | Upgrading from 0.4.0: removed Jev interfaces and explicit API previews | — |
 | [host-integration.md](host-integration.md) | A2 — connecting an AI host | `mcp`, `hook`, `install`, `install print`, `uninstall`, `doctor` |
 | [memory.md](memory.md) | A3 — shared memory across sessions and tools | `memory add`, `list`, `resume`, `verify`, `repair`, `rebind`, `mirror`, `session` |
 | [tasks.md](tasks.md) | A4 — bounded sub-agent tasks | `tasks new`, `run`, `list`, `show`, `verify`, `cancel`, `cost`, `recover`, `ledger` |

@@ -102,6 +102,7 @@ def logical(index: Path) -> dict:
                     for q in QUERIES if '"' not in q and "OR" not in q}}
         manifest = json.loads(index.with_name(build_index.MANIFEST_NAME).read_text("utf-8"))
         manifest.pop("built_at")
+        manifest.pop("index_sha256", None)  # physical-generation receipt, not logical rows
         return {
             "user_version": connection.execute("PRAGMA user_version").fetchone()[0],
             "schema": sorted(connection.execute(
@@ -462,7 +463,7 @@ def graph_logical(path: Path) -> dict:
     connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
     try:
         meta = dict(connection.execute("SELECT key, value FROM graph_meta"))
-        for key in ("built_at", "builder", "inputs_sha256", "files_sha256"):
+        for key in ("built_at", "builder", "inputs_sha256", "files_sha256", "content_sha256"):
             meta.pop(key, None)
         tables = {"meta": meta}
         # Readers order edges and unresolved links by source, line and insertion; an
@@ -708,6 +709,188 @@ class NothingToWrite(unittest.TestCase):
         self.assertNotIn("index unchanged", run_build(self.vault)[1])
         self.assertTrue((self.ctx / build_index.MANIFEST_NAME).is_file())
 
+    def test_equal_count_fts_corruption_is_repaired_without_note_edits(self):
+        with sqlite_connection(self.index) as db:
+            db.execute("INSERT INTO records_fts(records_fts) VALUES('delete-all')")
+            db.execute("INSERT INTO records_fts(rowid, content) "
+                       "SELECT id, 'substitute posting' FROM records")
+            self.assertEqual(db.execute("SELECT count(*) FROM records_fts_docsize").fetchone()[0],
+                             db.execute("SELECT count(*) FROM records").fetchone()[0])
+        for method in ("fts", "synaptic", "grep"):
+            code, text, _ = retrieve.run(["--method", method, "--vault", str(self.vault), "alpha"])
+            packet = json.loads(text)
+            self.assertEqual(code, 1, packet)
+            self.assertEqual(packet["status"], "ERROR")
+            self.assertEqual(packet["evidence"], [])
+            self.assertIn("generation digest does not match", packet["error"])
+        code, out, err = run_build(self.vault)
+        self.assertEqual(code, 0, err)
+        self.assertIn("generation digest does not match", out)
+        self.assertNotIn("index unchanged", out)
+        with sqlite_connection(self.index) as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM records_fts "
+                                        "WHERE records_fts MATCH 'alpha'").fetchone()[0], 3)
+        self.assertIn("index unchanged", run_build(self.vault)[1])
+
+    def test_unknown_generation_is_rebuilt_once_and_gets_a_fresh_receipt(self):
+        data = json.loads(self.manifest.read_bytes())
+        data.pop("index_sha256")
+        self.manifest.write_text(json.dumps(data), encoding="utf-8")
+        code, out, err = run_build(self.vault)
+        self.assertEqual(code, 0, err)
+        self.assertIn("no generation digest", out)
+        receipt = json.loads(self.manifest.read_bytes())
+        self.assertEqual(receipt["index_sha256"], hashlib.sha256(self.index.read_bytes()).hexdigest())
+        self.assertIn("index unchanged", run_build(self.vault)[1])
+
+    def test_same_size_record_damage_with_old_mtime_is_not_reused(self):
+        stamp = self.index.stat().st_mtime_ns
+        size = self.index.stat().st_size
+        with sqlite_connection(self.index) as db:
+            db.execute("UPDATE records SET content = replace(content, 'alpha', 'omega')")
+        os.utime(self.index, ns=(stamp, stamp))
+        self.assertEqual(self.index.stat().st_size, size)
+        code, out, err = run_build(self.vault)
+        self.assertEqual(code, 0, err)
+        self.assertIn("generation digest does not match", out)
+        with sqlite_connection(self.index) as db:
+            contents = [row[0] for row in db.execute("SELECT content FROM records")]
+        self.assertTrue(all("alpha" in content for content in contents))
+
+
+class GraphGenerationIntegrity(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.vault = Path(self.temp.name)
+        (self.vault / ".context").mkdir()
+        (self.vault / ".context/routes.json").write_text(json.dumps(ROUTES), encoding="utf-8")
+        (self.vault / "a.md").write_text("# Alpha\n\nSee [[b]].\n", encoding="utf-8")
+        (self.vault / "b.md").write_text("# Beta\n\nA linked answer.\n", encoding="utf-8")
+        self.path = self.vault / ".context/graph.sqlite"
+        self.build()
+
+    def build(self):
+        from context_layer import graph
+        result = {}
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(build_index.main(["--vault", str(self.vault)], result), 0)
+        return graph.build(self.vault, verified={s.path: s for s in result["sources"]})
+
+    def assert_repaired(self):
+        result = self.build()
+        self.assertFalse(result.get("unchanged"))
+        with sqlite_connection(self.path) as db:
+            pairs = db.execute("SELECT source_path, target_path FROM edges").fetchall()
+        self.assertEqual(pairs, [("a.md", "b.md")])
+        before = self.path.read_bytes(), self.path.stat().st_mtime_ns
+        self.assertTrue(self.build().get("unchanged"))
+        self.assertEqual((self.path.read_bytes(), self.path.stat().st_mtime_ns), before)
+
+    def test_malformed_parse_cache_rebuilds_from_notes(self):
+        with sqlite_connection(self.path) as db:
+            db.execute("UPDATE parse_cache SET parsed = 'malformed'")
+        self.assert_repaired()
+
+    def test_valid_but_incorrect_parse_cache_is_not_reused(self):
+        from context_layer import graph
+        wrong = graph._dump_parsed(graph.parse_note("# Alpha\n\nNo links.\n"))
+        with sqlite_connection(self.path) as db:
+            db.execute("UPDATE parse_cache SET parsed = ? WHERE path = 'a.md'", (wrong,))
+        # A new note forces resolution, the path that used to trust the damaged parse.
+        (self.vault / "c.md").write_text("# Gamma\n\nNew note.\n", encoding="utf-8")
+        self.assert_repaired()
+
+    def test_missing_edge_is_rebuilt_even_with_unchanged_sources(self):
+        with sqlite_connection(self.path) as db:
+            db.execute("DELETE FROM edges")
+        self.assert_repaired()
+
+    def test_unknown_graph_generation_is_rebuilt_once(self):
+        with sqlite_connection(self.path) as db:
+            db.execute("DELETE FROM graph_meta WHERE key = 'content_sha256'")
+        self.assert_repaired()
+
+    def test_graph_freshness_hashes_same_size_same_mtime_sources(self):
+        from context_layer import graph
+        note = self.vault / "a.md"
+        stamp = note.stat().st_mtime_ns
+        size = note.stat().st_size
+        note.write_text("# Alpha\n\nSee [[c]].\n", encoding="utf-8")
+        os.utime(note, ns=(stamp, stamp))
+        self.assertEqual(note.stat().st_size, size)
+        with graph.Graph(self.vault) as view:
+            self.assertFalse(view.fresh("a.md"))
+            self.assertTrue(view.fresh("b.md"))
+
+    def test_graph_freshness_respects_new_source_exclusions(self):
+        from context_layer import graph
+        config = dict(ROUTES, exclude_prefixes=["a.md"])
+        (self.vault / ".context/routes.json").write_text(json.dumps(config), encoding="utf-8")
+        with graph.Graph(self.vault) as view:
+            self.assertFalse(view.fresh("a.md"))
+            self.assertTrue(view.fresh("b.md"))
+
+    def test_graph_freshness_refuses_a_parent_symlink(self):
+        from context_layer import graph
+        folder = self.vault / "notes"
+        folder.mkdir()
+        (folder / "a.md").write_text("# Source\n\nSee [[b]].\n", encoding="utf-8")
+        self.build()
+        actual = self.vault / "original"
+        folder.rename(actual)
+        try:
+            folder.symlink_to(actual, target_is_directory=True)
+        except OSError:
+            self.skipTest("symlinks unavailable")
+        with graph.Graph(self.vault) as view:
+            self.assertFalse(view.fresh("notes/a.md"))
+
+    def test_graph_freshness_bounds_growth_and_handles_short_reads(self):
+        from context_layer import graph
+        note = self.vault / "a.md"
+        original = note.read_bytes()
+        real_fdopen = os.fdopen
+        reads = []
+
+        class ShortReader:
+            def __init__(self, handle, grow):
+                self.handle = handle
+                self.grow = grow
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                self.handle.close()
+
+            def fileno(self):
+                return self.handle.fileno()
+
+            def read(self, count):
+                self_test.assertGreater(count, 0)
+                reads.append(count)
+                if self.grow:
+                    self.grow = False
+                    with note.open("ab") as writer:
+                        writer.write(b"x" * (2 << 20))
+                return self.handle.read(min(count, 2))
+
+        self_test = self
+        for grow, expected in ((False, True), (True, False)):
+            reads.clear()
+            note.write_bytes(original)
+            with patch.object(graph.os, "fdopen", side_effect=lambda fd, mode: ShortReader(
+                    real_fdopen(fd, mode), grow)), graph.Graph(self.vault) as view:
+                self.assertEqual(view.fresh("a.md"), expected)
+            self.assertTrue(reads)
+            self.assertLessEqual(max(reads), len(original) + 1)
+            self.assertLessEqual(len(reads) * 2, len(original) + 2)
+        # A source already grown greatly is rejected before a descriptor/content read.
+        with patch.object(graph.os, "open", side_effect=AssertionError("opened grown source")), \
+                graph.Graph(self.vault) as view:
+            self.assertFalse(view.fresh("a.md"))
+
 
 class Atomicity(unittest.TestCase):
     def setUp(self):
@@ -880,8 +1063,8 @@ class Fallbacks(unittest.TestCase):
         self.damage("UPDATE records SET content = 'tampered' WHERE id = 1")
         with patch.object(build_index, "iter_sources", wraps=build_index.iter_sources) as scans:
             code, out, _ = run_build(self.vault, "--incremental")
-        self.assertIn("full rebuild: the previous index text does not match its hash", out)
-        self.assertEqual(scans.call_count, 2)
+        self.assertIn("full rebuild: the previous index generation digest does not match", out)
+        self.assertEqual(scans.call_count, 1)  # refuse corrupt reuse before scanning
         self.assert_matches_full()
 
     def test_a_large_change_stops_the_scan_early(self):

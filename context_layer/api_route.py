@@ -35,7 +35,7 @@ def plan(need: str, data_scope: str, model: str | None = None) -> dict:
         raise RouteInputError("model applies to generate only")
     if model is not None and not isinstance(model, str):
         raise RouteInputError("model must be an ASCII model identifier")
-    if model and model.strip() and not _MODEL_ID.fullmatch(model):
+    if model is not None and not _MODEL_ID.fullmatch(model):
         raise RouteInputError("model must match [A-Za-z0-9][A-Za-z0-9._:-]{0,99}")
 
     base = {

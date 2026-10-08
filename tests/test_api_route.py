@@ -78,11 +78,8 @@ assert \"context_layer.responses_client\" not in sys.modules
         from context_layer import responses
 
         missing = api_route.plan("generate", "public")
-        empty = api_route.plan("generate", "synthetic", "")
-        whitespace = api_route.plan("generate", "public", "   ")
         self.assertEqual(missing["route"], "needs_configuration")
-        self.assertEqual(empty["reason"], "explicit_model_required")
-        self.assertEqual(whitespace["route"], "needs_configuration")
+        self.assertEqual(missing["reason"], "explicit_model_required")
         result = api_route.plan("generate", "public", "gpt-example-1")
         self.assertEqual(result["route"], "responses")
         self.assertEqual(result["endpoint_kind"], "responses_api")
@@ -103,6 +100,8 @@ assert \"context_layer.responses_client\" not in sys.modules
     def test_invalid_need_scope_and_model_fail_closed(self):
         for args in (("guess", "public", None), ("local", "unknown", None),
                      ("generate", "public", "has whitespace"),
+                     ("generate", "public", ""),
+                     ("generate", "public", "   "),
                      ("generate", "public", "x" * 101),
                      ("generate", "public", "x;whoami"),
                      ("generate", "public", "x\x00y"),

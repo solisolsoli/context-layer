@@ -430,12 +430,12 @@ def write_meta(connection: sqlite3.Connection, built_at: str, vault: Path, files
 
 
 def manifest_bytes(built_at: str, sources: "list[Source]", max_bytes: int,
-                   skipped: "list[dict[str, object]]") -> bytes:
+                   skipped: "list[dict[str, object]]", index_sha256: str) -> bytes:
     entries = [{"path": s.path, "sha256": s.sha, "size": s.size, "mtime": s.mtime}
                for s in sources]
     return (json.dumps(
         {"built_at": built_at, "source_count": len(sources), "sources": entries,
-         "max_file_bytes": max_bytes, "skipped": skipped},
+         "max_file_bytes": max_bytes, "skipped": skipped, "index_sha256": index_sha256},
         indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
 
@@ -502,8 +502,19 @@ def read_base(out: Path, name_fields: bool = False) -> "dict[str, BaseNote]":
                 raise NeedsFullRebuild("the previous index rows of one note are not one "
                                        "contiguous, single-version block")
             notes[path] = BaseNote(sha, count, first, last, (low, high))
+        # Cheap row counts cannot detect equal-count posting/text corruption. Reuse
+        # only the exact staged generation that passed the writer's full checks.
+        try:
+            manifest = json.loads(out.with_name(MANIFEST_NAME).read_bytes())
+            expected = manifest.get("index_sha256") if isinstance(manifest, dict) else None
+        except (OSError, ValueError):
+            expected = None
+        if not isinstance(expected, str) or len(expected) != 64:
+            raise NeedsFullRebuild("the previous index has no generation digest")
+        if index_format.file_digest(out) != expected:
+            raise NeedsFullRebuild("the previous index generation digest does not match")
         return notes
-    except (sqlite3.Error, index_format.IndexFormatError) as exc:
+    except (sqlite3.Error, index_format.IndexFormatError, OSError) as exc:
         raise NeedsFullRebuild(f"the previous index is not usable ({exc})") from None
     finally:
         if connection is not None:
@@ -619,10 +630,11 @@ def unchanged_total(out: Path, base: "dict[str, BaseNote]", sources: "list[Sourc
     write: every note has the same bytes, ids and timestamps, nothing was added or
     removed, and index_meta and the manifest differ at most in `built_at`. None when
     anything differs. Then the index and the manifest are left as they are (no
-    staging copy, integrity check or replacement; `built_at` stays the time of the
+    staging copy or replacement; `built_at` stays the time of the
     build that wrote them). Their `.prev` copies are still refreshed, as after any
     build, so two runs still clear a deleted note from `.prev`. The live index passed
-    FTS5's integrity check when it was staged; `status` runs that check again, and
+    FTS5's integrity check when it was staged and read_base verified its fresh
+    generation digest; `status` runs that check again, and
     `--full` rebuilds."""
     if len(base) != len(sources):
         return None
@@ -656,7 +668,11 @@ def unchanged_total(out: Path, base: "dict[str, BaseNote]", sources: "list[Sourc
         manifest = out.with_name(MANIFEST_NAME).read_bytes()
     except OSError:
         return None
-    if manifest != manifest_bytes(built_at, sources, max_bytes, skipped):
+    try:
+        index_sha256 = json.loads(manifest)["index_sha256"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    if manifest != manifest_bytes(built_at, sources, max_bytes, skipped, index_sha256):
         return None
     return total
 
@@ -865,6 +881,9 @@ def main(argv: "list[str] | None" = None, result: "dict | None" = None) -> int:
                 connection.close()
         counts = skip_counts(skipped)
         manifest = out.with_name(MANIFEST_NAME)
+        manifest_data = (manifest_bytes(built_at, sources, max_bytes, skipped,
+                                        index_format.file_digest(staging))
+                         if noop is None else None)
         # Nothing above this line touches the live index, so a failed build
         # leaves the previous index and its manifest exactly as they were.
         keep_previous(out)
@@ -872,7 +891,7 @@ def main(argv: "list[str] | None" = None, result: "dict | None" = None) -> int:
             staging.replace(out)
         keep_previous(manifest)
         if noop is None:
-            replace_atomically(manifest, manifest_bytes(built_at, sources, max_bytes, skipped))
+            replace_atomically(manifest, manifest_data)
         if result is not None:
             result["changed"] = noop is None
             result["sources"] = sources

@@ -93,7 +93,11 @@ test('full lifecycle against the bundle', async () => {
 test('manifest matches the release contract', () => {
   assert.equal(manifest.id, 'context-layer-brain');
   assert.equal(manifest.name, 'Context Layer Brain View');
-  assert.equal(manifest.version, '0.4.0');
+  assert.equal(manifest.version, '0.5.0');
+  const packageMetadata = fs.readFileSync(path.join(root, '..', 'pyproject.toml'), 'utf8');
+  const packageVersion = /^version = "([^"]+)"$/m.exec(packageMetadata);
+  assert.ok(packageVersion, 'package metadata declares a release version');
+  assert.equal(manifest.version, packageVersion[1], 'plugin and package releases stay aligned');
   const holder = /Copyright \(c\) \d{4} (\S+)/.exec(fs.readFileSync(path.join(root, 'LICENSE'), 'utf8'))[1];
   assert.equal(manifest.author, holder, 'author is the project identity from LICENSE');
   assert.equal('authorUrl' in manifest, false);

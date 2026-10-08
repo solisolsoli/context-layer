@@ -91,7 +91,7 @@ Details, the Codex block and troubleshooting: [docs/host-integration.md](docs/ho
 ## 3. Ask in the host *(inside the host)*
 
 Start the host in that project and confirm it sees the server — in Claude Code,
-`/mcp` lists `context-layer` and its ten tools. Ask a question the vault
+`/mcp` lists `context-layer` and its available tools. Ask a question the vault
 answers. The reply should cite a `source_path` and a `source_sha256` you never
 pasted. If the index is broken or a file is unreadable, you get a visible error,
 not an empty success; a note edited since the last `index` is left out with a
@@ -249,3 +249,9 @@ context-layer route /absolute/path/to/vault \
 Router abstention exits 2; operational failure exits 1. Its `--json` is metadata
 only. Use `--evidence-json` when a consumer or evaluator needs the actual passages.
 Read [router/README.md](router/README.md) before changing routes.
+
+## Upgrading from 0.4.0
+
+Jev commands, flags and advisor settings were removed in 0.5.0. Read the
+[migration guide](docs/migration-0.5.md) before reusing an older host configuration
+or script. Manual API previews are separate from local retrieval and MCP.

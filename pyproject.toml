@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "context-layer"
-version = "0.4.0"
+version = "0.5.0"
 authors = [{name = "solisolsoli"}]
 description = "Local context and memory for AI agents: source-linked retrieval from Markdown and Obsidian, with MCP and optional GitHub sources."
 readme = "README.md"

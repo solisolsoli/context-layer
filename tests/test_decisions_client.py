@@ -71,7 +71,7 @@ class DecisionsClientTests(unittest.TestCase):
             network.assert_not_called()
 
     def test_fixed_endpoint_model_and_typed_predicate(self):
-        opener = _Opener(_Reply({"answers": [{"type": "predicate", "name": "useful", "probability": 0.72}]}))
+        opener = _Opener(_Reply({"model": client.MODEL, "answers": [{"type": "predicate", "name": "useful", "probability": 0.72}]}))
         with patch.object(client.urllib.request, "build_opener", return_value=opener):
             result = client.create_decision(self.payload(), api_key="test-key", timeout=2, data_scope="synthetic")
         self.assertEqual(result["answers"], [{"name": "useful", "type": "predicate", "probability": 0.72}])
@@ -152,6 +152,61 @@ class DecisionsClientTests(unittest.TestCase):
                 with self.assertRaises(client.DecisionsError) as caught:
                     client.create_decision(self.payload(), api_key="test-key")
             self.assertEqual(caught.exception.code, "response_invalid")
+
+    def test_boolean_choices_keep_types_and_stable_array_shape(self):
+        question = {**CHOICE, "choices": [
+            {"value": True, "description": "Boolean true."},
+            {"value": "true", "description": "Text true."},
+        ]}
+        client._request("Fictional type check.", [question])
+        answer = {"name": "route", "type": "choice", "choice": True, "confidence": 0.8,
+                  "probabilities": [{"value": True, "probability": 0.8},
+                                    {"value": "true", "probability": 0.2}]}
+        validated = client.validate_response({"answers": [answer]}, [question])
+        self.assertEqual(validated, [answer])
+        self.assertEqual(client.validate_response({"answers": validated}, [question]), validated)
+        for wrong in (1, [], {"value": True}):
+            with self.subTest(wrong=wrong), self.assertRaises(client.DecisionsError):
+                client.validate_response({"answers": [{**answer, "choice": wrong}]}, [question])
+
+    def test_secret_unicode_huge_numbers_and_invalid_keys_have_fixed_errors(self):
+        with patch.object(client.urllib.request, "build_opener") as network:
+            for payload in ({**self.payload(), "input": "sk-" + "F" * 25},
+                            {**self.payload(), "input": "\ud800"}):
+                with self.assertRaises(client.DecisionsError):
+                    client.create_decision(payload, api_key="test-token")
+            for key in ("test\x00token", "t\u00e9st-token", "x" * 1025):
+                with self.assertRaisesRegex(client.DecisionsError, "key_missing"):
+                    client.create_decision(self.payload(), api_key=key)
+            with self.assertRaisesRegex(client.DecisionsError, "timeout_invalid"):
+                client.create_decision(self.payload(), api_key="test-token", timeout=10 ** 400)
+            network.assert_not_called()
+        for probability in (10 ** 400, float("nan"), float("inf"), True):
+            with self.assertRaisesRegex(client.DecisionsError, "response_invalid"):
+                client.validate_response({"answers": [{"type": "predicate", "name": "useful",
+                                                       "probability": probability}]}, [PREDICATE])
+
+    def test_missing_model_duplicate_json_and_deep_nesting_fail_closed(self):
+        for raw in (b'{"answers":[{"type":"predicate","name":"useful","probability":0.8}]}',
+                    b'{"model":"other","model":"gpt-6-luna","answers":[]}',
+                    b'[' * 2000 + b']' * 2000):
+            reply = io.BytesIO(raw)
+            reply.status = 200
+            with patch.object(client.urllib.request, "build_opener", return_value=_Opener(reply)):
+                with self.assertRaisesRegex(client.DecisionsError, "response_invalid"):
+                    client.create_decision(self.payload(), api_key="test-token")
+
+    def test_utf8_request_and_response_byte_limits_are_enforced(self):
+        with patch.object(client.urllib.request, "build_opener") as network:
+            with self.assertRaisesRegex(client.DecisionsError, "request_too_large"):
+                client.create_decision({**self.payload(), "input": "\U0001f680" * 10000},
+                                       api_key="test-token")
+            network.assert_not_called()
+        reply = io.BytesIO(b" " * (client.MAX_RESPONSE_BYTES + 1))
+        reply.status = 200
+        with patch.object(client.urllib.request, "build_opener", return_value=_Opener(reply)):
+            with self.assertRaisesRegex(client.DecisionsError, "response_too_large"):
+                client.create_decision(self.payload(), api_key="test-token")
 
 
 if __name__ == "__main__":

@@ -35,6 +35,10 @@ def build_payload(task: str, data: dict) -> dict:
     """Build a fixed questionnaire. Evidence text is data, not instructions."""
     if task not in TASKS or not isinstance(data, dict):
         raise InvalidDecisionInput("unknown task or invalid JSON object")
+    fields = {"relevance": {"query", "passage"}, "claim_support": {"claim", "passage"},
+              "review_priority": {"item", "rubric"}}
+    if set(data) != fields[task]:
+        raise InvalidDecisionInput("input must contain exactly the task fields")
     if task == "relevance":
         query, passage = _field(data, "query"), _field(data, "passage")
         evidence = f"Question:\n{query}\n\nCandidate passage:\n{passage}"
@@ -72,12 +76,18 @@ def build_payload(task: str, data: dict) -> dict:
                 {"label": "Now", "description": "Review should be prioritized now."},
             ],
         }
+    try:
+        decisions_client._request(evidence, [question])
+    except decisions_client.DecisionsError as exc:
+        raise InvalidDecisionInput(exc.code) from None
     return {"model": "gpt-6-luna", "input": evidence, "questions": [question]}
 
 
 def assess(task: str, data: dict, *, data_scope: str, send: bool = False) -> dict:
     if data_scope not in SCOPES:
         raise InvalidDecisionInput("data_scope must be public or synthetic")
+    if type(send) is not bool:
+        raise InvalidDecisionInput("send must be a boolean")
     payload = build_payload(task, data)
     if not send:
         return {"status": "preview", "task": task, "data_scope": data_scope,
@@ -97,7 +107,7 @@ def assess(task: str, data: dict, *, data_scope: str, send: bool = False) -> dic
             for name, value in usage.items()
         ):
             raise InvalidDecisionInput("Decisions usage is invalid")
-    return {"status": "answered", "task": task, "data_scope": data_scope,
+    return {"status": "refused" if answer["type"] == "refusal" else "answered", "task": task, "data_scope": data_scope,
             "model": result["model"], "answer": answer,
             "usage": usage, "advisory_only": True,
             "gate": "OPEN_ORIGINAL_BEFORE_CLAIM"}
@@ -122,7 +132,10 @@ def _read_input(path_text: str) -> dict:
             raw = stream.read(MAX_INPUT_BYTES + 1)
     if len(raw) > MAX_INPUT_BYTES:
         raise InvalidDecisionInput("input JSON is too large")
-    return json.loads(raw)
+    try:
+        return json.loads(raw.decode("utf-8"), object_pairs_hook=decisions_client._unique_object)
+    except (ValueError, UnicodeError, RecursionError):
+        raise InvalidDecisionInput("input_json_invalid") from None
 
 
 def cmd_assess(args: argparse.Namespace) -> int:
@@ -139,7 +152,7 @@ def cmd_assess(args: argparse.Namespace) -> int:
         print(f"context-layer decisions: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
-    return 0
+    return 1 if result["status"] == "refused" else 0
 
 
 def register(sub: argparse._SubParsersAction) -> None:

@@ -895,6 +895,11 @@ class FormatVersions(Vault):
         connection.execute("PRAGMA user_version = 0")
         connection.commit()
         connection.close()
+        # A genuine legacy generation predates the exact-file digest receipt.
+        manifest_path = self.ctx / "index-manifest.json"
+        manifest = json.loads(manifest_path.read_bytes())
+        manifest.pop("index_sha256", None)
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         self.assertEqual(self.search(prompt="alpha lantern").returncode, 0)
 
     def test_future_routes_schema_version_is_refused(self):

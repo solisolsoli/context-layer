@@ -7,9 +7,10 @@ Use the existing public history and `main` branch. Updating documentation or
 pushing a commit does not create a release, publish to PyPI, or authorize
 installation into anyone's live vault.
 
-The package version is 0.4.0. Changes after that tag remain under
-[Unreleased](../CHANGELOG.md#unreleased) until a separate release is prepared.
-Do not move or recreate an existing version tag.
+The package and plugin versions are 0.5.0. The [0.5 changelog](../CHANGELOG.md#050)
+and [migration guide](migration-0.5.md) describe the candidate update; metadata
+alone does not establish a published release. Subsequent changes belong under
+[Unreleased](../CHANGELOG.md#unreleased). Do not move or recreate an existing tag.
 
 ## 1. Review the exact change
 
@@ -141,7 +142,7 @@ After a new version is chosen and its release is authorized:
 
 1. Align `pyproject.toml`, `context_layer/__init__.py`, the plugin manifest and
    the new changelog entry. Run the applicable full gate for that revision.
-2. Create a new version tag on the accepted commit. Never reuse `v0.4.0` for
+2. Create a new version tag on the accepted commit. Never reuse an existing version tag for
    later work. Push only that named tag.
 3. Require the `release audit` workflow for the tag to pass. Inspect its
    history, license and metadata evidence before creating a GitHub release.

@@ -13,4 +13,12 @@ context-layer responses run --input-file /path/to/reviewed-public-task.txt --dat
 
 The request sets `store: false`. This controls response storage for the API request; it does not establish zero data retention or override OpenAI's applicable data controls. The returned text is labeled `advisory_only` and `VERIFY_WITH_ORIGINAL_SOURCES`: open original sources before presenting factual claims. For web search responses, validated `url_citation` annotations are returned as `citations` with URL, title, and character offsets into the returned `text`; plain text responses return an empty list. These are **external candidate sources**, not verified local evidence or a `SUPPORTED` status. When displaying web sourced claims to end users, make citations visible and clickable. A local preview or offline test is not evidence that a model is available to the account or that output quality improved.
 
+Input is limited to 32,768 UTF-8 bytes, the serialized request to 40,000 bytes,
+the response body to 256,000 bytes and the returned answer to 64,000 characters.
+The direct transport applies the same obvious credential-pattern check as the
+command. Duplicate JSON keys, invalid Unicode and malformed answer shapes are
+refused with fixed error codes. A model refusal returns `response_refused` and
+CLI exit code 1, without echoing the provider's refusal text. The transport
+does not retry failures or follow redirects.
+
 Official references: [Responses overview](https://developers.openai.com/api/reference/responses/overview), [Create response](https://developers.openai.com/api/reference/python/resources/responses/methods/create), [web search citations](https://developers.openai.com/api/docs/guides/tools-web-search), and [data controls](https://developers.openai.com/api/docs/guides/your-data).

@@ -6,4 +6,4 @@ the indexer or the evaluation harness; those stay in `router/` and `eval/` and
 remain runnable directly with `python3`.
 """
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"

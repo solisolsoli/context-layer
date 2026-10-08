@@ -21,6 +21,11 @@ MAX_REQUEST_BYTES = 32_000
 MAX_RESPONSE_BYTES = 256_000
 MAX_QUESTIONS = 20
 _NAME = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}\Z")
+SENSITIVE_MARKERS = (
+    re.compile(r"sk-[A-Za-z0-9_-]{20,}"),
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+    re.compile(r"(?i)OPENAI_API_KEY\s*[:=]\s*['\"]?\S+"),
+)
 
 
 class DecisionsError(ValueError):
@@ -37,7 +42,16 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def _probability(value):
-    return type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 1
+    return type(value) in (int, float) and 0 <= value <= 1 and math.isfinite(value)
+
+
+def _unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
 
 
 def _request(input_text, questions):
@@ -77,15 +91,23 @@ def _request(input_text, questions):
                 if not isinstance(option, dict) or set(option) != {label_key, "description"}:
                     raise DecisionsError("question_invalid")
                 label, description = option[label_key], option["description"]
-                if not isinstance(label, str) or not 1 <= len(label) <= 160 or label in labels:
+                valid_label = (type(label) is bool and kind == "choice") or (
+                    isinstance(label, str) and 1 <= len(label) <= 160)
+                identity = (type(label), label)
+                if not valid_label or identity in labels:
                     raise DecisionsError("question_invalid")
                 if not isinstance(description, str) or not 1 <= len(description) <= 500:
                     raise DecisionsError("question_invalid")
-                labels.add(label)
-    body = json.dumps({"model": MODEL, "input": input_text, "questions": questions},
-                      ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+                labels.add(identity)
+    try:
+        body = json.dumps({"model": MODEL, "input": input_text, "questions": questions},
+                          ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    except (ValueError, TypeError, UnicodeError):
+        raise DecisionsError("request_invalid") from None
     if len(body) > MAX_REQUEST_BYTES:
         raise DecisionsError("request_too_large")
+    if any(marker.search(body.decode("utf-8")) for marker in SENSITIVE_MARKERS):
+        raise DecisionsError("credential_pattern_refused")
     return body
 
 
@@ -105,34 +127,42 @@ def _validate_answer(answer, question):
         return result
     options = question["choices"] if kind == "choice" else question["levels"]
     expected_values = [option["value"] for option in options] if kind == "choice" else list(range(len(options)))
+    expected_identities = {(type(value), value) for value in expected_values}
     distribution = answer.get("probabilities")
     if not isinstance(distribution, list) or len(distribution) != len(options):
         raise DecisionsError("response_invalid")
     probabilities = {}
+    clean_distribution = []
     for item in distribution:
         if not isinstance(item, dict) or not _probability(item.get("probability")):
             raise DecisionsError("response_invalid")
         value = item.get("value")
-        if type(value) is not (str if kind == "choice" else int) or value not in expected_values or value in probabilities:
+        identity = (type(value), value) if type(value) in (str, bool, int) else None
+        if identity not in expected_identities or identity in probabilities:
             raise DecisionsError("response_invalid")
         if kind == "score" and item.get("label") != options[value]["label"]:
             raise DecisionsError("response_invalid")
-        probabilities[value] = float(item["probability"])
-    if set(probabilities) != set(expected_values) or abs(sum(probabilities.values()) - 1) > 0.02:
+        probabilities[identity] = float(item["probability"])
+        clean_item = {"value": value, "probability": float(item["probability"])}
+        if kind == "score":
+            clean_item["label"] = options[value]["label"]
+        clean_distribution.append(clean_item)
+    if set(probabilities) != expected_identities or abs(sum(probabilities.values()) - 1) > 0.02:
         raise DecisionsError("response_invalid")
     if not _probability(answer.get("confidence")):
         raise DecisionsError("response_invalid")
     result["confidence"] = float(answer["confidence"])
-    result["probabilities"] = probabilities
+    result["probabilities"] = clean_distribution
     if kind == "choice":
-        if answer.get("choice") not in expected_values:
+        choice = answer.get("choice")
+        if type(choice) not in (str, bool) or (type(choice), choice) not in expected_identities:
             raise DecisionsError("response_invalid")
         result["choice"] = answer["choice"]
     else:
         score = answer.get("score")
-        if type(score) not in (int, float) or not math.isfinite(score) or not 0 <= score <= len(options) - 1:
+        if type(score) not in (int, float) or not 0 <= score <= len(options) - 1 or not math.isfinite(score):
             raise DecisionsError("response_invalid")
-        if abs(score - sum(index * probability for index, probability in probabilities.items())) > 0.05:
+        if abs(score - sum(identity[1] * probability for identity, probability in probabilities.items())) > 0.05:
             raise DecisionsError("response_invalid")
         result["score"] = float(score)
     return result
@@ -165,13 +195,13 @@ def create_decision(payload: dict, *, api_key: str | None = None,
     """
     if data_scope not in ("public", "synthetic"):
         raise DecisionsError("data_scope_refused")
-    if type(timeout) not in (int, float) or not math.isfinite(timeout) or not 0 < timeout <= 30:
+    if type(timeout) not in (int, float) or not 0 < timeout <= 30 or not math.isfinite(timeout):
         raise DecisionsError("timeout_invalid")
     if not isinstance(payload, dict) or set(payload) != {"model", "input", "questions"} or payload.get("model") != MODEL:
         raise DecisionsError("request_invalid")
     body = _request(payload["input"], payload["questions"])
     key = api_key if api_key is not None else os.environ.get("OPENAI_API_KEY")
-    if not key or not isinstance(key, str) or any(char.isspace() for char in key):
+    if not isinstance(key, str) or not 1 <= len(key) <= 1024 or any(not 33 <= ord(char) <= 126 for char in key):
         raise DecisionsError("key_missing")
     request = urllib.request.Request(ENDPOINT, data=body, method="POST", headers={
         "Authorization": "Bearer " + key, "Content-Type": "application/json",
@@ -193,12 +223,12 @@ def create_decision(payload: dict, *, api_key: str | None = None,
     if len(raw) > MAX_RESPONSE_BYTES:
         raise DecisionsError("response_too_large")
     try:
-        payload = json.loads(raw)
-    except (ValueError, UnicodeError):
+        payload = json.loads(raw, object_pairs_hook=_unique_object)
+    except (ValueError, UnicodeError, RecursionError):
         raise DecisionsError("response_invalid") from None
     if not isinstance(payload, dict):
         raise DecisionsError("response_invalid")
-    reported_model = payload.get("model", MODEL)
+    reported_model = payload.get("model")
     if reported_model != MODEL:
         raise DecisionsError("response_invalid")
     usage = payload.get("usage")

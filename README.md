@@ -76,9 +76,10 @@ The `--method synaptic` option follows links between notes. Leave it out for
 ordinary full-text search. To use your own notes, follow the
 [existing-vault setup](QUICKSTART.md#1-install-configure-index).
 
-The package version is **0.4.0**. This checkout also includes the source/cache
-tools and Windows support listed under [Unreleased](CHANGELOG.md#unreleased);
-install from the repository to use them.
+The package version is **0.5.0** (alpha). This version removes the Jev advisor
+and adds explicit, preview-first API commands alongside source/cache controls
+and Windows support. See the [migration guide](docs/migration-0.5.md) before
+upgrading from 0.4.0; local search still needs no API key.
 
 ## Connect an agent
 
